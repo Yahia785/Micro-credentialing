@@ -1,0 +1,77 @@
+We'll create:
+
+Lambda functions structure
+API Gateway endpoints
+DynamoDB tables
+Connect frontend to backend
+
+
+Quick Backend Setup Overview
+Here's what we'll do:
+Step 1: Create Backend Project Structure
+backend/
+├── functions/
+│   ├── credentials/
+│   │   ├── create/
+│   │   ├── get/
+│   │   └── list/
+│   ├── milestones/
+│   └── users/
+├── shared/
+│   ├── db/
+│   └── utils/
+└── template.yaml
+Step 2: Initialize SAM (Serverless Application Model)
+
+Creates Lambda functions
+Sets up API Gateway
+Configures IAM permissions
+
+Step 3: Connect to DynamoDB
+
+Create tables
+Add read/write permissions
+
+Step 4: Connect Frontend to Backend
+
+Add API calls
+Pass JWT tokens
+Handle responsesWe'll create:
+
+Lambda functions structure
+API Gateway endpoints
+DynamoDB tables
+Connect frontend to backend
+
+
+Quick Backend Setup Overview
+Here's what we'll do:
+Step 1: Create Backend Project Structure
+backend/
+├── functions/
+│   ├── credentials/
+│   │   ├── create/
+│   │   ├── get/
+│   │   └── list/
+│   ├── milestones/
+│   └── users/
+├── shared/
+│   ├── db/
+│   └── utils/
+└── template.yaml
+Step 2: Initialize SAM (Serverless Application Model)
+
+Creates Lambda functions
+Sets up API Gateway
+Configures IAM permissions
+
+Step 3: Connect to DynamoDB
+
+Create tables
+Add read/write permissions
+
+Step 4: Connect Frontend to Backend
+
+Add API calls
+Pass JWT tokens
+Handle responses

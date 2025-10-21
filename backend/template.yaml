@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Micro-Credentialing Platform Backend
+
+# ==========================================
+# PARAMETERS
+# ==========================================
+Parameters:
+  CognitoUserPoolId:
+    Type: String
+    Description: Cognito User Pool ID from Amplify
+    Default: "us-east-1_CkcMQmOst"  # Replace with your actual User Pool ID
+
+# ==========================================
+# GLOBALS
+# ==========================================
+Globals:
+  Function:
+    Runtime: nodejs18.x
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        USERS_TABLE: !Ref UsersTable
+        CREDENTIALS_TABLE: !Ref CredentialsTable
+        MILESTONES_TABLE: !Ref MilestonesTable
+
+# ==========================================
+# RESOURCES
+# ==========================================
+Resources:
+
+  # ------------------------------------------
+  # API GATEWAY
+  # ------------------------------------------
+  MicroCredentialingAPI:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: dev
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            Type: COGNITO_USER_POOLS
+            UserPoolArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+
+  # ------------------------------------------
+  # LAMBDA: Create User
+  # ------------------------------------------
+  CreateUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/users/create/
+      Handler: index.handler
+      Description: Creates user profile in DynamoDB
+      Events:
+        CreateUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+
+  # ------------------------------------------
+  # LAMBDA: Get User
+  # ------------------------------------------
+  GetUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/users/get/
+      Handler: index.handler
+      Description: Gets user profile from DynamoDB
+      Events:
+        GetUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users/{userId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetCurrentUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users/me
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+
+ # ------------------------------------------
+  # LAMBDA: Update User
+  # ------------------------------------------
+  UpdateUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/users/update/
+      Handler: index.handler
+      Description: Updates user profile in DynamoDB
+      Events:
+        UpdateUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users/{userId}
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+        UpdateCurrentUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users/me
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+
+  # ------------------------------------------
+  # DYNAMODB TABLES
+  # ------------------------------------------
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+
+  CredentialsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Credentials
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: credentialId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: credentialId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  MilestonesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Milestones
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: milestoneId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: milestoneId
+          KeyType: HASH
+
+# ==========================================
+# OUTPUTS
+# ==========================================
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${MicroCredentialingAPI}.execute-api.${AWS::Region}.amazonaws.com/dev"
+    Export:
+      Name: MicroCredentialingApiEndpoint
+
+  UsersTableName:
+    Description: "DynamoDB Users Table"
+    Value: !Ref UsersTable
+
+  CredentialsTableName:
+    Description: "DynamoDB Credentials Table"
+    Value: !Ref CredentialsTable
+
+  MilestonesTableName:
+    Description: "DynamoDB Milestones Table"
+    Value: !Ref MilestonesTable
