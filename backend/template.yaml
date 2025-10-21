@@ -9,7 +9,7 @@ Parameters:
   CognitoUserPoolId:
     Type: String
     Description: Cognito User Pool ID from Amplify
-    Default: "us-east-1_CkcMQmOst"  # Replace with your actual User Pool ID
+    Default: "us-east-1_CkcMQmOst"
 
 # ==========================================
 # GLOBALS
@@ -19,6 +19,8 @@ Globals:
     Runtime: nodejs18.x
     Timeout: 30
     MemorySize: 256
+    Layers:
+      - !Ref SharedCodeLayer
     Environment:
       Variables:
         USERS_TABLE: !Ref UsersTable
@@ -29,6 +31,18 @@ Globals:
 # RESOURCES
 # ==========================================
 Resources:
+
+  # ------------------------------------------
+  # LAMBDA LAYER: Shared Code
+  # ------------------------------------------
+  SharedCodeLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: micro-credentialing-shared
+      Description: Shared database functions, utilities, and middleware
+      ContentUri: shared/
+      CompatibleRuntimes:
+        - nodejs18.x
 
   # ------------------------------------------
   # API GATEWAY
@@ -96,7 +110,7 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: !Ref UsersTable
 
- # ------------------------------------------
+  # ------------------------------------------
   # LAMBDA: Update User
   # ------------------------------------------
   UpdateUserFunction:
@@ -195,3 +209,7 @@ Outputs:
   MilestonesTableName:
     Description: "DynamoDB Milestones Table"
     Value: !Ref MilestonesTable
+
+  SharedCodeLayerArn:
+    Description: "ARN of the shared code layer"
+    Value: !Ref SharedCodeLayer

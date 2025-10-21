@@ -1,0 +1,10 @@
+{
+  "name": "micro-credentialing-shared",
+  "version": "1.0.0",
+  "description": "Shared utilities and database functions for micro-credentialing platform",
+  "main": "db/users.js",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0"
+  }
+}
