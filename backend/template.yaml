@@ -26,6 +26,7 @@ Globals:
         USERS_TABLE: !Ref UsersTable
         CREDENTIALS_TABLE: !Ref CredentialsTable
         MILESTONES_TABLE: !Ref MilestonesTable
+        COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
 
 # ==========================================
 # RESOURCES
@@ -111,14 +112,14 @@ Resources:
             TableName: !Ref UsersTable
 
   # ------------------------------------------
-  # LAMBDA: Update User
+  # LAMBDA: Update User (Name only)
   # ------------------------------------------
   UpdateUserFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: functions/users/update/
       Handler: index.handler
-      Description: Updates user profile in DynamoDB
+      Description: Updates user profile name in DynamoDB
       Events:
         UpdateUser:
           Type: Api
@@ -134,6 +135,48 @@ Resources:
             RestApiId: !Ref MicroCredentialingAPI
             Path: /users/me
             Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+
+  # ------------------------------------------
+  # LAMBDA: Initiate Email Change
+  # ------------------------------------------
+  InitiateEmailChangeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/users/initiate-email-change/
+      Handler: index.handler
+      Description: Initiates email change by confirming pending email
+      Events:
+        InitiateEmailChange:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users/initiate-email-change
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies: []
+
+  # ------------------------------------------
+  # LAMBDA: Verify Email Change
+  # ------------------------------------------
+  VerifyEmailChangeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/users/verify-email-change/
+      Handler: index.handler
+      Description: Completes email change by updating DynamoDB
+      Events:
+        VerifyEmailChange:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users/verify-email-change
+            Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
       Policies:

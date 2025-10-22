@@ -1,10 +1,15 @@
-const { updateUser } = require('/opt/nodejs/db/users');
+const { updateUser, getUser } = require('/opt/nodejs/db/users');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 
 /**
- * Lambda Handler: Update User Profile
+ * Lambda Handler: Update User Profile (Name only)
  * Endpoint: PUT /users/{userId} or PUT /users/me
+ * 
+ * Only updates name in this endpoint.
+ * Email changes use separate endpoints:
+ * - POST /users/initiate-email-change
+ * - POST /users/verify-email-change
  */
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
@@ -23,7 +28,6 @@ exports.handler = async (event) => {
     // Determine which user to update
     let userIdToUpdate;
     if (pathUserId === 'me' || !pathUserId) {
-      // Update current user
       userIdToUpdate = authenticatedUserId;
     } else {
       // Security: Only allow users to update their own profile
@@ -36,25 +40,25 @@ exports.handler = async (event) => {
     // Parse request body
     const body = JSON.parse(event.body || '{}');
     
-    // Validate input - at least one field must be provided
-    if (!body.name && !body.email) {
-      return errorResponse(400, 'At least one field (name or email) must be provided');
+    // Only allow name updates in this endpoint
+    if (!body.name) {
+      return errorResponse(400, 'Name is required. For email changes, use /users/initiate-email-change');
     }
     
-    console.log('Updating user:', userIdToUpdate, 'with data:', body);
+    console.log('Updating user name:', userIdToUpdate, 'with name:', body.name);
     
-    // Update user in database
-    const updatedUser = await updateUser(userIdToUpdate, body);
+    // Update name in DynamoDB
+    const updatedUser = await updateUser(userIdToUpdate, { name: body.name });
     
     if (!updatedUser) {
-      console.log('User not found for update');
+      console.log('User not found in DynamoDB');
       return errorResponse(404, 'User not found');
     }
     
     console.log('User updated successfully:', updatedUser);
     
     return successResponse(200, { 
-      message: 'User profile updated successfully', 
+      message: 'User profile updated successfully',
       user: updatedUser 
     });
     

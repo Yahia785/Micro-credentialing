@@ -1,0 +1,7 @@
+{
+  "name": "verify-email-change-function",
+  "version": "1.0.0",
+  "description": "Verify and complete email change",
+  "main": "index.js",
+  "dependencies": {}
+}
