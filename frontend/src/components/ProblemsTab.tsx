@@ -14,8 +14,13 @@ interface ProblemsTabProps {
 }
 
 export function ProblemsTab({ userProfile }: ProblemsTabProps) {
+  // Default to 'user' role if missing or empty
+  const userRole = userProfile?.role || 'user';
+  const isAdmin = userRole === 'admin';
+  console.log('User role:', userRole);
+  console.log('Is admin:', isAdmin);
+
   const [problems, setProblems] = useState<Problem[]>([
-    // Placeholder data - will be replaced with API calls
     {
       id: '1',
       title: 'Two Sum',
@@ -50,7 +55,6 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
   });
 
   const solvedCount = problems.filter(p => p.solved).length;
-  const totalCount = problems.length;
 
   const handleAddProblem = (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,29 +108,31 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
         marginBottom: '20px'
       }}>
         <div>
-          <h2 style={{ marginBottom: '10px' }}>Problems</h2>
+          <h2 style={{ marginBottom: '10px', color: '#333' }}>Problems</h2>
           <p style={{ color: '#666', margin: 0 }}>
-            Solved: <strong>{solvedCount}</strong> / <strong>{totalCount}</strong>
+            Problems Solved: <strong>{solvedCount}</strong>
           </p>
         </div>
-        <button
-          onClick={() => setIsAddingProblem(!isAddingProblem)}
-          style={{
-            padding: '10px 20px',
-            background: '#007bff',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: 'bold'
-          }}
-        >
-          {isAddingProblem ? 'Cancel' : 'Add Problem'}
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setIsAddingProblem(!isAddingProblem)}
+            style={{
+              padding: '10px 20px',
+              background: '#007bff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: 'bold'
+            }}
+          >
+            {isAddingProblem ? 'Cancel' : 'Add Problem'}
+          </button>
+        )}
       </div>
 
-      {isAddingProblem && (
+      {isAdmin && isAddingProblem && (
         <form onSubmit={handleAddProblem} style={{
           background: '#f9f9f9',
           padding: '15px',
@@ -282,21 +288,23 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
                 {problem.solved ? 'Mark Unsolved' : 'Mark Solved'}
               </button>
 
-              <button
-                onClick={() => deleteProblem(problem.id)}
-                style={{
-                  padding: '8px 16px',
-                  background: '#dc3545',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 'bold'
-                }}
-              >
-                Delete
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => deleteProblem(problem.id)}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#dc3545',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  Delete
+                </button>
+              )}
             </div>
           </div>
         ))}

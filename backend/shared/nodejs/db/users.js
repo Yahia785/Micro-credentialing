@@ -14,6 +14,7 @@ async function createUser(userData) {
       userId: userData.userId,
       email: userData.email,
       name: userData.name || '',
+      role: userData.role || 'user', // Default to 'user', can be 'admin'
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       credentialsCount: 0,

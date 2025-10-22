@@ -2,6 +2,18 @@ const { createUser } = require('/opt/nodejs/db/users');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 
+// List of admin emails
+const ADMIN_EMAILS = [
+  'yahiatawfeek20@gmail.com' // Add your admin email here
+];
+
+/**
+ * Determine if user should be admin based on email
+ */
+function getUserRole(email) {
+  return ADMIN_EMAILS.includes(email.toLowerCase()) ? 'admin' : 'user';
+}
+
 /**
  * Lambda Handler: Create User Profile
  */
@@ -14,10 +26,12 @@ exports.handler = async (event) => {
       const userId = event.request.userAttributes.sub;
       const email = event.request.userAttributes.email;
       const name = event.request.userAttributes.name || '';
+      const role = getUserRole(email);
       
-      await createUser({ userId, email, name });
+      console.log(`Creating user: ${email} with role: ${role}`);
+      await createUser({ userId, email, name, role });
       
-      console.log(`User profile created for: ${email}`);
+      console.log(`User profile created for: ${email} with role: ${role}`);
       return event;
     }
     
@@ -29,12 +43,14 @@ exports.handler = async (event) => {
     }
     
     const body = JSON.parse(event.body || '{}');
+    const role = getUserRole(body.email);
     
-    console.log('Creating user:', { userId, email: body.email });
+    console.log('Creating user:', { userId, email: body.email, role });
     const user = await createUser({
       userId: userId,
       email: body.email,
-      name: body.name || ''
+      name: body.name || '',
+      role: role
     });
     
     console.log('User created:', user);
