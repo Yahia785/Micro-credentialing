@@ -3,14 +3,16 @@ import '@aws-amplify/ui-react/styles.css';
 import { useEffect, useState } from 'react';
 import { createUserProfile, getUserProfile } from "./api";
 import { EditProfile } from './components/EditProfile';
+import { Tabs } from './components/Tabs';
+import { ProblemsTab } from './components/ProblemsTab';
 import './App.css';
 
-// Separate component to handle user profile logic
 function UserProfileLoader({ user, signOut }: any) {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState('profile');
 
   useEffect(() => {
     async function initializeUser() {
@@ -73,11 +75,17 @@ function UserProfileLoader({ user, signOut }: any) {
     setIsEditing(false);
   };
 
+  const tabs = [
+    { id: 'profile', label: 'Profile' },
+    { id: 'problems', label: 'Problems' },
+    { id: 'credentials', label: 'Credentials' }
+  ];
+
   if (loading) {
     return (
       <main>
         <h1>Micro-Credentialing Platform</h1>
-        <p style={{ color: '#ffffff' }}>Loading your profile...</p>
+        <p style={{ color: '#666' }}>Loading your profile...</p>
       </main>
     );
   }
@@ -96,75 +104,107 @@ function UserProfileLoader({ user, signOut }: any) {
     return (
       <main>
         <h1>Micro-Credentialing Platform</h1>
-        <p style={{ color: '#ffffff' }}>No user data available</p>
+        <p style={{ color: '#666' }}>No user data available</p>
       </main>
     );
   }
 
   return (
     <main>
-      <h1>Micro-Credentialing Platform</h1>
-      <div>
-        <h2 style={{ color: '#ffffff' }}>
-          Welcome, {userProfile?.email || user.username}!
-        </h2>
-        
-        {userProfile && !isEditing && (
-          <div style={{ 
-            marginTop: '20px'
-          }}>
-            <h3 style={{ color: '#ffffff', marginBottom: '15px', fontSize: '24px' }}>
-              Your Profile
-            </h3>
-            <p style={{ color: '#ffffff', marginBottom: '10px' }}>
-              <strong>Email:</strong> {userProfile.email}
-            </p>
-            <p style={{ color: '#ffffff', marginBottom: '10px' }}>
-              <strong>Name:</strong> {userProfile.name}
-            </p>
-            <p style={{ color: '#ffffff', marginBottom: '10px' }}>
-              <strong>User ID:</strong> {userProfile.userId}
-            </p>
-            <p style={{ color: '#ffffff', marginBottom: '10px' }}>
-              <strong>Credentials Earned:</strong> {userProfile.credentialsCount}
-            </p>
-            <p style={{ color: '#ffffff', marginBottom: '10px' }}>
-              <strong>Milestones Completed:</strong> {userProfile.milestonesCompleted}
-            </p>
-            <p style={{ color: '#ffffff', marginBottom: '10px' }}>
-              <strong>Member Since:</strong> {new Date(userProfile.createdAt).toLocaleDateString()}
-            </p>
-            
-            <button 
-              onClick={handleEditClick}
-              style={{ 
-                marginTop: '15px',
-                padding: '10px 20px',
-                background: '#28a745',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: 'bold'
-              }}
-            >
-              Edit Profile
-            </button>
-          </div>
-        )}
-
-        {userProfile && isEditing && (
-          <EditProfile
-            currentUser={userProfile}
-            onUpdateSuccess={handleUpdateSuccess}
-            onCancel={handleCancelEdit}
-          />
-        )}
-        
-        <button onClick={signOut} style={{ marginTop: '20px' }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '30px'
+      }}>
+        <h1 style={{ margin: 0, color: '#333' }}>Micro-Credentialing Platform</h1>
+        <button 
+          onClick={signOut}
+          style={{
+            padding: '10px 20px',
+            background: '#dc3545',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}
+        >
           Sign out
         </button>
+      </div>
+
+      <div style={{
+        background: '#fff',
+        borderRadius: '8px',
+        padding: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+      }}>
+        <h2 style={{ color: '#333', marginTop: 0 }}>
+          Welcome, {userProfile?.name || user.username}!
+        </h2>
+
+        <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+
+        {activeTab === 'profile' && (
+          <>
+            {userProfile && !isEditing && (
+              <div style={{ marginTop: '20px' }}>
+                <h3 style={{ color: '#333', marginBottom: '15px', fontSize: '24px' }}>
+                  Profile
+                </h3>
+                <p style={{ color: '#333', marginBottom: '10px' }}>
+                  <strong>Email:</strong> {userProfile.email}
+                </p>
+                <p style={{ color: '#333', marginBottom: '10px' }}>
+                  <strong>Name:</strong> {userProfile.name}
+                </p>
+                <p style={{ color: '#333', marginBottom: '10px' }}>
+                  <strong>Member Since:</strong> {new Date(userProfile.createdAt).toLocaleDateString()}
+                </p>
+                
+                <button 
+                  onClick={handleEditClick}
+                  style={{ 
+                    marginTop: '15px',
+                    padding: '10px 20px',
+                    background: '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  Edit Profile
+                </button>
+              </div>
+            )}
+
+            {userProfile && isEditing && (
+              <EditProfile
+                currentUser={userProfile}
+                onUpdateSuccess={handleUpdateSuccess}
+                onCancel={handleCancelEdit}
+              />
+            )}
+          </>
+        )}
+
+        {activeTab === 'problems' && (
+          <ProblemsTab userProfile={userProfile} />
+        )}
+
+        {activeTab === 'credentials' && (
+          <div style={{ padding: '20px' }}>
+            <h3 style={{ color: '#333', marginBottom: '15px' }}>Credentials</h3>
+            <p style={{ color: '#333', fontSize: '16px' }}>
+              <strong>Credentials Earned: </strong>{userProfile?.credentialsCount || 0}
+            </p>
+          </div>
+        )}
       </div>
     </main>
   );

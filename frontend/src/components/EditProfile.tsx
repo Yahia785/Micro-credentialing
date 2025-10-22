@@ -248,7 +248,7 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
       
       <form onSubmit={handleSubmit}>
         <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#333' }}>
             Name:
           </label>
           <input
@@ -260,14 +260,16 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
               padding: '8px',
               fontSize: '14px',
               border: '1px solid #ccc',
-              borderRadius: '4px'
+              borderRadius: '4px',
+              color: '#333',
+              backgroundColor: '#fff'
             }}
             required
           />
         </div>
 
         <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#333' }}>
             Email:
           </label>
           <input
@@ -279,7 +281,9 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
               padding: '8px',
               fontSize: '14px',
               border: '1px solid #ccc',
-              borderRadius: '4px'
+              borderRadius: '4px',
+              color: '#333',
+              backgroundColor: '#fff'
             }}
             required
           />
