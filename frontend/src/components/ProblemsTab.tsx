@@ -108,8 +108,8 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
         marginBottom: '20px'
       }}>
         <div>
-          <h2 style={{ marginBottom: '10px', color: '#333' }}>Problems</h2>
-          <p style={{ color: '#666', margin: 0 }}>
+          <h2 style={{ marginBottom: '10px', color: 'rgba(255, 255, 255, 0.87)' }}>Problems</h2>
+          <p style={{ color: 'rgba(255, 255, 255, 0.7)', margin: 0 }}>
             Problems Solved: <strong>{solvedCount}</strong>
           </p>
         </div>
@@ -134,14 +134,19 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
 
       {isAdmin && isAddingProblem && (
         <form onSubmit={handleAddProblem} style={{
-          background: '#f9f9f9',
+          background: '#2d2d2d',
           padding: '15px',
           borderRadius: '8px',
           marginBottom: '20px',
-          border: '1px solid #ddd'
+          border: '1px solid #4a4a4a'
         }}>
           <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+            <label style={{ 
+              display: 'block', 
+              marginBottom: '5px', 
+              fontWeight: 'bold',
+              color: 'rgba(255, 255, 255, 0.87)'
+            }}>
               Problem Title:
             </label>
             <input
@@ -153,16 +158,23 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
                 width: '100%',
                 padding: '8px',
                 fontSize: '14px',
-                border: '1px solid #ccc',
+                border: '1px solid #4a4a4a',
                 borderRadius: '4px',
-                boxSizing: 'border-box'
+                boxSizing: 'border-box',
+                background: '#1a1a1a',
+                color: 'rgba(255, 255, 255, 0.87)'
               }}
               required
             />
           </div>
 
           <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+            <label style={{ 
+              display: 'block', 
+              marginBottom: '5px', 
+              fontWeight: 'bold',
+              color: 'rgba(255, 255, 255, 0.87)'
+            }}>
               Description:
             </label>
             <textarea
@@ -173,17 +185,24 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
                 width: '100%',
                 padding: '8px',
                 fontSize: '14px',
-                border: '1px solid #ccc',
+                border: '1px solid #4a4a4a',
                 borderRadius: '4px',
                 minHeight: '100px',
-                boxSizing: 'border-box'
+                boxSizing: 'border-box',
+                background: '#1a1a1a',
+                color: 'rgba(255, 255, 255, 0.87)'
               }}
               required
             />
           </div>
 
           <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+            <label style={{ 
+              display: 'block', 
+              marginBottom: '5px', 
+              fontWeight: 'bold',
+              color: 'rgba(255, 255, 255, 0.87)'
+            }}>
               Difficulty:
             </label>
             <select
@@ -193,8 +212,10 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
                 width: '100%',
                 padding: '8px',
                 fontSize: '14px',
-                border: '1px solid #ccc',
-                borderRadius: '4px'
+                border: '1px solid #4a4a4a',
+                borderRadius: '4px',
+                background: '#1a1a1a',
+                color: 'rgba(255, 255, 255, 0.87)'
               }}
             >
               <option value="easy">Easy</option>
@@ -230,8 +251,8 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
           <div
             key={problem.id}
             style={{
-              background: problem.solved ? '#f0f0f0' : '#fff',
-              border: `2px solid ${problem.solved ? '#ccc' : '#ddd'}`,
+              background: problem.solved ? '#2a2a2a' : '#333333',
+              border: `2px solid ${problem.solved ? '#4a4a4a' : '#555555'}`,
               borderRadius: '8px',
               padding: '15px',
               opacity: problem.solved ? 0.7 : 1
@@ -241,7 +262,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
               <h3 style={{
                 margin: 0,
                 textDecoration: problem.solved ? 'line-through' : 'none',
-                color: problem.solved ? '#999' : '#333'
+                color: problem.solved ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.87)'
               }}>
                 {problem.title}
               </h3>
@@ -259,7 +280,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
             </div>
 
             <p style={{
-              color: '#666',
+              color: 'rgba(255, 255, 255, 0.7)',
               fontSize: '14px',
               marginBottom: '15px',
               textDecoration: problem.solved ? 'line-through' : 'none'
@@ -314,7 +335,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
         <div style={{
           textAlign: 'center',
           padding: '40px',
-          color: '#999'
+          color: 'rgba(255, 255, 255, 0.5)'
         }}>
           <p>No problems yet. Add one to get started!</p>
         </div>
