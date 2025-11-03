@@ -52,12 +52,20 @@ Resources:
     Type: AWS::Serverless::Api
     Properties:
       StageName: dev
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"
       Auth:
         DefaultAuthorizer: CognitoAuthorizer
         Authorizers:
           CognitoAuthorizer:
             Type: COGNITO_USER_POOLS
             UserPoolArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+
+  # ==========================================
+  # USER MANAGEMENT FUNCTIONS
+  # ==========================================
 
   # ------------------------------------------
   # LAMBDA: Create User
@@ -183,8 +191,112 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
 
+  # ==========================================
+  # MILESTONE (PROBLEM) MANAGEMENT FUNCTIONS
+  # ==========================================
+
   # ------------------------------------------
+  # LAMBDA: Create Milestone
+  # ------------------------------------------
+  CreateMilestoneFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/milestones/create/
+      Handler: index.handler
+      Description: Creates a milestone (problem) in DynamoDB
+      Events:
+        CreateMilestone:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MilestonesTable
+
+  # ------------------------------------------
+  # LAMBDA: Get Milestone(s)
+  # ------------------------------------------
+  GetMilestoneFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/milestones/get/
+      Handler: index.handler
+      Description: Gets milestone(s) from DynamoDB
+      Events:
+        GetAllMilestones:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetMilestone:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones/{milestoneId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref MilestonesTable
+
+  # ------------------------------------------
+  # LAMBDA: Update Milestone
+  # ------------------------------------------
+  UpdateMilestoneFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/milestones/update/
+      Handler: index.handler
+      Description: Updates a milestone (problem) in DynamoDB
+      Events:
+        UpdateMilestone:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones/{milestoneId}
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MilestonesTable
+
+  # ------------------------------------------
+  # LAMBDA: Delete Milestone
+  # ------------------------------------------
+  DeleteMilestoneFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/milestones/delete/
+      Handler: index.handler
+      Description: Deletes a milestone (problem) from DynamoDB
+      Events:
+        DeleteMilestone:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones/{milestoneId}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MilestonesTable
+
+  # ==========================================
   # DYNAMODB TABLES
+  # ==========================================
+
+  # ------------------------------------------
+  # TABLE: Users
   # ------------------------------------------
   UsersTable:
     Type: AWS::DynamoDB::Table
@@ -198,6 +310,9 @@ Resources:
         - AttributeName: userId
           KeyType: HASH
 
+  # ------------------------------------------
+  # TABLE: Credentials
+  # ------------------------------------------
   CredentialsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -219,6 +334,9 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  # ------------------------------------------
+  # TABLE: Milestones
+  # ------------------------------------------
   MilestonesTable:
     Type: AWS::DynamoDB::Table
     Properties:

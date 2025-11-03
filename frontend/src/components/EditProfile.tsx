@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateUserProfile } from '../api';
+import { updateUserProfile } from '../api/users';
 import { updateUserAttributes, confirmUserAttribute } from 'aws-amplify/auth';
 
 interface EditProfileProps {

@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getAllMilestones, createMilestone, deleteMilestone } from '../api/milestones';
 
 interface Problem {
-  id: string;
+  milestoneId: string;
   title: string;
   description: string;
   difficulty: 'easy' | 'medium' | 'hard';
-  solved: boolean;
   createdAt: string;
+  updatedAt: string;
 }
 
 interface ProblemsTabProps {
@@ -20,33 +21,9 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
   console.log('User role:', userRole);
   console.log('Is admin:', isAdmin);
 
-  const [problems, setProblems] = useState<Problem[]>([
-    {
-      id: '1',
-      title: 'Two Sum',
-      description: 'Given an array of integers, find two numbers that add up to a specific target.',
-      difficulty: 'easy',
-      solved: true,
-      createdAt: '2025-10-15T10:00:00Z'
-    },
-    {
-      id: '2',
-      title: 'Longest Substring Without Repeating Characters',
-      description: 'Find the length of the longest substring without repeating characters.',
-      difficulty: 'medium',
-      solved: false,
-      createdAt: '2025-10-20T14:30:00Z'
-    },
-    {
-      id: '3',
-      title: 'Median of Two Sorted Arrays',
-      description: 'Find the median of two sorted arrays.',
-      difficulty: 'hard',
-      solved: false,
-      createdAt: '2025-10-21T09:15:00Z'
-    }
-  ]);
-
+  const [problems, setProblems] = useState<Problem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isAddingProblem, setIsAddingProblem] = useState(false);
   const [newProblem, setNewProblem] = useState({
     title: '',
@@ -54,36 +31,70 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
     difficulty: 'medium' as const
   });
 
-  const solvedCount = problems.filter(p => p.solved).length;
+  // Load problems from backend on component mount
+  useEffect(() => {
+    async function loadProblems() {
+      try {
+        setLoading(true);
+        setError(null);
+        console.log('Fetching problems from backend...');
+        
+        const result = await getAllMilestones();
+        console.log('Problems loaded:', result);
+        
+        setProblems(result.milestones || []);
+      } catch (err: any) {
+        console.error('Failed to load problems:', err);
+        setError('Failed to load problems from database');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    loadProblems();
+  }, []);
 
-  const handleAddProblem = (e: React.FormEvent) => {
+  const handleAddProblem = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     if (!newProblem.title.trim() || !newProblem.description.trim()) {
+      setError('Title and description are required');
       return;
     }
 
-    const problem: Problem = {
-      id: Date.now().toString(),
-      title: newProblem.title,
-      description: newProblem.description,
-      difficulty: newProblem.difficulty,
-      solved: false,
-      createdAt: new Date().toISOString()
-    };
-
-    setProblems([...problems, problem]);
-    setNewProblem({ title: '', description: '', difficulty: 'medium' });
-    setIsAddingProblem(false);
+    try {
+      setError(null);
+      console.log('Creating problem:', newProblem);
+      
+      const result = await createMilestone(newProblem);
+      console.log('Problem created:', result);
+      
+      setProblems([...problems, result.milestone]);
+      setNewProblem({ title: '', description: '', difficulty: 'medium' });
+      setIsAddingProblem(false);
+    } catch (err: any) {
+      console.error('Failed to create problem:', err);
+      setError('Failed to create problem. Please try again.');
+    }
   };
 
-  const toggleProblemSolved = (id: string) => {
-    setProblems(problems.map(p => 
-      p.id === id ? { ...p, solved: !p.solved } : p
-    ));
-  };
+  const handleDeleteProblem = async (milestoneId: string) => {
+    if (!window.confirm('Are you sure you want to delete this problem?')) {
+      return;
+    }
 
-  const deleteProblem = (id: string) => {
-    setProblems(problems.filter(p => p.id !== id));
+    try {
+      setError(null);
+      console.log('Deleting problem:', milestoneId);
+      
+      await deleteMilestone(milestoneId);
+      console.log('Problem deleted successfully');
+      
+      setProblems(problems.filter(p => p.milestoneId !== milestoneId));
+    } catch (err: any) {
+      console.error('Failed to delete problem:', err);
+      setError('Failed to delete problem. Please try again.');
+    }
   };
 
   const getDifficultyColor = (difficulty: string) => {
@@ -99,6 +110,14 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
     }
   };
 
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px' }}>
+        <p style={{ color: 'rgba(255, 255, 255, 0.87)' }}>Loading problems...</p>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div style={{
@@ -110,12 +129,15 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
         <div>
           <h2 style={{ marginBottom: '10px', color: 'rgba(255, 255, 255, 0.87)' }}>Problems</h2>
           <p style={{ color: 'rgba(255, 255, 255, 0.7)', margin: 0 }}>
-            Problems Solved: <strong>{solvedCount}</strong>
+            Total Problems: <strong>{problems.length}</strong>
           </p>
         </div>
         {isAdmin && (
           <button
-            onClick={() => setIsAddingProblem(!isAddingProblem)}
+            onClick={() => {
+              setIsAddingProblem(!isAddingProblem);
+              setError(null);
+            }}
             style={{
               padding: '10px 20px',
               background: '#007bff',
@@ -131,6 +153,18 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
           </button>
         )}
       </div>
+
+      {error && (
+        <div style={{
+          background: '#dc3545',
+          color: 'white',
+          padding: '10px 15px',
+          borderRadius: '4px',
+          marginBottom: '20px'
+        }}>
+          {error}
+        </div>
+      )}
 
       {isAdmin && isAddingProblem && (
         <form onSubmit={handleAddProblem} style={{
@@ -249,20 +283,18 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
       }}>
         {problems.map((problem) => (
           <div
-            key={problem.id}
+            key={problem.milestoneId}
             style={{
-              background: problem.solved ? '#2a2a2a' : '#333333',
-              border: `2px solid ${problem.solved ? '#4a4a4a' : '#555555'}`,
+              background: '#333333',
+              border: '2px solid #555555',
               borderRadius: '8px',
-              padding: '15px',
-              opacity: problem.solved ? 0.7 : 1
+              padding: '15px'
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '10px' }}>
               <h3 style={{
                 margin: 0,
-                textDecoration: problem.solved ? 'line-through' : 'none',
-                color: problem.solved ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.87)'
+                color: 'rgba(255, 255, 255, 0.87)'
               }}>
                 {problem.title}
               </h3>
@@ -282,8 +314,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
             <p style={{
               color: 'rgba(255, 255, 255, 0.7)',
               fontSize: '14px',
-              marginBottom: '15px',
-              textDecoration: problem.solved ? 'line-through' : 'none'
+              marginBottom: '15px'
             }}>
               {problem.description}
             </p>
@@ -291,27 +322,16 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
             <div style={{
               display: 'flex',
               gap: '10px',
-              justifyContent: 'space-between'
+              justifyContent: 'space-between',
+              alignItems: 'center'
             }}>
-              <button
-                onClick={() => toggleProblemSolved(problem.id)}
-                style={{
-                  padding: '8px 16px',
-                  background: problem.solved ? '#6c757d' : '#28a745',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 'bold'
-                }}
-              >
-                {problem.solved ? 'Mark Unsolved' : 'Mark Solved'}
-              </button>
+              <small style={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                Added: {new Date(problem.createdAt).toLocaleDateString()}
+              </small>
 
               {isAdmin && (
                 <button
-                  onClick={() => deleteProblem(problem.id)}
+                  onClick={() => handleDeleteProblem(problem.milestoneId)}
                   style={{
                     padding: '8px 16px',
                     background: '#dc3545',
@@ -331,13 +351,13 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
         ))}
       </div>
 
-      {problems.length === 0 && (
+      {problems.length === 0 && !loading && (
         <div style={{
           textAlign: 'center',
           padding: '40px',
           color: 'rgba(255, 255, 255, 0.5)'
         }}>
-          <p>No problems yet. Add one to get started!</p>
+          <p>No problems yet. {isAdmin ? 'Add one to get started!' : 'Check back later!'}</p>
         </div>
       )}
     </div>

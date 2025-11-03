@@ -1,7 +1,7 @@
 import { Authenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import { useEffect, useState } from 'react';
-import { createUserProfile, getUserProfile } from "./api";
+import { createUserProfile, getUserProfile } from "./api/users";
 import { EditProfile } from './components/EditProfile';
 import { Tabs } from './components/Tabs';
 import { ProblemsTab } from './components/ProblemsTab';
