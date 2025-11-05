@@ -17,6 +17,12 @@ async function createMilestone(milestoneData) {
       title: milestoneData.title,
       description: milestoneData.description,
       difficulty: milestoneData.difficulty || 'medium',
+      language: milestoneData.language || 'python',
+      starterCode: milestoneData.starterCode || '',
+      timeLimit: milestoneData.timeLimit || 5000,
+      memoryLimit: milestoneData.memoryLimit || 256000,
+      sampleTestCases: milestoneData.sampleTestCases || [],
+      testCaseCount: milestoneData.testCaseCount || 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
@@ -80,6 +86,37 @@ async function updateMilestone(milestoneId, updates) {
   if (updates.difficulty !== undefined) {
     updateExpressions.push('difficulty = :difficulty');
     expressionAttributeValues[':difficulty'] = updates.difficulty;
+  }
+  
+  if (updates.language !== undefined) {
+    updateExpressions.push('#language = :language');
+    expressionAttributeNames['#language'] = 'language';
+    expressionAttributeValues[':language'] = updates.language;
+  }
+  
+  if (updates.starterCode !== undefined) {
+    updateExpressions.push('starterCode = :starterCode');
+    expressionAttributeValues[':starterCode'] = updates.starterCode;
+  }
+  
+  if (updates.timeLimit !== undefined) {
+    updateExpressions.push('timeLimit = :timeLimit');
+    expressionAttributeValues[':timeLimit'] = updates.timeLimit;
+  }
+  
+  if (updates.memoryLimit !== undefined) {
+    updateExpressions.push('memoryLimit = :memoryLimit');
+    expressionAttributeValues[':memoryLimit'] = updates.memoryLimit;
+  }
+  
+  if (updates.sampleTestCases !== undefined) {
+    updateExpressions.push('sampleTestCases = :sampleTestCases');
+    expressionAttributeValues[':sampleTestCases'] = updates.sampleTestCases;
+  }
+  
+  if (updates.testCaseCount !== undefined) {
+    updateExpressions.push('testCaseCount = :testCaseCount');
+    expressionAttributeValues[':testCaseCount'] = updates.testCaseCount;
   }
   
   // Always update the updatedAt timestamp

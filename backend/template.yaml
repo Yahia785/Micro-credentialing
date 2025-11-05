@@ -17,7 +17,7 @@ Parameters:
 Globals:
   Function:
     Runtime: nodejs18.x
-    Timeout: 30
+    Timeout: 60
     MemorySize: 256
     Layers:
       - !Ref SharedCodeLayer
@@ -26,7 +26,11 @@ Globals:
         USERS_TABLE: !Ref UsersTable
         CREDENTIALS_TABLE: !Ref CredentialsTable
         MILESTONES_TABLE: !Ref MilestonesTable
+        TESTCASES_TABLE: !Ref TestCasesTable
+        SUBMISSIONS_TABLE: !Ref SubmissionsTable
         COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+        JUDGE0_API_KEY: "dummy-key-for-testing"
+        JUDGE0_API_HOST: "judge0-ce.p.rapidapi.com"
 
 # ==========================================
 # RESOURCES
@@ -292,6 +296,115 @@ Resources:
             TableName: !Ref MilestonesTable
 
   # ==========================================
+  # TEST CASES MANAGEMENT FUNCTIONS
+  # ==========================================
+
+  # ------------------------------------------
+  # LAMBDA: Batch Create Test Cases
+  # ------------------------------------------
+  BatchCreateTestCasesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/testcases/batch-create/
+      Handler: index.handler
+      Description: Batch create test cases for a milestone
+      Events:
+        BatchCreateTestCases:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones/{milestoneId}/testcases/batch
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TestCasesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MilestonesTable
+
+# ------------------------------------------
+  # LAMBDA: Get Test Cases
+  # ------------------------------------------
+  GetTestCasesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/testcases/get/
+      Handler: index.handler
+      Description: Get test cases for a milestone
+      Events:
+        GetTestCases:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones/{milestoneId}/testcases
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref TestCasesTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MilestonesTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+
+  # ==========================================
+  # SUBMISSIONS FUNCTIONS
+  # ==========================================
+
+  # ------------------------------------------
+  # LAMBDA: Create Submission (Submit Code)
+  # ------------------------------------------
+  CreateSubmissionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/submissions/create/
+      Handler: index.handler
+      Description: Submit code for grading with Judge0
+      Timeout: 90
+      Events:
+        SubmitCode:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /submissions/submit
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubmissionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref TestCasesTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MilestonesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+
+  # ------------------------------------------
+  # LAMBDA: Get Submission
+  # ------------------------------------------
+  GetSubmissionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/submissions/get/
+      Handler: index.handler
+      Description: Get a submission by ID
+      Events:
+        GetSubmission:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /submissions/{submissionId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref SubmissionsTable
+
+  # ==========================================
   # DYNAMODB TABLES
   # ==========================================
 
@@ -349,6 +462,70 @@ Resources:
         - AttributeName: milestoneId
           KeyType: HASH
 
+  # ------------------------------------------
+  # TABLE: TestCases
+  # ------------------------------------------
+  TestCasesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: TestCases
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: testCaseId
+          AttributeType: S
+        - AttributeName: milestoneId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: testCaseId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: MilestoneIdIndex
+          KeySchema:
+            - AttributeName: milestoneId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  # ------------------------------------------
+  # TABLE: Submissions
+  # ------------------------------------------
+  SubmissionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Submissions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: submissionId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: milestoneId
+          AttributeType: S
+        - AttributeName: userMilestoneKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: submissionId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UserIdIndex
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: MilestoneIdIndex
+          KeySchema:
+            - AttributeName: milestoneId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: UserMilestoneIndex
+          KeySchema:
+            - AttributeName: userMilestoneKey
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
 # ==========================================
 # OUTPUTS
 # ==========================================
@@ -370,6 +547,14 @@ Outputs:
   MilestonesTableName:
     Description: "DynamoDB Milestones Table"
     Value: !Ref MilestonesTable
+
+  TestCasesTableName:
+    Description: "DynamoDB TestCases Table"
+    Value: !Ref TestCasesTable
+
+  SubmissionsTableName:
+    Description: "DynamoDB Submissions Table"
+    Value: !Ref SubmissionsTable
 
   SharedCodeLayerArn:
     Description: "ARN of the shared code layer"
