@@ -54,11 +54,28 @@ export async function getMilestone(milestoneId: string) {
 export async function createMilestone(data: {
   title: string;
   description: string;
+  concept?: string;
   difficulty: 'easy' | 'medium' | 'hard';
+  language: string;
+  starterCode?: string;
+  timeLimit?: number;
+  memoryLimit?: number;
 }) {
   const token = await getAuthToken();
 
-  console.log('Creating milestone with data:', data);
+  // Ensure language is included in the request
+  const requestData = {
+    title: data.title,
+    description: data.description,
+    difficulty: data.difficulty,
+    language: data.language, // Make sure language is always sent
+    ...(data.concept && { concept: data.concept }),
+    ...(data.starterCode && { starterCode: data.starterCode }),
+    ...(data.timeLimit && { timeLimit: data.timeLimit }),
+    ...(data.memoryLimit && { memoryLimit: data.memoryLimit })
+  };
+
+  console.log('Creating milestone with data:', requestData);
 
   const response = await fetch(`${API_BASE}/milestones`, {
     method: 'POST',
@@ -66,7 +83,7 @@ export async function createMilestone(data: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify(requestData),
   });
 
   if (!response.ok) {
@@ -86,7 +103,12 @@ export async function updateMilestone(
   updates: {
     title?: string;
     description?: string;
+    concept?: string;
     difficulty?: 'easy' | 'medium' | 'hard';
+    language?: string;
+    starterCode?: string;
+    timeLimit?: number;
+    memoryLimit?: number;
   }
 ) {
   const token = await getAuthToken();

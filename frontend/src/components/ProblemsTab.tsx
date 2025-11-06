@@ -1,18 +1,27 @@
 import { useState, useEffect } from 'react';
 import { getAllMilestones, createMilestone, deleteMilestone } from '../api/milestones';
+import { createTestCasesBatch } from '../api/testcases';
 import { CodeEditor } from './CodeEditor';
 
 interface Problem {
   milestoneId: string;
   title: string;
   description: string;
+  concept?: string;
   difficulty: 'easy' | 'medium' | 'hard';
   language?: string;
   starterCode?: string;
   timeLimit?: number;
   memoryLimit?: number;
+  testCaseCount?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+interface TestCaseInput {
+  inputs: string[];  // Array of individual inputs
+  expectedOutput: string;
+  isHidden: boolean;
 }
 
 interface ProblemsTabProps {
@@ -20,20 +29,21 @@ interface ProblemsTabProps {
 }
 
 export function ProblemsTab({ userProfile }: ProblemsTabProps) {
-  // Default to 'user' role if missing or empty
   const userRole = userProfile?.role || 'user';
   const isAdmin = userRole === 'admin';
-  console.log('User role:', userRole);
-  console.log('Is admin:', isAdmin);
 
   const [problems, setProblems] = useState<Problem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAddingProblem, setIsAddingProblem] = useState(false);
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null);
+  const [creationStep, setCreationStep] = useState<1 | 2>(1);
+  const [createdProblemId, setCreatedProblemId] = useState<string | null>(null);
+  
   const [newProblem, setNewProblem] = useState({
     title: '',
     description: '',
+    concept: '',
     difficulty: 'medium' as const,
     language: 'python',
     starterCode: '',
@@ -41,7 +51,10 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
     memoryLimit: 256000
   });
 
-  // Load problems from backend on component mount
+  const [testCases, setTestCases] = useState<TestCaseInput[]>([
+    { inputs: ['', ''], expectedOutput: '', isHidden: false }
+  ]);
+
   useEffect(() => {
     loadProblems();
   }, []);
@@ -74,30 +87,167 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
 
     try {
       setError(null);
-      console.log('Creating problem:', newProblem);
+      console.log('Creating problem with language:', newProblem.language);
       
-      const result = await createMilestone(newProblem);
-      console.log('Problem created:', result);
-      
-      setProblems([...problems, result.milestone]);
-      setNewProblem({
-        title: '',
-        description: '',
-        difficulty: 'medium',
-        language: 'python',
-        starterCode: '',
-        timeLimit: 5000,
-        memoryLimit: 256000
+      const result = await createMilestone({
+        title: newProblem.title,
+        description: newProblem.description,
+        concept: newProblem.concept,
+        difficulty: newProblem.difficulty,
+        language: newProblem.language,
+        starterCode: newProblem.starterCode,
+        timeLimit: newProblem.timeLimit,
+        memoryLimit: newProblem.memoryLimit
       });
-      setIsAddingProblem(false);
+      
+      console.log('Problem created with response:', result);
+      
+      setCreatedProblemId(result.milestone.milestoneId);
+      setCreationStep(2);
+      
     } catch (err: any) {
       console.error('Failed to create problem:', err);
       setError('Failed to create problem. Please try again.');
     }
   };
 
+  const handleAddTestCases = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate test cases
+    const validTestCases = testCases.filter(tc => {
+      const hasInputs = tc.inputs.some(input => input.trim() !== '');
+      const hasOutput = tc.expectedOutput.trim() !== '';
+      return hasInputs && hasOutput;
+    });
+
+    if (validTestCases.length === 0) {
+      setError('At least one test case with inputs and expected output is required');
+      return;
+    }
+
+    if (!createdProblemId) {
+      setError('Problem ID not found. Please try again.');
+      return;
+    }
+
+    try {
+      setError(null);
+      console.log('Creating test cases for problem:', createdProblemId);
+      
+      // Convert inputs array to newline-separated string for Judge0
+      const testCasesToCreate = validTestCases.map((tc, index) => {
+        // Filter out empty inputs and join with newlines
+        const inputString = tc.inputs
+          .filter(input => input.trim() !== '')
+          .join('\n');
+        
+        return {
+          input: inputString,
+          expectedOutput: tc.expectedOutput,
+          isHidden: tc.isHidden,
+          includeInJudge0: true,
+          weight: 1,
+          order: index,
+          testTier: 'standard'
+        };
+      });
+
+      console.log('Test cases to create:', testCasesToCreate);
+
+      const result = await createTestCasesBatch(createdProblemId, testCasesToCreate);
+      console.log('Test cases created:', result);
+      
+      await loadProblems();
+      
+      setNewProblem({
+        title: '',
+        description: '',
+        concept: '',
+        difficulty: 'medium',
+        language: 'python',
+        starterCode: '',
+        timeLimit: 5000,
+        memoryLimit: 256000
+      });
+      setTestCases([{ inputs: ['', ''], expectedOutput: '', isHidden: false }]);
+      setCreationStep(1);
+      setCreatedProblemId(null);
+      setIsAddingProblem(false);
+      
+    } catch (err: any) {
+      console.error('Failed to create test cases:', err);
+      setError('Failed to create test cases. Please try again.');
+    }
+  };
+
+  const handleAddTestCaseRow = () => {
+    setTestCases([...testCases, { inputs: ['', ''], expectedOutput: '', isHidden: false }]);
+  };
+
+  const handleRemoveTestCase = (index: number) => {
+    if (testCases.length > 1) {
+      setTestCases(testCases.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleAddInputField = (testCaseIndex: number) => {
+    const updated = [...testCases];
+    updated[testCaseIndex].inputs.push('');
+    setTestCases(updated);
+  };
+
+  const handleRemoveInputField = (testCaseIndex: number, inputIndex: number) => {
+    const updated = [...testCases];
+    if (updated[testCaseIndex].inputs.length > 1) {
+      updated[testCaseIndex].inputs = updated[testCaseIndex].inputs.filter((_, i) => i !== inputIndex);
+      setTestCases(updated);
+    }
+  };
+
+  const handleInputChange = (testCaseIndex: number, inputIndex: number, value: string) => {
+    const updated = [...testCases];
+    updated[testCaseIndex].inputs[inputIndex] = value;
+    setTestCases(updated);
+  };
+
+  const handleOutputChange = (testCaseIndex: number, value: string) => {
+    const updated = [...testCases];
+    updated[testCaseIndex].expectedOutput = value;
+    setTestCases(updated);
+  };
+
+  const handleHiddenChange = (testCaseIndex: number, value: boolean) => {
+    const updated = [...testCases];
+    updated[testCaseIndex].isHidden = value;
+    setTestCases(updated);
+  };
+
+  const handleCancelProblemCreation = () => {
+    setIsAddingProblem(false);
+    setCreationStep(1);
+    setCreatedProblemId(null);
+    setNewProblem({
+      title: '',
+      description: '',
+      concept: '',
+      difficulty: 'medium',
+      language: 'python',
+      starterCode: '',
+      timeLimit: 5000,
+      memoryLimit: 256000
+    });
+    setTestCases([{ inputs: ['', ''], expectedOutput: '', isHidden: false }]);
+    setError(null);
+  };
+
+  const handleBackToStep1 = () => {
+    setCreationStep(1);
+    setError(null);
+  };
+
   const handleDeleteProblem = async (milestoneId: string) => {
-    if (!window.confirm('Are you sure you want to delete this problem?')) {
+    if (!window.confirm('Are you sure you want to delete this problem? This will also delete all associated test cases.')) {
       return;
     }
 
@@ -116,6 +266,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
   };
 
   const handleOpenEditor = (problem: Problem) => {
+    console.log('Opening editor for problem with language:', problem.language);
     setSelectedProblem(problem);
   };
 
@@ -124,9 +275,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
   };
 
   const handleSubmitSuccess = () => {
-    // Reload problems to update any stats
     loadProblems();
-    // Close editor after a delay
     setTimeout(() => {
       setSelectedProblem(null);
     }, 2000);
@@ -143,6 +292,22 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
       default:
         return '#6c757d';
     }
+  };
+
+  const getTestCaseStats = () => {
+    const visible = testCases.filter(tc => {
+      const hasInputs = tc.inputs.some(input => input.trim() !== '');
+      const hasOutput = tc.expectedOutput.trim() !== '';
+      return !tc.isHidden && hasInputs && hasOutput;
+    }).length;
+    
+    const hidden = testCases.filter(tc => {
+      const hasInputs = tc.inputs.some(input => input.trim() !== '');
+      const hasOutput = tc.expectedOutput.trim() !== '';
+      return tc.isHidden && hasInputs && hasOutput;
+    }).length;
+    
+    return { visible, hidden, total: visible + hidden };
   };
 
   if (loading) {
@@ -172,6 +337,9 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
             onClick={() => {
               setIsAddingProblem(!isAddingProblem);
               setError(null);
+              if (isAddingProblem) {
+                handleCancelProblemCreation();
+              }
             }}
             style={{
               padding: '10px 20px',
@@ -203,6 +371,59 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
       )}
 
       {isAdmin && isAddingProblem && (
+        <div style={{
+          background: '#e7f3ff',
+          padding: '15px',
+          borderRadius: '8px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '20px',
+          border: '1px solid #0066cc'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '30px',
+              height: '30px',
+              borderRadius: '50%',
+              background: creationStep === 1 ? '#007bff' : '#28a745',
+              color: 'white',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 'bold'
+            }}>
+              {creationStep === 1 ? '1' : '✓'}
+            </div>
+            <span style={{ fontWeight: creationStep === 1 ? 'bold' : 'normal', color: '#333' }}>
+              Problem Details
+            </span>
+          </div>
+          
+          <div style={{ width: '40px', height: '2px', background: creationStep === 2 ? '#28a745' : '#ccc' }} />
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              width: '30px',
+              height: '30px',
+              borderRadius: '50%',
+              background: creationStep === 2 ? '#007bff' : '#ccc',
+              color: 'white',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 'bold'
+            }}>
+              2
+            </div>
+            <span style={{ fontWeight: creationStep === 2 ? 'bold' : 'normal', color: '#333' }}>
+              Add Test Cases
+            </span>
+          </div>
+        </div>
+      )}
+
+      {isAdmin && isAddingProblem && creationStep === 1 && (
         <form onSubmit={handleAddProblem} style={{
           background: '#f8f9fa',
           padding: '20px',
@@ -210,7 +431,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
           marginBottom: '20px',
           border: '1px solid #dee2e6'
         }}>
-          <h3 style={{ color: '#333', marginTop: 0 }}>Create New Problem</h3>
+          <h3 style={{ color: '#333', marginTop: 0 }}>Step 1: Create New Problem</h3>
           
           <div style={{ marginBottom: '15px' }}>
             <label style={{ 
@@ -219,7 +440,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
               fontWeight: 'bold',
               color: '#333'
             }}>
-              Problem Title:
+              Problem Title: <span style={{ color: 'red' }}>*</span>
             </label>
             <input
               type="text"
@@ -245,7 +466,35 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
               fontWeight: 'bold',
               color: '#333'
             }}>
-              Description:
+              Concept/Topic:
+            </label>
+            <input
+              type="text"
+              value={newProblem.concept}
+              onChange={(e) => setNewProblem({ ...newProblem, concept: e.target.value })}
+              placeholder="e.g., Arrays, Linked Lists, Dynamic Programming"
+              style={{
+                width: '100%',
+                padding: '10px',
+                fontSize: '14px',
+                border: '1px solid #ced4da',
+                borderRadius: '4px',
+                boxSizing: 'border-box'
+              }}
+            />
+            <small style={{ color: '#666', display: 'block', marginTop: '5px' }}>
+              This will be shown to users before they start solving
+            </small>
+          </div>
+
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ 
+              display: 'block', 
+              marginBottom: '5px', 
+              fontWeight: 'bold',
+              color: '#333'
+            }}>
+              Description: <span style={{ color: 'red' }}>*</span>
             </label>
             <textarea
               value={newProblem.description}
@@ -263,6 +512,9 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
               }}
               required
             />
+            <small style={{ color: '#666', display: 'block', marginTop: '5px' }}>
+              This will be hidden until user opens the code editor
+            </small>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
@@ -299,11 +551,14 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
                 fontWeight: 'bold',
                 color: '#333'
               }}>
-                Language:
+                Language: <span style={{ color: 'red' }}>*</span>
               </label>
               <select
                 value={newProblem.language}
-                onChange={(e) => setNewProblem({ ...newProblem, language: e.target.value })}
+                onChange={(e) => {
+                  console.log('Language changed to:', e.target.value);
+                  setNewProblem({ ...newProblem, language: e.target.value });
+                }}
                 style={{
                   width: '100%',
                   padding: '10px',
@@ -395,21 +650,342 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
             </div>
           </div>
 
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              type="submit"
+              style={{
+                padding: '10px 20px',
+                background: '#007bff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 'bold'
+              }}
+            >
+              Next: Add Test Cases →
+            </button>
+            
+            <button
+              type="button"
+              onClick={handleCancelProblemCreation}
+              style={{
+                padding: '10px 20px',
+                background: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 'bold'
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {isAdmin && isAddingProblem && creationStep === 2 && (
+        <form onSubmit={handleAddTestCases} style={{
+          background: '#f8f9fa',
+          padding: '20px',
+          borderRadius: '8px',
+          marginBottom: '20px',
+          border: '1px solid #dee2e6'
+        }}>
+          <h3 style={{ color: '#333', marginTop: 0 }}>Step 2: Add Test Cases</h3>
+          
+          <div style={{
+            background: '#e7f3ff',
+            padding: '15px',
+            borderRadius: '8px',
+            marginBottom: '20px',
+            border: '1px solid #0066cc'
+          }}>
+            <h4 style={{ color: '#0066cc', marginTop: 0, marginBottom: '10px' }}>ℹ️ How Test Cases Work</h4>
+            <ul style={{ color: '#333', marginBottom: 0, paddingLeft: '20px' }}>
+              <li>Each input field represents one parameter</li>
+              <li>Inputs will be sent to Judge0 as separate lines (one per parameter)</li>
+              <li>Click "+ Add Input Field" to add more parameters</li>
+              <li>Mark as "Hidden" to use for grading only</li>
+            </ul>
+          </div>
+
+          <div style={{
+            background: '#d4edda',
+            padding: '12px',
+            borderRadius: '6px',
+            marginBottom: '20px',
+            border: '1px solid #28a745'
+          }}>
+            <strong>Test Cases Summary:</strong> {getTestCaseStats().total} total 
+            ({getTestCaseStats().visible} sample, {getTestCaseStats().hidden} hidden)
+          </div>
+
+          {testCases.map((testCase, testCaseIndex) => (
+            <div 
+              key={testCaseIndex}
+              style={{
+                background: 'white',
+                padding: '20px',
+                borderRadius: '8px',
+                marginBottom: '20px',
+                border: '2px solid #dee2e6',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+              }}
+            >
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                marginBottom: '15px',
+                paddingBottom: '10px',
+                borderBottom: '2px solid #e9ecef'
+              }}>
+                <h4 style={{ margin: 0, color: '#333', fontSize: '16px' }}>
+                  Test Case {testCaseIndex + 1}
+                </h4>
+                {testCases.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTestCase(testCaseIndex)}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#dc3545',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    🗑️ Remove Test Case
+                  </button>
+                )}
+              </div>
+
+              {/* Inputs Section */}
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '10px', 
+                  fontWeight: 'bold',
+                  color: '#333',
+                  fontSize: '14px'
+                }}>
+                  Inputs:
+                </label>
+                
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: '10px',
+                  marginBottom: '10px'
+                }}>
+                  {testCase.inputs.map((input, inputIndex) => (
+                    <div key={inputIndex} style={{ position: 'relative' }}>
+                      <label style={{ 
+                        display: 'block', 
+                        marginBottom: '5px',
+                        fontSize: '12px',
+                        color: '#666',
+                        fontWeight: '500'
+                      }}>
+                        Input {inputIndex + 1}:
+                      </label>
+                      <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={input}
+                          onChange={(e) => handleInputChange(testCaseIndex, inputIndex, e.target.value)}
+                          placeholder={`Value ${inputIndex + 1}`}
+                          style={{
+                            flex: 1,
+                            padding: '10px',
+                            fontSize: '14px',
+                            border: '1px solid #ced4da',
+                            borderRadius: '4px',
+                            fontFamily: 'monospace'
+                          }}
+                        />
+                        {testCase.inputs.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveInputField(testCaseIndex, inputIndex)}
+                            style={{
+                              padding: '8px',
+                              background: '#dc3545',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              minWidth: '32px'
+                            }}
+                            title="Remove this input"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleAddInputField(testCaseIndex)}
+                  style={{
+                    padding: '8px 16px',
+                    background: '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  + Add Input Field
+                </button>
+              </div>
+
+              {/* Expected Output Section */}
+              <div style={{ marginBottom: '15px' }}>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '5px', 
+                  fontWeight: 'bold',
+                  color: '#333',
+                  fontSize: '14px'
+                }}>
+                  Expected Output:
+                </label>
+                <textarea
+                  value={testCase.expectedOutput}
+                  onChange={(e) => handleOutputChange(testCaseIndex, e.target.value)}
+                  placeholder="e.g., 5"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    fontSize: '14px',
+                    border: '1px solid #ced4da',
+                    borderRadius: '4px',
+                    minHeight: '60px',
+                    boxSizing: 'border-box',
+                    fontFamily: 'monospace'
+                  }}
+                  required
+                />
+              </div>
+
+              {/* Hidden Checkbox */}
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '10px',
+                padding: '10px',
+                background: '#f8f9fa',
+                borderRadius: '4px'
+              }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: '#333',
+                  margin: 0
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={testCase.isHidden}
+                    onChange={(e) => handleHiddenChange(testCaseIndex, e.target.checked)}
+                    style={{ cursor: 'pointer', width: '18px', height: '18px' }}
+                  />
+                  <span style={{ fontWeight: testCase.isHidden ? 'bold' : 'normal' }}>
+                    {testCase.isHidden ? '🔒 Hidden (for grading only)' : '👁️ Sample (visible to users)'}
+                  </span>
+                </label>
+              </div>
+            </div>
+          ))}
+
           <button
-            type="submit"
+            type="button"
+            onClick={handleAddTestCaseRow}
             style={{
-              padding: '10px 20px',
-              background: '#28a745',
+              padding: '12px 20px',
+              background: '#007bff',
               color: 'white',
               border: 'none',
-              borderRadius: '4px',
+              borderRadius: '6px',
               cursor: 'pointer',
               fontSize: '14px',
-              fontWeight: 'bold'
+              fontWeight: 'bold',
+              marginBottom: '20px',
+              width: '100%',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
             }}
           >
-            Create Problem
+            ➕ Add Another Test Case
           </button>
+
+          <div style={{ display: 'flex', gap: '10px', paddingTop: '20px', borderTop: '2px solid #dee2e6' }}>
+            <button
+              type="submit"
+              style={{
+                padding: '12px 24px',
+                background: '#28a745',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '15px',
+                fontWeight: 'bold',
+                flex: 1
+              }}
+            >
+              ✅ Complete Problem Creation
+            </button>
+            
+            <button
+              type="button"
+              onClick={handleBackToStep1}
+              style={{
+                padding: '12px 24px',
+                background: '#6c757d',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '15px',
+                fontWeight: 'bold'
+              }}
+            >
+              ← Back
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCancelProblemCreation}
+              style={{
+                padding: '12px 24px',
+                background: '#dc3545',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '15px',
+                fontWeight: 'bold'
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         </form>
       )}
 
@@ -460,18 +1036,17 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
               </span>
             </div>
 
-            <p style={{
-              color: '#666',
-              fontSize: '14px',
-              marginBottom: '15px',
-              lineHeight: '1.5',
-              display: '-webkit-box',
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden'
-            }}>
-              {problem.description}
-            </p>
+            {problem.concept && (
+              <p style={{
+                color: '#007bff',
+                fontSize: '14px',
+                marginBottom: '15px',
+                fontWeight: '500',
+                fontStyle: 'italic'
+              }}>
+                📚 {problem.concept}
+              </p>
+            )}
 
             <div style={{
               display: 'flex',
@@ -489,6 +1064,18 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
                   fontWeight: 'bold'
                 }}>
                   {problem.language.toUpperCase()}
+                </span>
+              )}
+              {problem.testCaseCount !== undefined && (
+                <span style={{
+                  background: '#d4edda',
+                  color: '#155724',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontWeight: 'bold'
+                }}>
+                  📝 {problem.testCaseCount} test cases
                 </span>
               )}
             </div>
@@ -555,14 +1142,13 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
           padding: '60px 20px',
           color: '#999'
         }}>
-          <p style={{ fontSize: '18px', marginBottom: '10px' }}>📝 No problems available yet</p>
+          <p style={{ fontSize: '18px', marginBottom: '10px' }}>🔍 No problems available yet</p>
           <p style={{ fontSize: '14px' }}>
             {isAdmin ? 'Click "Add Problem" to create your first coding challenge!' : 'Check back later for new challenges!'}
           </p>
         </div>
       )}
 
-      {/* Code Editor Modal */}
       {selectedProblem && (
         <CodeEditor
           milestone={selectedProblem}

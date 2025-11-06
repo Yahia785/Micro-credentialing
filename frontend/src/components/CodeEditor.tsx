@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 import { submitCode } from '../api/submissions';
+import { getTestCases } from '../api/testcases';
 import { TestCaseResult } from './TestCaseResult';
 
 interface TestResult {
@@ -15,19 +16,25 @@ interface TestResult {
   isHidden?: boolean;
 }
 
+interface TestCase {
+  testCaseId: string;
+  milestoneId: string;
+  input: string;
+  expectedOutput: string;
+  isHidden: boolean;
+  order?: number;
+}
+
 interface Milestone {
   milestoneId: string;
   title: string;
   description: string;
+  concept?: string;
   difficulty: string;
   language?: string;
   starterCode?: string;
   timeLimit?: number;
   memoryLimit?: number;
-  sampleTestCases?: Array<{
-    input: string;
-    expectedOutput: string;
-  }>;
 }
 
 interface CodeEditorProps {
@@ -41,14 +48,6 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
   const defaultLanguage = milestone.language || 'python';
   const defaultStarterCode = milestone.starterCode || getDefaultStarterCode(defaultLanguage);
 
-  // Sample test cases (visible to user)
-  const sampleTestCases = milestone.sampleTestCases || [
-    {
-      input: '2\n3',
-      expectedOutput: '5'
-    }
-  ];
-
   const [code, setCode] = useState(defaultStarterCode);
   const [output, setOutput] = useState('');
   const [testResults, setTestResults] = useState<TestResult[]>([]);
@@ -56,6 +55,11 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
   const [activeTab, setActiveTab] = useState<'description' | 'output'>('description');
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'success' | 'failed'>('idle');
   const [copiedToClipboard, setCopiedToClipboard] = useState(false);
+  
+  // Test cases state
+  const [sampleTestCases, setSampleTestCases] = useState<TestCase[]>([]);
+  const [loadingTestCases, setLoadingTestCases] = useState(true);
+  const [testCasesError, setTestCasesError] = useState<string | null>(null);
 
   // Reset code when milestone changes
   useEffect(() => {
@@ -65,6 +69,36 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
     setSubmissionStatus('idle');
     setCopiedToClipboard(false);
   }, [milestone.milestoneId, defaultStarterCode]);
+
+  // Fetch test cases when milestone changes
+  useEffect(() => {
+    async function fetchTestCases() {
+      try {
+        setLoadingTestCases(true);
+        setTestCasesError(null);
+        console.log('Fetching test cases for milestone:', milestone.milestoneId);
+        
+        const result = await getTestCases(milestone.milestoneId);
+        console.log('Test cases fetched:', result);
+        
+        // Filter to only get non-hidden test cases (sample ones)
+        const sampleCases = (result.testCases || [])
+          .filter((tc: TestCase) => !tc.isHidden)
+          .sort((a: TestCase, b: TestCase) => (a.order || 0) - (b.order || 0));
+        
+        setSampleTestCases(sampleCases);
+        console.log('Sample test cases:', sampleCases);
+        
+      } catch (error: any) {
+        console.error('Failed to fetch test cases:', error);
+        setTestCasesError('Failed to load test cases');
+      } finally {
+        setLoadingTestCases(false);
+      }
+    }
+    
+    fetchTestCases();
+  }, [milestone.milestoneId]);
 
   // Lock body scroll when modal is open
   useEffect(() => {
@@ -86,21 +120,7 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
   const handleOpenInOnlineGDB = () => {
     console.log('🔗 Opening OnlineGDB...');
     
-    const languageMap: { [key: string]: string } = {
-      'python': 'python',
-      'javascript': 'nodejs',
-      'java': 'java',
-      'cpp': 'cpp',
-      'c': 'c',
-      'csharp': 'csharp',
-      'ruby': 'ruby',
-      'go': 'go',
-      'rust': 'rust',
-      'php': 'php'
-    };
-
-    const onlineGDBLanguage = languageMap[defaultLanguage] || 'python';
-    const onlineGDBUrl = `https://www.onlinegdb.com/online_${onlineGDBLanguage}_compiler`;
+    const onlineGDBUrl = `https://www.onlinegdb.com/`;
     
     console.log('Opening URL:', onlineGDBUrl);
     window.open(onlineGDBUrl, '_blank');
@@ -256,19 +276,32 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
           alignItems: 'center',
           backgroundColor: '#f8f9fa'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <h2 style={{ margin: 0, color: '#333' }}>{milestone.title}</h2>
-            <span style={{
-              backgroundColor: getDifficultyColor(milestone.difficulty),
-              color: 'white',
-              padding: '6px 12px',
-              borderRadius: '4px',
-              fontSize: '14px',
-              fontWeight: 'bold',
-              textTransform: 'capitalize'
-            }}>
-              {milestone.difficulty}
-            </span>
+          <div style={{ display: 'flex', gap: '15px', flexDirection: 'column', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+              <h2 style={{ margin: 0, color: '#333' }}>{milestone.title}</h2>
+              <span style={{
+                backgroundColor: getDifficultyColor(milestone.difficulty),
+                color: 'white',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                textTransform: 'capitalize'
+              }}>
+                {milestone.difficulty}
+              </span>
+            </div>
+            {milestone.concept && (
+              <p style={{
+                margin: 0,
+                color: '#007bff',
+                fontSize: '14px',
+                fontWeight: '500',
+                fontStyle: 'italic'
+              }}>
+                📚 Concept: {milestone.concept}
+              </p>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -356,7 +389,30 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
                   </p>
 
                   {/* Sample Test Cases */}
-                  {sampleTestCases.length > 0 && (
+                  {loadingTestCases ? (
+                    <div style={{
+                      marginTop: '20px',
+                      padding: '15px',
+                      backgroundColor: '#f8f9fa',
+                      borderRadius: '8px',
+                      border: '1px solid #e0e0e0',
+                      textAlign: 'center',
+                      color: '#666'
+                    }}>
+                      Loading test cases...
+                    </div>
+                  ) : testCasesError ? (
+                    <div style={{
+                      marginTop: '20px',
+                      padding: '15px',
+                      backgroundColor: '#f8d7da',
+                      borderRadius: '8px',
+                      border: '1px solid #f5c6cb',
+                      color: '#721c24'
+                    }}>
+                      ⚠️ {testCasesError}
+                    </div>
+                  ) : sampleTestCases.length > 0 ? (
                     <div style={{
                       marginTop: '20px',
                       padding: '15px',
@@ -365,10 +421,13 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
                       border: '1px solid #e0e0e0'
                     }}>
                       <h4 style={{ color: '#333', marginTop: 0 }}>📝 Sample Test Cases</h4>
+                      <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>
+                        Use these examples to test your code in OnlineGDB before submitting.
+                      </p>
                       {sampleTestCases.map((testCase, index) => (
-                        <div key={index} style={{ marginBottom: '15px' }}>
-                          <p style={{ margin: '5px 0', color: '#666' }}>
-                            <strong>Test Case {index + 1}:</strong>
+                        <div key={testCase.testCaseId || index} style={{ marginBottom: '15px' }}>
+                          <p style={{ margin: '5px 0', color: '#666', fontWeight: 'bold' }}>
+                            Test Case {index + 1}:
                           </p>
                           <div style={{ margin: '5px 0', color: '#666' }}>
                             <strong>Input:</strong>
@@ -378,7 +437,8 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
                               borderRadius: '4px',
                               margin: '5px 0',
                               fontSize: '13px',
-                              color: '#333'
+                              color: '#333',
+                              border: '1px solid #dee2e6'
                             }}>
                               {testCase.input}
                             </pre>
@@ -391,13 +451,25 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
                               borderRadius: '4px',
                               margin: '5px 0',
                               fontSize: '13px',
-                              color: '#333'
+                              color: '#333',
+                              border: '1px solid #dee2e6'
                             }}>
                               {testCase.expectedOutput}
                             </pre>
                           </div>
                         </div>
                       ))}
+                    </div>
+                  ) : (
+                    <div style={{
+                      marginTop: '20px',
+                      padding: '15px',
+                      backgroundColor: '#fff3cd',
+                      borderRadius: '8px',
+                      border: '1px solid #ffc107',
+                      color: '#856404'
+                    }}>
+                      ℹ️ No sample test cases available. Submit your solution to test against hidden test cases.
                     </div>
                   )}
 
@@ -499,7 +571,7 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
                         🔗 Open OnlineGDB
                       </button>
                     </div>
-                    </div>
+                  </div>
 
                   {/* Constraints */}
                   <div style={{
