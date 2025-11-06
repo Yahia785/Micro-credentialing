@@ -36,13 +36,24 @@ exports.handler = async (event) => {
       return errorResponse(400, 'Difficulty must be one of: easy, medium, hard');
     }
     
+    // Validate language (optional but if provided, must be valid)
+    const validLanguages = ['python', 'javascript', 'java', 'cpp', 'c'];
+    if (body.language && !validLanguages.includes(body.language)) {
+      return errorResponse(400, 'Language must be one of: python, javascript, java, cpp, c');
+    }
+    
     console.log('Creating milestone:', body);
     
-    // Create milestone
+    // Create milestone with ALL fields
     const milestone = await createMilestone({
       title: body.title,
       description: body.description,
-      difficulty: body.difficulty || 'medium'
+      concept: body.concept || '',
+      difficulty: body.difficulty || 'medium',
+      language: body.language || 'python',
+      starterCode: body.starterCode || '',
+      timeLimit: body.timeLimit || 5000,
+      memoryLimit: body.memoryLimit || 256000
     });
     
     console.log('Milestone created:', milestone);

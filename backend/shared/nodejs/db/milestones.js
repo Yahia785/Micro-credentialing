@@ -17,6 +17,7 @@ async function createMilestone(milestoneData) {
       title: milestoneData.title,
       description: milestoneData.description,
       difficulty: milestoneData.difficulty || 'medium',
+      concept: milestoneData.concept || '',
       language: milestoneData.language || 'python',
       starterCode: milestoneData.starterCode || '',
       timeLimit: milestoneData.timeLimit || 5000,
