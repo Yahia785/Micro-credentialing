@@ -1,7 +1,7 @@
 const { createSubmission, updateSubmission } = require('/opt/nodejs/db/submissions');
 const { getTestCasesByMilestone } = require('/opt/nodejs/db/testcases');
 const { getMilestone } = require('/opt/nodejs/db/milestones');
-const { getUser, updateUser } = require('/opt/nodejs/db/users');
+const { getUser, updateUser, addCompletedMilestone } = require('/opt/nodejs/db/users');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const { 
@@ -25,7 +25,8 @@ const {
  * 5. Calculate score and determine if passed
  * 6. Award credential if all tests passed
  * 7. Save submission to database
- * 8. Return results (hide test details for non-admins)
+ * 8. Add to user's completedMilestones if passed
+ * 9. Return results (hide test details for non-admins)
  */
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
@@ -210,16 +211,35 @@ exports.handler = async (event) => {
       updatedAt: new Date().toISOString()
     });
     
-    // If credential awarded, update user stats
+    // If passed all tests, add to user's completedMilestones and update stats
     if (credentialAwarded) {
-      console.log('Awarding credential to user:', userId);
+      console.log('All tests passed - adding to completed milestones');
       
-      const user = await getUser(userId);
-      if (user) {
-        await updateUser(userId, {
-          credentialsCount: (user.credentialsCount || 0) + 1,
-          milestonesCompleted: (user.milestonesCompleted || 0) + 1
+      try {
+        // Add to completedMilestones array
+        await addCompletedMilestone(userId, {
+          milestoneId: milestoneId,
+          score: metrics.score,
+          passedTests: metrics.passedTests,
+          totalTests: metrics.totalTests,
+          submissionId: submissionId
         });
+        
+        console.log('Added to completedMilestones');
+        
+        // Update user's credential and milestone counts
+        const user = await getUser(userId);
+        if (user) {
+          await updateUser(userId, {
+            credentialsCount: (user.credentialsCount || 0) + 1,
+            milestonesCompleted: (user.milestonesCompleted || 0) + 1
+          });
+          
+          console.log('Updated user stats');
+        }
+      } catch (error) {
+        console.error('Error updating user milestones:', error);
+        // Don't fail the submission if this fails
       }
     }
     

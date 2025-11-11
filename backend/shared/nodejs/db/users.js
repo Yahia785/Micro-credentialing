@@ -18,7 +18,8 @@ async function createUser(userData) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       credentialsCount: 0,
-      milestonesCompleted: 0
+      milestonesCompleted: 0,
+      completedMilestones: []
     }
   };
   
@@ -78,8 +79,59 @@ async function updateUser(userId, updates) {
   return result.Attributes;
 }
 
+/**
+ * Add completed milestone to user's profile
+ */
+async function addCompletedMilestone(userId, milestoneData) {
+  // First, get the user to check if milestone already completed
+  const user = await getUser(userId);
+  
+  if (!user) {
+    throw new Error('User not found');
+  }
+  
+  // Initialize completedMilestones if it doesn't exist
+  const completedMilestones = user.completedMilestones || [];
+  
+  // Check if milestone already completed
+  const existingIndex = completedMilestones.findIndex(
+    m => m.milestoneId === milestoneData.milestoneId
+  );
+  
+  if (existingIndex >= 0) {
+    // Milestone already completed, don't add again
+    return user;
+  }
+  
+  // Add new milestone to the array
+  completedMilestones.push({
+    milestoneId: milestoneData.milestoneId,
+    score: milestoneData.score,
+    passedTests: milestoneData.passedTests,
+    totalTests: milestoneData.totalTests,
+    completedAt: new Date().toISOString(),
+    submissionId: milestoneData.submissionId
+  });
+  
+  // Update user with new completedMilestones array
+  const params = {
+    TableName: process.env.USERS_TABLE,
+    Key: { userId },
+    UpdateExpression: 'SET completedMilestones = :completedMilestones, updatedAt = :updatedAt',
+    ExpressionAttributeValues: {
+      ':completedMilestones': completedMilestones,
+      ':updatedAt': new Date().toISOString()
+    },
+    ReturnValues: 'ALL_NEW'
+  };
+  
+  const result = await dynamodb.send(new UpdateCommand(params));
+  return result.Attributes;
+}
+
 module.exports = {
   createUser,
   getUser,
-  updateUser
+  updateUser,
+  addCompletedMilestone
 };

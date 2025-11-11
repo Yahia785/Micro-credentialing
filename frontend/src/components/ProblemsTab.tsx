@@ -19,7 +19,7 @@ interface Problem {
 }
 
 interface TestCaseInput {
-  inputs: string[];  // Array of individual inputs
+  inputs: string[];
   expectedOutput: string;
   isHidden: boolean;
 }
@@ -114,7 +114,6 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
   const handleAddTestCases = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validate test cases
     const validTestCases = testCases.filter(tc => {
       const hasInputs = tc.inputs.some(input => input.trim() !== '');
       const hasOutput = tc.expectedOutput.trim() !== '';
@@ -135,9 +134,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
       setError(null);
       console.log('Creating test cases for problem:', createdProblemId);
       
-      // Convert inputs array to newline-separated string for Judge0
       const testCasesToCreate = validTestCases.map((tc, index) => {
-        // Filter out empty inputs and join with newlines
         const inputString = tc.inputs
           .filter(input => input.trim() !== '')
           .join('\n');
@@ -767,7 +764,6 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
                 )}
               </div>
 
-              {/* Inputs Section */}
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ 
                   display: 'block', 
@@ -853,7 +849,6 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
                 </button>
               </div>
 
-              {/* Expected Output Section */}
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ 
                   display: 'block', 
@@ -882,7 +877,6 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
                 />
               </div>
 
-              {/* Hidden Checkbox */}
               <div style={{ 
                 display: 'flex', 
                 alignItems: 'center', 
@@ -1078,6 +1072,27 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
                   📝 {problem.testCaseCount} test cases
                 </span>
               )}
+              {(() => {
+                const isCompleted = userProfile?.completedMilestones?.some(
+                  (m: any) => m.milestoneId === problem.milestoneId
+                );
+                const completedData = userProfile?.completedMilestones?.find(
+                  (m: any) => m.milestoneId === problem.milestoneId
+                );
+                
+                return isCompleted && completedData ? (
+                  <span style={{
+                    background: '#28a745',
+                    color: 'white',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    fontWeight: 'bold'
+                  }}>
+                    ✅ Completed ({completedData.score}%)
+                  </span>
+                ) : null;
+              })()}
             </div>
 
             <div style={{
@@ -1094,21 +1109,29 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
               </small>
 
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  onClick={() => handleOpenEditor(problem)}
-                  style={{
-                    padding: '8px 16px',
-                    background: '#007bff',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  Solve 💻
-                </button>
+                {(() => {
+                  const isCompleted = userProfile?.completedMilestones?.some(
+                    (m: any) => m.milestoneId === problem.milestoneId
+                  );
+                  
+                  return (
+                    <button
+                      onClick={() => handleOpenEditor(problem)}
+                      style={{
+                        padding: '8px 16px',
+                        background: isCompleted ? '#28a745' : '#007bff',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '13px',
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      {isCompleted ? 'View ✅' : 'Solve 💻'}
+                    </button>
+                  );
+                })()}
 
                 {isAdmin && (
                   <button
@@ -1142,7 +1165,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
           padding: '60px 20px',
           color: '#999'
         }}>
-          <p style={{ fontSize: '18px', marginBottom: '10px' }}>🔍 No problems available yet</p>
+          <p style={{ fontSize: '18px', marginBottom: '10px' }}>📝 No problems available yet</p>
           <p style={{ fontSize: '14px' }}>
             {isAdmin ? 'Click "Add Problem" to create your first coding challenge!' : 'Check back later for new challenges!'}
           </p>
@@ -1152,6 +1175,7 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
       {selectedProblem && (
         <CodeEditor
           milestone={selectedProblem}
+          userProfile={userProfile}
           onClose={handleCloseEditor}
           onSubmitSuccess={handleSubmitSuccess}
         />

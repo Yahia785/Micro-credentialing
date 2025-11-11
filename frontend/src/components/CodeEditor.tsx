@@ -39,11 +39,12 @@ interface Milestone {
 
 interface CodeEditorProps {
   milestone: Milestone;
+  userProfile: any;
   onClose: () => void;
   onSubmitSuccess?: () => void;
 }
 
-export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorProps) {
+export function CodeEditor({ milestone, userProfile, onClose, onSubmitSuccess }: CodeEditorProps) {
   // Default language and starter code if not provided
   const defaultLanguage = milestone.language || 'python';
   const defaultStarterCode = milestone.starterCode || getDefaultStarterCode(defaultLanguage);
@@ -55,11 +56,21 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
   const [activeTab, setActiveTab] = useState<'description' | 'output'>('description');
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'success' | 'failed'>('idle');
   const [copiedToClipboard, setCopiedToClipboard] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
   
   // Test cases state
   const [sampleTestCases, setSampleTestCases] = useState<TestCase[]>([]);
   const [loadingTestCases, setLoadingTestCases] = useState(true);
   const [testCasesError, setTestCasesError] = useState<string | null>(null);
+
+  // Check if milestone is already completed
+  const isAlreadyCompleted = userProfile?.completedMilestones?.some(
+    (m: any) => m.milestoneId === milestone.milestoneId
+  );
+  
+  const completedMilestone = userProfile?.completedMilestones?.find(
+    (m: any) => m.milestoneId === milestone.milestoneId
+  );
 
   // Reset code when milestone changes
   useEffect(() => {
@@ -68,6 +79,7 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
     setTestResults([]);
     setSubmissionStatus('idle');
     setCopiedToClipboard(false);
+    setHasSubmitted(false);
   }, [milestone.milestoneId, defaultStarterCode]);
 
   // Fetch test cases when milestone changes
@@ -168,10 +180,12 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
       if (result.error) {
         setOutput(`❌ Error: ${result.error}`);
         setSubmissionStatus('failed');
+        setHasSubmitted(true);
       } else if (result.submission) {
         const { status, passedTests, totalTests, testResults: submissionResults } = result.submission;
         
         setTestResults(submissionResults || []);
+        setHasSubmitted(true);
         
         if (status === 'passed') {
           setOutput(
@@ -179,26 +193,22 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
             `All ${totalTests} test cases passed!\n\n` +
             `✅ Your solution has been accepted\n` +
             `🏆 Your credential will be awarded shortly\n\n` +
-            `Great job! You can now move on to the next problem.`
+            `Great job! You can now close the editor and move on to the next problem.`
           );
           setSubmissionStatus('success');
           
-          // Call success callback after a delay
-          setTimeout(() => {
-            if (onSubmitSuccess) {
-              onSubmitSuccess();
-            }
-          }, 2000);
+          // Don't call onSubmitSuccess here - let the Close button handle it
         } else {
           setOutput(
             `📊 Submission Results: ${passedTests}/${totalTests} test cases passed\n\n` +
             `❌ Some test cases failed.\n\n` +
-            `Please review the failed test cases below, fix your code in OnlineGDB, and try again.`
+            `You can review the results below. The Submit button is now disabled.`
           );
           setSubmissionStatus('failed');
         }
       } else {
         setOutput('⚠️ Submission completed but no results received. Please try again.');
+        setHasSubmitted(true);
       }
     } catch (error: any) {
       console.error('❌ Error submitting code:', error);
@@ -208,6 +218,7 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
         `Please check your internet connection and try again.`
       );
       setSubmissionStatus('failed');
+      setHasSubmitted(true);
     } finally {
       setIsSubmitting(false);
     }
@@ -290,6 +301,18 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
               }}>
                 {milestone.difficulty}
               </span>
+              {isAlreadyCompleted && (
+                <span style={{
+                  backgroundColor: '#28a745',
+                  color: 'white',
+                  padding: '6px 12px',
+                  borderRadius: '4px',
+                  fontSize: '14px',
+                  fontWeight: 'bold'
+                }}>
+                  ✅ Completed
+                </span>
+              )}
             </div>
             {milestone.concept && (
               <p style={{
@@ -304,7 +327,13 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
             )}
           </div>
           <button
-            onClick={onClose}
+            onClick={() => {
+              // Call onSubmitSuccess if there was a successful submission
+              if (submissionStatus === 'success' && onSubmitSuccess) {
+                onSubmitSuccess();
+              }
+              onClose();
+            }}
             style={{
               padding: '8px 16px',
               backgroundColor: '#6c757d',
@@ -319,6 +348,22 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
             Close
           </button>
         </div>
+
+        {/* Already Completed Banner */}
+        {isAlreadyCompleted && completedMilestone && (
+          <div style={{
+            padding: '15px 30px',
+            backgroundColor: '#d4edda',
+            borderBottom: '2px solid #28a745',
+            color: '#155724'
+          }}>
+            <strong>🏆 You have already completed this problem!</strong>
+            <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
+              Score: {completedMilestone.passedTests}/{completedMilestone.totalTests} ({completedMilestone.score}%) | 
+              Completed on: {new Date(completedMilestone.completedAt).toLocaleDateString()}
+            </p>
+          </div>
+        )}
 
         {/* Main Content Area */}
         <div style={{
@@ -663,21 +708,27 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button
                   onClick={handleSubmit}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || hasSubmitted || isAlreadyCompleted}
                   style={{
                     padding: '10px 20px',
-                    backgroundColor: isSubmitting ? '#6c757d' : '#28a745',
+                    backgroundColor: (isSubmitting || hasSubmitted || isAlreadyCompleted) ? '#6c757d' : '#28a745',
                     color: 'white',
                     border: 'none',
                     borderRadius: '4px',
-                    cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                    cursor: (isSubmitting || hasSubmitted || isAlreadyCompleted) ? 'not-allowed' : 'pointer',
                     fontSize: '14px',
                     fontWeight: 'bold',
-                    opacity: isSubmitting ? 0.6 : 1
+                    opacity: (isSubmitting || hasSubmitted || isAlreadyCompleted) ? 0.6 : 1
                   }}
-                  title="Submit for final grading (uses Judge0)"
+                  title={
+                    isAlreadyCompleted 
+                      ? 'Already completed'
+                      : hasSubmitted
+                      ? 'Already submitted in this session'
+                      : 'Submit for final grading (uses Judge0)'
+                  }
                 >
-                  {isSubmitting ? '⏳ Submitting...' : '✅ Submit'}
+                  {isSubmitting ? '⏳ Submitting...' : hasSubmitted ? '🔒 Submitted' : '✅ Submit'}
                 </button>
               </div>
             </div>
@@ -698,7 +749,8 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
                   automaticLayout: true,
                   tabSize: 4,
                   wordWrap: 'on',
-                  padding: { top: 10 }
+                  padding: { top: 10 },
+                  readOnly: isAlreadyCompleted
                 }}
               />
             </div>
@@ -706,12 +758,16 @@ export function CodeEditor({ milestone, onClose, onSubmitSuccess }: CodeEditorPr
             {/* Editor Footer with Instructions */}
             <div style={{
               padding: '15px 20px',
-              backgroundColor: '#fff3cd',
-              borderTop: '2px solid #ffc107',
+              backgroundColor: isAlreadyCompleted ? '#d4edda' : '#fff3cd',
+              borderTop: `2px solid ${isAlreadyCompleted ? '#28a745' : '#ffc107'}`,
               fontSize: '13px',
-              color: '#856404'
+              color: isAlreadyCompleted ? '#155724' : '#856404'
             }}>
-              <strong>💡 Workflow:</strong> Copy code → Test in OnlineGDB → Paste final solution here → Submit
+              <strong>💡 {isAlreadyCompleted ? 'Already Completed' : 'Workflow'}:</strong> {
+                isAlreadyCompleted 
+                  ? 'You have already completed this problem. Editor is read-only.'
+                  : 'Copy code → Test in OnlineGDB → Paste final solution here → Submit'
+              }
             </div>
           </div>
         </div>
