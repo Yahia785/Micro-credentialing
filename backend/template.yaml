@@ -31,7 +31,7 @@ Globals:
         COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
         JUDGE0_API_KEY: "{{resolve:ssm:/micro-credentialing/judge0-api-key:1}}"
         JUDGE0_API_HOST: "judge0-ce.p.rapidapi.com"
-
+        PROCTORING_BUCKET_NAME: "micro-credentialing-proctoring-recordings"
 # ==========================================
 # RESOURCES
 # ==========================================
@@ -402,6 +402,53 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBReadPolicy:
+            TableName: !Ref SubmissionsTable
+
+# ==========================================
+  # PROCTORING FUNCTIONS
+  # ==========================================
+
+  # ------------------------------------------
+  # LAMBDA: Generate Presigned Upload URLs
+  # ------------------------------------------
+  GenerateUploadUrlsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/proctoring/generate-upload-urls/
+      Handler: index.handler
+      Description: Generate presigned S3 URLs for proctoring recording uploads
+      Events:
+        GenerateUrls:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/upload-urls
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - S3CrudPolicy:
+            BucketName: micro-credentialing-proctoring-recordings
+  # ------------------------------------------
+  # LAMBDA: Save Recording Metadata
+  # ------------------------------------------
+  SaveRecordingMetadataFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/proctoring/save-recording-metadata/
+      Handler: index.handler
+      Description: Save proctoring recording metadata to DynamoDB
+      Events:
+        SaveMetadata:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/recording-metadata
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
             TableName: !Ref SubmissionsTable
 
   # ==========================================
