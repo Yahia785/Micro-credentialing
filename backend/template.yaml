@@ -31,7 +31,7 @@ Globals:
         COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
         JUDGE0_API_KEY: "{{resolve:ssm:/micro-credentialing/judge0-api-key:1}}"
         JUDGE0_API_HOST: "judge0-ce.p.rapidapi.com"
-        PROCTORING_BUCKET_NAME: "micro-credentialing-proctoring-recordings"
+        PROCTORING_BUCKET_NAME: "micro-credentialing-recordings"
 # ==========================================
 # RESOURCES
 # ==========================================
@@ -428,7 +428,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - S3CrudPolicy:
-            BucketName: micro-credentialing-proctoring-recordings
+            BucketName: micro-credentialing-recordings
   # ------------------------------------------
   # LAMBDA: Save Recording Metadata
   # ------------------------------------------

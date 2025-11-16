@@ -4,10 +4,12 @@ const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 
 // Initialize S3 client
-const s3Client = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+const s3Client = new S3Client({ 
+  region: process.env.AWS_REGION || 'us-east-1'
+});
 
 // S3 bucket name from environment variable
-const BUCKET_NAME = process.env.PROCTORING_BUCKET_NAME || 'micro-credentialing-proctoring-recordings';
+const BUCKET_NAME = process.env.PROCTORING_BUCKET_NAME || 'micro-credentialing-recordings';
 
 /**
  * Lambda Handler: Generate Presigned Upload URLs
@@ -17,14 +19,13 @@ const BUCKET_NAME = process.env.PROCTORING_BUCKET_NAME || 'micro-credentialing-p
  * Request Body:
  * {
  *   submissionId: "sub_123",
- *   fileType: "webcam" | "screen" | "audio" | "environment-scan" | "screen-verification",
- *   chunkIndex: 0 (optional, for chunked uploads)
+ *   fileType: "webcam" | "screen"
  * }
  * 
  * Response:
  * {
  *   uploadUrl: "https://s3.amazonaws.com/...",
- *   key: "recordings/user123/sub_456/webcam-chunk-0.webm",
+ *   key: "recordings/user123/sub_456/webcam.webm",
  *   expiresIn: 1800
  * }
  */
@@ -41,7 +42,7 @@ exports.handler = async (event) => {
     
     // Parse request body
     const body = JSON.parse(event.body || '{}');
-    const { submissionId, fileType, chunkIndex } = body;
+    const { submissionId, fileType } = body;
     
     // Validate required fields
     if (!submissionId) {
@@ -53,39 +54,42 @@ exports.handler = async (event) => {
     }
     
     // Validate fileType
-    const validFileTypes = ['webcam', 'screen', 'audio', 'environment-scan', 'screen-verification'];
+    const validFileTypes = ['webcam', 'screen'];
     if (!validFileTypes.includes(fileType)) {
       return errorResponse(400, `fileType must be one of: ${validFileTypes.join(', ')}`);
     }
     
     // Generate S3 key (file path)
-    let s3Key;
-    if (chunkIndex !== undefined && chunkIndex !== null) {
-      // Chunked upload: recordings/userId/submissionId/fileType-chunk-0.webm
-      s3Key = `recordings/${userId}/${submissionId}/${fileType}-chunk-${chunkIndex}.webm`;
-    } else {
-      // Single file upload: recordings/userId/submissionId/fileType.webm
-      s3Key = `recordings/${userId}/${submissionId}/${fileType}.webm`;
-    }
+    const s3Key = `recordings/${userId}/${submissionId}/${fileType}.webm`;
     
     console.log('Generating presigned URL for:', {
       userId,
       submissionId,
       fileType,
-      chunkIndex,
       s3Key
     });
     
-    // Create S3 PutObject command
+    // Create S3 PutObject command with metadata
+    // IMPORTANT: ChecksumAlgorithm must NOT be set to avoid signature issues
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
       Key: s3Key,
-      ContentType: 'video/webm', // For video/audio files
+      ContentType: 'video/webm',
+      Metadata: {
+        'uploaded-by': userId,
+        'submission-id': submissionId,
+        'file-type': fileType,
+        'uploaded-at': new Date().toISOString()
+      }
+      // DO NOT set ChecksumAlgorithm - it causes signature mismatches with browsers
     });
     
     // Generate presigned URL (valid for 30 minutes)
+    // Do NOT add unhoistableHeaders or signableHeaders
     const expiresIn = 1800; // 30 minutes in seconds
-    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
+    const uploadUrl = await getSignedUrl(s3Client, command, { 
+      expiresIn
+    });
     
     console.log('Presigned URL generated successfully');
     

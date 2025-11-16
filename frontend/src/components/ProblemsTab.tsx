@@ -701,13 +701,13 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
             marginBottom: '20px',
             border: '1px solid #0066cc'
           }}>
-            <h4 style={{ color: '#0066cc', marginTop: 0, marginBottom: '10px' }}>ℹ️ How Test Cases Work</h4>
+            {/* <h4 style={{ color: '#0066cc', marginTop: 0, marginBottom: '10px' }}>ℹ️ How Test Cases Work</h4>
             <ul style={{ color: '#333', marginBottom: 0, paddingLeft: '20px' }}>
               <li>Each input field represents one parameter</li>
               <li>Inputs will be sent to Judge0 as separate lines (one per parameter)</li>
               <li>Click "+ Add Input Field" to add more parameters</li>
               <li>Mark as "Hidden" to use for grading only</li>
-            </ul>
+            </ul> */}
           </div>
 
           <div style={{

@@ -79,7 +79,7 @@ exports.handler = async (event) => {
     }
     
     // Build simplified proctoring data
-    const bucketName = process.env.PROCTORING_BUCKET_NAME || 'micro-credentialing-proctoring-recordings';
+    const bucketName = process.env.PROCTORING_BUCKET_NAME || 'micro-credentialing-recordings';
     const recordings = {};
     
     if (webcamKey) {
