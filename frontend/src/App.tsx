@@ -5,7 +5,6 @@ import { createUserProfile, getUserProfile } from "./api/users";
 import { EditProfile } from './components/EditProfile';
 import { Tabs } from './components/Tabs';
 import { ProblemsTab } from './components/ProblemsTab';
-import { RecordingTest } from './components/proctoring/RecordingTest'; // ← ADD THIS IMPORT
 import './App.css';
 
 function UserProfileLoader({ user, signOut }: any) {
@@ -212,19 +211,6 @@ function UserProfileLoader({ user, signOut }: any) {
 }
 
 function App() {
-  // ============================================
-  // TEMPORARY: Test mode for recording components
-  // Set to true to test recording functionality
-  // Set to false to use normal app
-  // ============================================
-  const TEST_MODE = true; // ← CHANGE THIS
-
-  // If in test mode, show recording test page
-  if (TEST_MODE) {
-    return <RecordingTest />;
-  }
-
-  // Normal app flow with authentication
   return (
     <Authenticator>
       {({ signOut, user }) => (

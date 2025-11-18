@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { submitCode } from '../api/submissions';
 import { getTestCases } from '../api/testcases';
 import { TestCaseResult } from './TestCaseResult';
+import { uploadRecording, saveRecordingMetadata } from '../api/proctoring';
+import { fetchAuthSession } from 'aws-amplify/auth';
 
 interface TestResult {
   testCaseId?: string;
@@ -40,11 +42,20 @@ interface Milestone {
 interface CodeEditorProps {
   milestone: Milestone;
   userProfile: any;
+  webcamStream: MediaStream | null;
+  screenStream: MediaStream | null;
   onClose: () => void;
   onSubmitSuccess?: () => void;
 }
 
-export function CodeEditor({ milestone, userProfile, onClose, onSubmitSuccess }: CodeEditorProps) {
+export function CodeEditor({ 
+  milestone, 
+  userProfile, 
+  webcamStream,
+  screenStream,
+  onClose, 
+  onSubmitSuccess 
+}: CodeEditorProps) {
   // Default language and starter code if not provided
   const defaultLanguage = milestone.language || 'python';
   const defaultStarterCode = milestone.starterCode || getDefaultStarterCode(defaultLanguage);
@@ -62,6 +73,16 @@ export function CodeEditor({ milestone, userProfile, onClose, onSubmitSuccess }:
   const [sampleTestCases, setSampleTestCases] = useState<TestCase[]>([]);
   const [loadingTestCases, setLoadingTestCases] = useState(true);
   const [testCasesError, setTestCasesError] = useState<string | null>(null);
+  
+  // Proctoring state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingStartTime, setRecordingStartTime] = useState<string | null>(null);
+  const webcamRecorderRef = useRef<MediaRecorder | null>(null);
+  const screenRecorderRef = useRef<MediaRecorder | null>(null);
+  
+  // USE REFS FOR CHUNKS (instead of state to avoid async issues)
+  const webcamChunksRef = useRef<Blob[]>([]);
+  const screenChunksRef = useRef<Blob[]>([]);
 
   // Check if milestone is already completed
   const isAlreadyCompleted = userProfile?.completedMilestones?.some(
@@ -112,6 +133,128 @@ export function CodeEditor({ milestone, userProfile, onClose, onSubmitSuccess }:
     fetchTestCases();
   }, [milestone.milestoneId]);
 
+// Start recording when component mounts with streams
+useEffect(() => {
+  let mounted = true;
+  
+  if (webcamStream && screenStream && !isRecording && mounted) {
+    startRecording();
+  }
+  
+  // Cleanup on unmount only
+  return () => {
+    mounted = false;
+    // Only stop if component is actually unmounting
+    if (webcamRecorderRef.current && webcamRecorderRef.current.state !== 'inactive') {
+      console.log('🛑 Cleanup: Stopping webcam recorder');
+      webcamRecorderRef.current.stop();
+    }
+    if (screenRecorderRef.current && screenRecorderRef.current.state !== 'inactive') {
+      console.log('🛑 Cleanup: Stopping screen recorder');
+      screenRecorderRef.current.stop();
+    }
+  };
+}, []); // EMPTY DEPS - only run once on mount!
+
+const startRecording = () => {
+  if (!webcamStream || !screenStream) {
+    console.log('⚠️ Cannot start recording - streams not available');
+    return;
+  }
+  
+  // Prevent starting if already recording
+  if (isRecording) {
+    console.log('⚠️ Already recording, skipping start');
+    return;
+  }
+  
+  try {
+    console.log('🔴 Starting proctoring recording...');
+    const startTime = new Date().toISOString();
+    setRecordingStartTime(startTime);
+    
+    // Clear previous chunks
+    webcamChunksRef.current = [];
+    screenChunksRef.current = [];
+    
+    // Start webcam recording
+    const webcamMR = new MediaRecorder(webcamStream, {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 2500000
+    });
+    
+    webcamMR.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) {
+        webcamChunksRef.current.push(e.data);
+        console.log('📹 Webcam chunk received:', e.data.size, 'bytes, total chunks:', webcamChunksRef.current.length);
+      }
+    };
+    
+    webcamMR.onstop = () => {
+      console.log('📹 Webcam recording stopped, total chunks:', webcamChunksRef.current.length);
+    };
+    
+    webcamMR.onerror = (e) => {
+      console.error('❌ Webcam recorder error:', e);
+    };
+    
+    webcamMR.start(1000); // Collect data every second
+    webcamRecorderRef.current = webcamMR; // Use ref instead of setState
+    console.log('✅ Webcam recorder started, state:', webcamMR.state);
+    
+    // Start screen recording
+    const screenMR = new MediaRecorder(screenStream, {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 5000000
+    });
+    
+    screenMR.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) {
+        screenChunksRef.current.push(e.data);
+        console.log('🖥️ Screen chunk received:', e.data.size, 'bytes, total chunks:', screenChunksRef.current.length);
+      }
+    };
+    
+    screenMR.onstop = () => {
+      console.log('🖥️ Screen recording stopped, total chunks:', screenChunksRef.current.length);
+    };
+    
+    screenMR.onerror = (e) => {
+      console.error('❌ Screen recorder error:', e);
+    };
+    
+    screenMR.start(1000); // Collect data every second
+    screenRecorderRef.current = screenMR; // Use ref instead of setState
+    console.log('✅ Screen recorder started, state:', screenMR.state);
+    
+    setIsRecording(true);
+    console.log('✅ Recording started successfully at', startTime);
+  } catch (err) {
+    console.error('❌ Failed to start recording:', err);
+  }
+};
+
+const stopRecording = () => {
+  console.log('⏹️ Stopping proctoring recording...');
+  
+  if (webcamRecorderRef.current) {
+    console.log('Webcam recorder state:', webcamRecorderRef.current.state);
+    if (webcamRecorderRef.current.state !== 'inactive') {
+      webcamRecorderRef.current.stop();
+    }
+  }
+  
+  if (screenRecorderRef.current) {
+    console.log('Screen recorder state:', screenRecorderRef.current.state);
+    if (screenRecorderRef.current.state !== 'inactive') {
+      screenRecorderRef.current.stop();
+    }
+  }
+  
+  setIsRecording(false);
+  console.log('⏹️ Recording stop initiated');
+};
+
   // Lock body scroll when modal is open
   useEffect(() => {
     // Save original body overflow
@@ -160,6 +303,12 @@ export function CodeEditor({ milestone, userProfile, onClose, onSubmitSuccess }:
       return;
     }
 
+    // STOP RECORDING BEFORE SUBMISSION
+    stopRecording();
+    
+    // Wait for recordings to finalize
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     setIsSubmitting(true);
     setOutput('⏳ Submitting your code to Judge0 for grading...\n\nPlease wait...');
     setTestResults([]);
@@ -182,17 +331,96 @@ export function CodeEditor({ milestone, userProfile, onClose, onSubmitSuccess }:
         setSubmissionStatus('failed');
         setHasSubmitted(true);
       } else if (result.submission) {
-        const { status, passedTests, totalTests, testResults: submissionResults } = result.submission;
+        const { status, passedTests, totalTests, testResults: submissionResults, submissionId } = result.submission;
         
         setTestResults(submissionResults || []);
         setHasSubmitted(true);
+        
+        // DEBUG: Log all values to see what's available
+        console.log('🔍 DEBUG - Upload Check:', {
+          submissionId: submissionId,
+          webcamChunksLength: webcamChunksRef.current.length,
+          screenChunksLength: screenChunksRef.current.length,
+          recordingStartTime: recordingStartTime,
+          willUpload: !!(submissionId && webcamChunksRef.current.length > 0 && screenChunksRef.current.length > 0 && recordingStartTime)
+        });
+        
+        // UPLOAD PROCTORING RECORDINGS
+        if (submissionId && webcamChunksRef.current.length > 0 && screenChunksRef.current.length > 0 && recordingStartTime) {
+          try {
+            console.log('📤 Uploading proctoring recordings for submission:', submissionId);
+            
+            // Get user ID
+            const session = await fetchAuthSession();
+            const userId = session.tokens?.idToken?.payload.sub as string;
+            
+            if (!userId) {
+              console.error('❌ No user ID found - cannot upload recordings');
+            } else {
+              // Create blobs from chunks (using refs now!)
+              const webcamBlob = new Blob(webcamChunksRef.current, { type: 'video/webm' });
+              const screenBlob = new Blob(screenChunksRef.current, { type: 'video/webm' });
+              
+              console.log('📹 Webcam blob size:', (webcamBlob.size / 1024 / 1024).toFixed(2), 'MB');
+              console.log('🖥️ Screen blob size:', (screenBlob.size / 1024 / 1024).toFixed(2), 'MB');
+              
+              const completedAt = new Date().toISOString();
+              
+              // Upload webcam recording
+              console.log('📤 Uploading webcam recording...');
+              const webcamKey = await uploadRecording(
+                submissionId,
+                'webcam',
+                webcamBlob,
+                recordingStartTime,
+                completedAt
+              );
+              console.log('✅ Webcam uploaded:', webcamKey);
+              
+              // Upload screen recording
+              console.log('📤 Uploading screen recording...');
+              const screenKey = await uploadRecording(
+                submissionId,
+                'screen',
+                screenBlob,
+                recordingStartTime,
+                completedAt
+              );
+              console.log('✅ Screen uploaded:', screenKey);
+              
+              // Save metadata to DynamoDB
+              console.log('💾 Saving recording metadata to DynamoDB...');
+              await saveRecordingMetadata({
+                submissionId,
+                webcamKey,
+                screenKey,
+                startedAt: recordingStartTime,
+                completedAt
+              });
+              
+              console.log('✅ All proctoring recordings uploaded and metadata saved successfully!');
+            }
+          } catch (uploadErr: any) {
+            console.error('❌ Failed to upload proctoring recordings:', uploadErr);
+            console.error('Error details:', uploadErr.message);
+            // Don't fail the submission if recording upload fails
+          }
+        } else {
+          console.warn('⚠️ Skipping recording upload - missing data:', {
+            hasSubmissionId: !!submissionId,
+            hasWebcamChunks: webcamChunksRef.current.length > 0,
+            hasScreenChunks: screenChunksRef.current.length > 0,
+            hasRecordingStartTime: !!recordingStartTime
+          });
+        }
         
         if (status === 'passed') {
           setOutput(
             `🎉 CONGRATULATIONS! 🎉\n\n` +
             `All ${totalTests} test cases passed!\n\n` +
             `✅ Your solution has been accepted\n` +
-            `🏆 Your credential will be awarded shortly\n\n` +
+            `🏆 Your credential will be awarded shortly\n` +
+            `📹 Proctoring recordings uploaded to S3\n\n` +
             `Great job! You can now close the editor and move on to the next problem.`
           );
           setSubmissionStatus('success');

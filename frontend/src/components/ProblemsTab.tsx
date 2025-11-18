@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { getAllMilestones, createMilestone, deleteMilestone } from '../api/milestones';
 import { createTestCasesBatch } from '../api/testcases';
 import { CodeEditor } from './CodeEditor';
+import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
 
 interface Problem {
   milestoneId: string;
@@ -39,7 +40,11 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
   const [selectedProblem, setSelectedProblem] = useState<Problem | null>(null);
   const [creationStep, setCreationStep] = useState<1 | 2>(1);
   const [createdProblemId, setCreatedProblemId] = useState<string | null>(null);
-  
+  const [showProctoringInstructions, setShowProctoringInstructions] = useState(false);
+  const [pendingProblem, setPendingProblem] = useState<Problem | null>(null);
+  const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+
   const [newProblem, setNewProblem] = useState({
     title: '',
     description: '',
@@ -262,13 +267,43 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
     }
   };
 
-  const handleOpenEditor = (problem: Problem) => {
-    console.log('Opening editor for problem with language:', problem.language);
-    setSelectedProblem(problem);
+const handleOpenEditor = (problem: Problem) => {
+    console.log('Opening proctoring instructions for problem:', problem.title);
+    setPendingProblem(problem);
+    setShowProctoringInstructions(true);
   };
 
-  const handleCloseEditor = () => {
+
+  const handleProctoringGranted = (webcam: MediaStream, screen: MediaStream) => {
+    console.log('✅ Proctoring permissions granted');
+    setWebcamStream(webcam);
+    setScreenStream(screen);
+    setShowProctoringInstructions(false);
+    
+    if (pendingProblem) {
+      setSelectedProblem(pendingProblem);
+    }
+  };
+
+  const handleProctoringCancelled = () => {
+    console.log('❌ Proctoring cancelled');
+    setShowProctoringInstructions(false);
+    setPendingProblem(null);
+  };
+
+const handleCloseEditor = () => {
+    // Stop recording streams when closing editor
+    if (webcamStream) {
+      webcamStream.getTracks().forEach(track => track.stop());
+      setWebcamStream(null);
+    }
+    if (screenStream) {
+      screenStream.getTracks().forEach(track => track.stop());
+      setScreenStream(null);
+    }
+    
     setSelectedProblem(null);
+    setPendingProblem(null);
   };
 
   const handleSubmitSuccess = () => {
@@ -1172,10 +1207,20 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
         </div>
       )}
 
+      {showProctoringInstructions && pendingProblem && (
+        <ProctoringInstructions
+          problemTitle={pendingProblem.title}
+          onProceed={handleProctoringGranted}
+          onCancel={handleProctoringCancelled}
+        />
+      )}
+
       {selectedProblem && (
         <CodeEditor
           milestone={selectedProblem}
           userProfile={userProfile}
+          webcamStream={webcamStream}
+          screenStream={screenStream}
           onClose={handleCloseEditor}
           onSubmitSuccess={handleSubmitSuccess}
         />
