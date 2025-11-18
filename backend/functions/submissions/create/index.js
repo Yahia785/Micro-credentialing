@@ -211,23 +211,23 @@ exports.handler = async (event) => {
       updatedAt: new Date().toISOString()
     });
     
-    // If passed all tests, add to user's completedMilestones and update stats
-    if (credentialAwarded) {
-      console.log('All tests passed - adding to completed milestones');
+// Add to user's completedMilestones (whether passed or failed)
+    console.log('Adding submission to completed milestones (pass or fail)');
+    
+    try {
+      // Add to completedMilestones array
+      await addCompletedMilestone(userId, {
+        milestoneId: milestoneId,
+        score: metrics.score,
+        passedTests: metrics.passedTests,
+        totalTests: metrics.totalTests,
+        submissionId: submissionId
+      });
       
-      try {
-        // Add to completedMilestones array
-        await addCompletedMilestone(userId, {
-          milestoneId: milestoneId,
-          score: metrics.score,
-          passedTests: metrics.passedTests,
-          totalTests: metrics.totalTests,
-          submissionId: submissionId
-        });
-        
-        console.log('Added to completedMilestones');
-        
-        // Update user's credential and milestone counts
+      console.log('Added to completedMilestones');
+      
+      // Only update credential count if 100% passed
+      if (credentialAwarded) {
         const user = await getUser(userId);
         if (user) {
           await updateUser(userId, {
@@ -235,12 +235,12 @@ exports.handler = async (event) => {
             milestonesCompleted: (user.milestonesCompleted || 0) + 1
           });
           
-          console.log('Updated user stats');
+          console.log('Updated user stats - credential awarded');
         }
-      } catch (error) {
-        console.error('Error updating user milestones:', error);
-        // Don't fail the submission if this fails
       }
+    } catch (error) {
+      console.error('Error updating user milestones:', error);
+      // Don't fail the submission if this fails
     }
     
     // Check if user is admin to determine what to show

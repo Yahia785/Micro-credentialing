@@ -13,6 +13,7 @@ function UserProfileLoader({ user, signOut }: any) {
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
+   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     async function initializeUser() {
@@ -60,7 +61,7 @@ function UserProfileLoader({ user, signOut }: any) {
     }
     
     initializeUser();
-  }, [user]);
+  }, [user, refreshKey]);
 
   const handleEditClick = () => {
     setIsEditing(true);
@@ -194,15 +195,30 @@ function UserProfileLoader({ user, signOut }: any) {
         )}
 
         {activeTab === 'problems' && (
-          <ProblemsTab userProfile={userProfile} />
+          <ProblemsTab 
+            userProfile={userProfile} 
+            onRefreshNeeded={() => setRefreshKey(prev => prev + 1)} />
         )}
 
         {activeTab === 'credentials' && (
           <div style={{ padding: '20px' }}>
-            <h3 style={{ color: '#333', marginBottom: '15px' }}>Credentials</h3>
-            <p style={{ color: '#333', fontSize: '16px' }}>
-              <strong>Credentials Earned: </strong>{userProfile?.credentialsCount || 0}
-            </p>
+            <h3 style={{ color: '#333', marginBottom: '15px' }}>Credentials & Progress</h3>
+            <div style={{ marginBottom: '20px' }}>
+              <p style={{ color: '#333', fontSize: '16px', marginBottom: '10px' }}>
+                <strong>🏆 Credentials Earned: </strong>{userProfile?.credentialsCount || 0}
+              </p>
+              <p style={{ color: '#666', fontSize: '14px', fontStyle: 'italic' }}>
+                Credentials are awarded for 100% test case completion
+              </p>
+            </div>
+            <div>
+              <p style={{ color: '#333', fontSize: '16px', marginBottom: '10px' }}>
+                <strong>📝 Problems Attempted: </strong>{userProfile?.completedMilestones?.length || 0}
+              </p>
+              <p style={{ color: '#666', fontSize: '14px', fontStyle: 'italic' }}>
+                Total number of problems you have submitted (one submission allowed per problem)
+              </p>
+            </div>
           </div>
         )}
       </div>

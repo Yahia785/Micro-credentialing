@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
-import { submitCode } from '../api/submissions';
+import { submitCode, getSubmission } from '../api/submissions';
 import { getTestCases } from '../api/testcases';
 import { TestCaseResult } from './TestCaseResult';
 import { uploadRecording, saveRecordingMetadata } from '../api/proctoring';
@@ -46,6 +46,7 @@ interface CodeEditorProps {
   screenStream: MediaStream | null;
   onClose: () => void;
   onSubmitSuccess?: () => void;
+  isViewMode?: boolean; // ADD THIS
 }
 
 export function CodeEditor({ 
@@ -54,7 +55,8 @@ export function CodeEditor({
   webcamStream,
   screenStream,
   onClose, 
-  onSubmitSuccess 
+  onSubmitSuccess,
+  isViewMode = false // ADD THIS with default value
 }: CodeEditorProps) {
   // Default language and starter code if not provided
   const defaultLanguage = milestone.language || 'python';
@@ -63,6 +65,8 @@ export function CodeEditor({
   const [code, setCode] = useState(defaultStarterCode);
   const [output, setOutput] = useState('');
   const [testResults, setTestResults] = useState<TestResult[]>([]);
+  const [loadingSubmission, setLoadingSubmission] = useState(false); // ADD THIS
+  const [submissionData, setSubmissionData] = useState<any>(null); // ADD THIS
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'description' | 'output'>('description');
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'success' | 'failed'>('idle');
@@ -93,15 +97,62 @@ export function CodeEditor({
     (m: any) => m.milestoneId === milestone.milestoneId
   );
 
-  // Reset code when milestone changes
+// Reset code when milestone changes OR load submitted code in view mode
   useEffect(() => {
-    setCode(defaultStarterCode);
-    setOutput('');
-    setTestResults([]);
-    setSubmissionStatus('idle');
-    setCopiedToClipboard(false);
-    setHasSubmitted(false);
-  }, [milestone.milestoneId, defaultStarterCode]);
+    async function loadSubmittedCode() {
+      if (isViewMode && completedMilestone?.submissionId) {
+        setLoadingSubmission(true);
+        try {
+          console.log('📖 Loading submitted code for view mode...');
+          console.log('Submission ID:', completedMilestone.submissionId);
+          
+          // Fetch the submission using the submissionId from completedMilestone
+          const result = await getSubmission(completedMilestone.submissionId);
+          
+          if (result.submission) {
+            const submission = result.submission;
+            console.log('✅ Found submitted code:', submission);
+            
+            // Load the code
+            setCode(submission.code);
+            setSubmissionData(submission);
+            
+            // Load test results if available
+            if (submission.testResults) {
+              setTestResults(submission.testResults);
+              setOutput(
+                `🎉 Previous Submission Results\n\n` +
+                `Status: ${submission.status}\n` +
+                `Score: ${submission.passedTests}/${submission.totalTests} (${submission.score}%)\n` +
+                `Submitted: ${new Date(submission.submittedAt || submission.createdAt).toLocaleString()}\n\n` +
+                `View test results below.`
+              );
+              setActiveTab('output');
+            }
+          } else {
+            console.log('⚠️ No submission data found, using starter code');
+            setCode(defaultStarterCode);
+          }
+        } catch (error) {
+          console.error('❌ Error loading submitted code:', error);
+          setCode(defaultStarterCode);
+          setOutput('⚠️ Could not load previous submission. Showing starter code instead.');
+        } finally {
+          setLoadingSubmission(false);
+        }
+      } else {
+        // Not in view mode, reset to starter code
+        setCode(defaultStarterCode);
+        setOutput('');
+        setTestResults([]);
+        setSubmissionStatus('idle');
+        setCopiedToClipboard(false);
+        setHasSubmitted(false);
+      }
+    }
+    
+    loadSubmittedCode();
+  }, [milestone.milestoneId, defaultStarterCode, isViewMode, completedMilestone]);
 
   // Fetch test cases when milestone changes
   useEffect(() => {
@@ -134,8 +185,15 @@ export function CodeEditor({
   }, [milestone.milestoneId]);
 
 // Start recording when component mounts with streams
+// Start recording when component mounts with streams (only if NOT in view mode)
 useEffect(() => {
   let mounted = true;
+  
+  // Skip recording if in view mode
+  if (isViewMode) {
+    console.log('📖 View mode: Skipping recording');
+    return;
+  }
   
   if (webcamStream && screenStream && !isRecording && mounted) {
     startRecording();
@@ -154,7 +212,7 @@ useEffect(() => {
       screenRecorderRef.current.stop();
     }
   };
-}, []); // EMPTY DEPS - only run once on mount!
+}, [isViewMode]); // Add isViewMode as dependency // EMPTY DEPS - only run once on mount!
 
 const startRecording = () => {
   if (!webcamStream || !screenStream) {
@@ -555,12 +613,17 @@ const stopRecording = () => {
             )}
           </div>
           <button
-            onClick={() => {
+            onClick={async () => {
               // Call onSubmitSuccess if there was a successful submission
               if (submissionStatus === 'success' && onSubmitSuccess) {
-                onSubmitSuccess();
+                console.log('✅ Submission successful, refreshing problems list...');
+                await onSubmitSuccess();
+                console.log('✅ Problems list refreshed');
               }
-              onClose();
+              
+              console.log('🔄 Closing editor and reloading problems...');
+              await onClose();
+              console.log('✅ Editor closed and problems updated');
             }}
             style={{
               padding: '8px 16px',
@@ -577,18 +640,27 @@ const stopRecording = () => {
           </button>
         </div>
 
-        {/* Already Completed Banner */}
+        {/* Submission Status Banner */}
         {isAlreadyCompleted && completedMilestone && (
           <div style={{
             padding: '15px 30px',
-            backgroundColor: '#d4edda',
-            borderBottom: '2px solid #28a745',
-            color: '#155724'
+            backgroundColor: completedMilestone.score === 100 ? '#d4edda' : '#f8d7da',
+            borderBottom: `2px solid ${completedMilestone.score === 100 ? '#28a745' : '#dc3545'}`,
+            color: completedMilestone.score === 100 ? '#155724' : '#721c24'
           }}>
-            <strong>🏆 You have already completed this problem!</strong>
+            <strong>
+              {completedMilestone.score === 100 
+                ? '🏆 Problem Completed Successfully!' 
+                : '📝 Submission Recorded'}
+            </strong>
             <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
               Score: {completedMilestone.passedTests}/{completedMilestone.totalTests} ({completedMilestone.score}%) | 
-              Completed on: {new Date(completedMilestone.completedAt).toLocaleDateString()}
+              Submitted on: {new Date(completedMilestone.completedAt).toLocaleDateString()}
+            </p>
+            <p style={{ margin: '5px 0 0 0', fontSize: '13px', fontStyle: 'italic' }}>
+              {completedMilestone.score === 100 
+                ? 'You have successfully completed this problem. Viewing your solution in read-only mode.'
+                : 'You have submitted this problem. Only one submission is allowed per problem. Viewing your submission in read-only mode.'}
             </p>
           </div>
         )}
@@ -879,7 +951,7 @@ const stopRecording = () => {
                   }}>
                     {output || 'Click "Submit" to see results here...'}
                   </pre>
-
+                  
                   {submissionStatus === 'success' && (
                     <div style={{
                       marginTop: '20px',
@@ -936,7 +1008,7 @@ const stopRecording = () => {
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button
                   onClick={handleSubmit}
-                  disabled={isSubmitting || hasSubmitted || isAlreadyCompleted}
+                  disabled={isSubmitting || hasSubmitted || isAlreadyCompleted || isViewMode}
                   style={{
                     padding: '10px 20px',
                     backgroundColor: (isSubmitting || hasSubmitted || isAlreadyCompleted) ? '#6c757d' : '#28a745',
@@ -949,7 +1021,9 @@ const stopRecording = () => {
                     opacity: (isSubmitting || hasSubmitted || isAlreadyCompleted) ? 0.6 : 1
                   }}
                   title={
-                    isAlreadyCompleted 
+                    isViewMode
+                      ? 'View mode - submission disabled'
+                      : isAlreadyCompleted 
                       ? 'Already completed'
                       : hasSubmitted
                       ? 'Already submitted in this session'
@@ -962,7 +1036,26 @@ const stopRecording = () => {
             </div>
 
             {/* Monaco Editor */}
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, position: 'relative' }}>
+              {loadingSubmission && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 10,
+                  color: 'white',
+                  fontSize: '16px',
+                  fontWeight: 'bold'
+                }}>
+                  📖 Loading your submitted code...
+                </div>
+              )}
               <Editor
                 height="100%"
                 language={defaultLanguage}
@@ -978,7 +1071,7 @@ const stopRecording = () => {
                   tabSize: 4,
                   wordWrap: 'on',
                   padding: { top: 10 },
-                  readOnly: isAlreadyCompleted
+                  readOnly: isAlreadyCompleted || isViewMode // ADD isViewMode
                 }}
               />
             </div>
@@ -986,14 +1079,14 @@ const stopRecording = () => {
             {/* Editor Footer with Instructions */}
             <div style={{
               padding: '15px 20px',
-              backgroundColor: isAlreadyCompleted ? '#d4edda' : '#fff3cd',
-              borderTop: `2px solid ${isAlreadyCompleted ? '#28a745' : '#ffc107'}`,
+              backgroundColor: (isAlreadyCompleted || isViewMode) ? '#d4edda' : '#fff3cd',
+              borderTop: `2px solid ${(isAlreadyCompleted || isViewMode) ? '#28a745' : '#ffc107'}`,
               fontSize: '13px',
-              color: isAlreadyCompleted ? '#155724' : '#856404'
+              color: (isAlreadyCompleted || isViewMode) ? '#155724' : '#856404'
             }}>
-              <strong>💡 {isAlreadyCompleted ? 'Already Completed' : 'Workflow'}:</strong> {
-                isAlreadyCompleted 
-                  ? 'You have already completed this problem. Editor is read-only.'
+              <strong>💡 {(isAlreadyCompleted || isViewMode) ? 'View Mode' : 'Workflow'}:</strong> {
+                (isAlreadyCompleted || isViewMode)
+                  ? 'You are viewing your previous submission. Editor is read-only.'
                   : 'Copy code → Test in OnlineGDB → Paste final solution here → Submit'
               }
             </div>

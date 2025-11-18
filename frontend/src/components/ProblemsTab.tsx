@@ -27,9 +27,10 @@ interface TestCaseInput {
 
 interface ProblemsTabProps {
   userProfile: any;
+  onRefreshNeeded?: () => void;
 }
 
-export function ProblemsTab({ userProfile }: ProblemsTabProps) {
+export function ProblemsTab({ userProfile, onRefreshNeeded }: ProblemsTabProps) {
   const userRole = userProfile?.role || 'user';
   const isAdmin = userRole === 'admin';
 
@@ -268,9 +269,24 @@ export function ProblemsTab({ userProfile }: ProblemsTabProps) {
   };
 
 const handleOpenEditor = (problem: Problem) => {
-    console.log('Opening proctoring instructions for problem:', problem.title);
-    setPendingProblem(problem);
-    setShowProctoringInstructions(true);
+    // Check if problem is already completed
+    const isCompleted = userProfile?.completedMilestones?.some(
+      (m: any) => m.milestoneId === problem.milestoneId
+    );
+    
+    if (isCompleted) {
+      // Skip proctoring for completed problems - open directly
+      console.log('Opening completed problem (view mode):', problem.title);
+      setSelectedProblem(problem);
+      // No streams needed for viewing
+      setWebcamStream(null);
+      setScreenStream(null);
+    } else {
+      // Show proctoring instructions for unsolved problems
+      console.log('Opening proctoring instructions for problem:', problem.title);
+      setPendingProblem(problem);
+      setShowProctoringInstructions(true);
+    }
   };
 
 
@@ -291,7 +307,7 @@ const handleOpenEditor = (problem: Problem) => {
     setPendingProblem(null);
   };
 
-const handleCloseEditor = () => {
+const handleCloseEditor = async () => {
     // Stop recording streams when closing editor
     if (webcamStream) {
       webcamStream.getTracks().forEach(track => track.stop());
@@ -302,17 +318,30 @@ const handleCloseEditor = () => {
       setScreenStream(null);
     }
     
+    // Reload problems list
+    console.log('🔄 Reloading problems before closing editor...');
+    await loadProblems();
+    
+    // Trigger user profile refresh in parent component
+    if (onRefreshNeeded) {
+      console.log('🔄 Triggering user profile refresh...');
+      onRefreshNeeded();
+    }
+    
     setSelectedProblem(null);
     setPendingProblem(null);
   };
 
-  const handleSubmitSuccess = () => {
-    loadProblems();
-    setTimeout(() => {
-      setSelectedProblem(null);
-    }, 2000);
+const handleSubmitSuccess = async () => {
+    console.log('🎉 Submission successful, reloading data...');
+    await loadProblems();
+    
+    // Trigger user profile refresh in parent component
+    if (onRefreshNeeded) {
+      onRefreshNeeded();
+    }
   };
-
+  
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty) {
       case 'easy':
@@ -1115,18 +1144,22 @@ const handleCloseEditor = () => {
                   (m: any) => m.milestoneId === problem.milestoneId
                 );
                 
-                return isCompleted && completedData ? (
-                  <span style={{
-                    background: '#28a745',
-                    color: 'white',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    fontWeight: 'bold'
-                  }}>
-                    ✅ Completed ({completedData.score}%)
-                  </span>
-                ) : null;
+                if (isCompleted && completedData) {
+                  const passed = completedData.score === 100;
+                  return (
+                    <span style={{
+                      background: passed ? '#28a745' : '#dc3545',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: 'bold'
+                    }}>
+                      {passed ? '✅' : '❌'} Submitted ({completedData.score}%)
+                    </span>
+                  );
+                }
+                return null;
               })()}
             </div>
 
@@ -1154,7 +1187,7 @@ const handleCloseEditor = () => {
                       onClick={() => handleOpenEditor(problem)}
                       style={{
                         padding: '8px 16px',
-                        background: isCompleted ? '#28a745' : '#007bff',
+                        background: isCompleted ? '#6c757d' : '#007bff',
                         color: 'white',
                         border: 'none',
                         borderRadius: '4px',
@@ -1163,7 +1196,7 @@ const handleCloseEditor = () => {
                         fontWeight: 'bold'
                       }}
                     >
-                      {isCompleted ? 'View ✅' : 'Solve 💻'}
+                      {isCompleted ? 'View 📖' : 'Solve 💻'}
                     </button>
                   );
                 })()}
@@ -1223,6 +1256,7 @@ const handleCloseEditor = () => {
           screenStream={screenStream}
           onClose={handleCloseEditor}
           onSubmitSuccess={handleSubmitSuccess}
+          isViewMode={!webcamStream && !screenStream} // View mode if no streams
         />
       )}
     </div>
