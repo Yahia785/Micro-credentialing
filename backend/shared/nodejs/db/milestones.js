@@ -24,6 +24,8 @@ async function createMilestone(milestoneData) {
       memoryLimit: milestoneData.memoryLimit || 256000,
       sampleTestCases: milestoneData.sampleTestCases || [],
       testCaseCount: milestoneData.testCaseCount || 0,
+      // NEW: BCdiploma template ID for this problem
+      bcdiplomaTemplateId: milestoneData.bcdiplomaTemplateId || null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
@@ -118,6 +120,12 @@ async function updateMilestone(milestoneId, updates) {
   if (updates.testCaseCount !== undefined) {
     updateExpressions.push('testCaseCount = :testCaseCount');
     expressionAttributeValues[':testCaseCount'] = updates.testCaseCount;
+  }
+  
+  // NEW: Allow updating BCdiploma template ID
+  if (updates.bcdiplomaTemplateId !== undefined) {
+    updateExpressions.push('bcdiplomaTemplateId = :bcdiplomaTemplateId');
+    expressionAttributeValues[':bcdiplomaTemplateId'] = updates.bcdiplomaTemplateId;
   }
   
   // Always update the updatedAt timestamp

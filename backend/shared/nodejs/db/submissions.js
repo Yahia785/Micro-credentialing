@@ -27,6 +27,9 @@ async function createSubmission(submissionData) {
       submittedAt: submissionData.submittedAt || new Date().toISOString(),
       completedAt: null,
       credentialAwarded: false,
+      // NEW: Track if credential has been issued via BCdiploma
+      credentialIssued: false,
+      credentialId: null,
       totalExecutionTime: 0,
       averageExecutionTime: 0,
       maxExecutionTime: 0,

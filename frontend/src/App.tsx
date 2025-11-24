@@ -5,6 +5,7 @@ import { createUserProfile, getUserProfile } from "./api/users";
 import { EditProfile } from './components/EditProfile';
 import { Tabs } from './components/Tabs';
 import { ProblemsTab } from './components/ProblemsTab';
+import { AdminReviewsTab } from './components/AdminReviewsTab';
 import './App.css';
 
 function UserProfileLoader({ user, signOut }: any) {
@@ -76,11 +77,18 @@ function UserProfileLoader({ user, signOut }: any) {
     setIsEditing(false);
   };
 
-  const tabs = [
+  const tabs = userProfile?.role === 'admin'
+  ? [
     { id: 'profile', label: 'Profile' },
     { id: 'problems', label: 'Problems' },
+    { id: 'reviews', label: 'Reviews' },
     { id: 'credentials', label: 'Credentials' }
-  ];
+  ]
+: [
+        { id: 'profile', label: 'Profile' },
+        { id: 'problems', label: 'Problems' },
+        { id: 'credentials', label: 'Credentials' }
+      ];
 
   if (loading) {
     return (
@@ -199,6 +207,10 @@ function UserProfileLoader({ user, signOut }: any) {
             userProfile={userProfile} 
             onRefreshNeeded={() => setRefreshKey(prev => prev + 1)} />
         )}
+        {/* NEW: Admin Reviews Tab */}
+        {activeTab === 'reviews' && userProfile?.role === 'admin' && (
+        <AdminReviewsTab />
+       )}
 
         {activeTab === 'credentials' && (
           <div style={{ padding: '20px' }}>

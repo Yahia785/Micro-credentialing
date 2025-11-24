@@ -11,6 +11,16 @@ Parameters:
     Description: Cognito User Pool ID from Amplify
     Default: "us-east-1_CkcMQmOst"
 
+  BCDiplomaApiKeySecretName:
+    Type: String
+    Description: Name of the BCdiploma API Key secret in Secrets Manager
+    Default: "micro-credentialing/bcdiploma-api-key"
+  
+  BCDiplomaIssuerIdSecretName:
+    Type: String
+    Description: Name of the BCdiploma Issuer ID secret in Secrets Manager
+    Default: "micro-credentialing/bcdiploma-issuer-id"    
+
 # ==========================================
 # GLOBALS
 # ==========================================
@@ -32,6 +42,11 @@ Globals:
         JUDGE0_API_KEY: "{{resolve:ssm:/micro-credentialing/judge0-api-key:1}}"
         JUDGE0_API_HOST: "judge0-ce.p.rapidapi.com"
         PROCTORING_BUCKET_NAME: "micro-credentialing-recordings"
+        BCDIPLOMA_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaApiKeySecretName}"
+        BCDIPLOMA_ISSUER_ID_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaIssuerIdSecretName}"
+        BCDIPLOMA_API_URL: "https://api-staging.bcdiploma.com"
+        
+
 # ==========================================
 # RESOURCES
 # ==========================================
@@ -323,7 +338,7 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref MilestonesTable
 
-# ------------------------------------------
+  # ------------------------------------------
   # LAMBDA: Get Test Cases
   # ------------------------------------------
   GetTestCasesFunction:
@@ -404,7 +419,7 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: !Ref SubmissionsTable
 
-# ==========================================
+  # ==========================================
   # PROCTORING FUNCTIONS
   # ==========================================
 
@@ -429,6 +444,7 @@ Resources:
       Policies:
         - S3CrudPolicy:
             BucketName: micro-credentialing-recordings
+
   # ------------------------------------------
   # LAMBDA: Save Recording Metadata
   # ------------------------------------------
@@ -450,6 +466,165 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref SubmissionsTable
+
+  # ==========================================
+  # CREDENTIAL MANAGEMENT FUNCTIONS
+  # ==========================================
+
+  # ------------------------------------------
+  # LAMBDA: Get User Credentials
+  # ------------------------------------------
+  GetUserCredentialsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/credentials/get-user-credentials/
+      Handler: index.handler
+      Description: Get all credentials for the current user
+      Events:
+        GetCredentials:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /credentials
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CredentialsTable
+
+  # ------------------------------------------
+  # LAMBDA: Get Single Credential
+  # ------------------------------------------
+  GetCredentialFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/credentials/get-credential/
+      Handler: index.handler
+      Description: Get a single credential by ID
+      Events:
+        GetCredential:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /credentials/{credentialId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref CredentialsTable
+
+  # ------------------------------------------
+  # LAMBDA: Get Pending Reviews
+  # ------------------------------------------
+  GetPendingReviewsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/credentials/get-pending-reviews/
+      Handler: index.handler
+      Description: Get submissions pending proctoring review (admin only)
+      Events:
+        GetPendingReviews:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /credentials/get-pending-reviews
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref SubmissionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MilestonesTable
+
+  # ------------------------------------------
+  # LAMBDA: Approve Review
+  # ------------------------------------------
+  ApproveReviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/credentials/approve-review/
+      Handler: index.handler
+      Description: Approve proctoring review and issue BCdiploma credential (admin only)
+      Events:
+        ApproveReview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /credentials/approve-review
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubmissionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MilestonesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CredentialsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaApiKeySecretName}*"
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaIssuerIdSecretName}*"
+
+  # ------------------------------------------
+  # LAMBDA: Reject Review
+  # ------------------------------------------
+  RejectReviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/credentials/reject-review/
+      Handler: index.handler
+      Description: Reject proctoring review (admin only)
+      Events:
+        RejectReview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/reject-review
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubmissionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+
+  # ------------------------------------------
+  # LAMBDA: Get Recording URLs
+  # ------------------------------------------
+  GetRecordingUrlsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/credentials/get-recording-urls/
+      Handler: index.handler
+      Description: Get presigned URLs for proctoring recordings (admin only)
+      Events:
+        GetRecordingUrls:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /credentials/get-recording-urls/{submissionId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref SubmissionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - S3ReadPolicy:
+            BucketName: micro-credentialing-recordings
 
   # ==========================================
   # DYNAMODB TABLES
@@ -483,6 +658,8 @@ Resources:
           AttributeType: S
         - AttributeName: userId
           AttributeType: S
+        - AttributeName: submissionId
+          AttributeType: S
       KeySchema:
         - AttributeName: credentialId
           KeyType: HASH
@@ -490,6 +667,12 @@ Resources:
         - IndexName: UserIdIndex
           KeySchema:
             - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: SubmissionIdIndex
+          KeySchema:
+            - AttributeName: submissionId
               KeyType: HASH
           Projection:
             ProjectionType: ALL

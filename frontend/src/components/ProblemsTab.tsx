@@ -54,7 +54,8 @@ export function ProblemsTab({ userProfile, onRefreshNeeded }: ProblemsTabProps) 
     language: 'python',
     starterCode: '',
     timeLimit: 5000,
-    memoryLimit: 256000
+    memoryLimit: 256000,
+    bcdiplomaTemplateId: ''
   });
 
   const [testCases, setTestCases] = useState<TestCaseInput[]>([
@@ -103,7 +104,8 @@ export function ProblemsTab({ userProfile, onRefreshNeeded }: ProblemsTabProps) 
         language: newProblem.language,
         starterCode: newProblem.starterCode,
         timeLimit: newProblem.timeLimit,
-        memoryLimit: newProblem.memoryLimit
+        memoryLimit: newProblem.memoryLimit,
+        bcdiplomaTemplateId: newProblem.bcdiplomaTemplateId || undefined
       });
       
       console.log('Problem created with response:', result);
@@ -171,7 +173,8 @@ export function ProblemsTab({ userProfile, onRefreshNeeded }: ProblemsTabProps) 
         language: 'python',
         starterCode: '',
         timeLimit: 5000,
-        memoryLimit: 256000
+        memoryLimit: 256000,
+        bcdiplomaTemplateId: ''
       });
       setTestCases([{ inputs: ['', ''], expectedOutput: '', isHidden: false }]);
       setCreationStep(1);
@@ -238,7 +241,8 @@ export function ProblemsTab({ userProfile, onRefreshNeeded }: ProblemsTabProps) 
       language: 'python',
       starterCode: '',
       timeLimit: 5000,
-      memoryLimit: 256000
+      memoryLimit: 256000,
+      bcdiplomaTemplateId: ''
     });
     setTestCases([{ inputs: ['', ''], expectedOutput: '', isHidden: false }]);
     setError(null);
@@ -545,6 +549,34 @@ const handleSubmitSuccess = async () => {
             />
             <small style={{ color: '#666', display: 'block', marginTop: '5px' }}>
               This will be shown to users before they start solving
+            </small>
+          </div>
+
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ 
+              display: 'block', 
+              marginBottom: '5px', 
+              fontWeight: 'bold',
+              color: '#333'
+            }}>
+              BCdiploma Template ID:
+            </label>
+            <input
+              type="text"
+              value={newProblem.bcdiplomaTemplateId}
+              onChange={(e) => setNewProblem({ ...newProblem, bcdiplomaTemplateId: e.target.value })}
+              placeholder="e.g., 0x13"
+              style={{
+                width: '100%',
+                padding: '10px',
+                fontSize: '14px',
+                border: '1px solid #ced4da',
+                borderRadius: '4px',
+                boxSizing: 'border-box'
+              }}
+            />
+            <small style={{ color: '#666', display: 'block', marginTop: '5px' }}>
+              The template ID from your BCdiploma account for this problem's certificate
             </small>
           </div>
 

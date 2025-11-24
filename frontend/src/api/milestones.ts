@@ -60,6 +60,7 @@ export async function createMilestone(data: {
   starterCode?: string;
   timeLimit?: number;
   memoryLimit?: number;
+  bcdiplomaTemplateId?: string;
 }) {
   const token = await getAuthToken();
 
@@ -109,6 +110,7 @@ export async function updateMilestone(
     starterCode?: string;
     timeLimit?: number;
     memoryLimit?: number;
+    bcdiplomaTemplateId?: string;
   }
 ) {
   const token = await getAuthToken();
