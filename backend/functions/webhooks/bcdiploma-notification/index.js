@@ -32,10 +32,12 @@ exports.handler = async (event) => {
       campaignId = body.id || body.campaignId;
     }
     
-    if (!campaignId) {
-      console.error('No campaignId found in webhook request');
-      return errorResponse(400, 'Missing campaignId');
-    }
+   if (!campaignId) {
+  return successResponse(200, {
+    message: 'Webhook received but no campaignId provided',
+    error: 'Missing campaignId parameter'
+  });
+}
     
     console.log('Processing webhook for campaign:', campaignId);
     

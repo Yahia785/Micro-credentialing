@@ -6,6 +6,7 @@ import { EditProfile } from './components/EditProfile';
 import { Tabs } from './components/Tabs';
 import { ProblemsTab } from './components/ProblemsTab';
 import { AdminReviewsTab } from './components/AdminReviewsTab';
+import { CredentialsTab } from './components/Credentialstab';
 import './App.css';
 
 function UserProfileLoader({ user, signOut }: any) {
@@ -213,25 +214,7 @@ function UserProfileLoader({ user, signOut }: any) {
        )}
 
         {activeTab === 'credentials' && (
-          <div style={{ padding: '20px' }}>
-            <h3 style={{ color: '#333', marginBottom: '15px' }}>Credentials & Progress</h3>
-            <div style={{ marginBottom: '20px' }}>
-              <p style={{ color: '#333', fontSize: '16px', marginBottom: '10px' }}>
-                <strong>🏆 Credentials Earned: </strong>{userProfile?.credentialsCount || 0}
-              </p>
-              <p style={{ color: '#666', fontSize: '14px', fontStyle: 'italic' }}>
-                Credentials are awarded for 100% test case completion
-              </p>
-            </div>
-            <div>
-              <p style={{ color: '#333', fontSize: '16px', marginBottom: '10px' }}>
-                <strong>📝 Problems Attempted: </strong>{userProfile?.completedMilestones?.length || 0}
-              </p>
-              <p style={{ color: '#666', fontSize: '14px', fontStyle: 'italic' }}>
-                Total number of problems you have submitted (one submission allowed per problem)
-              </p>
-            </div>
-          </div>
+          <CredentialsTab />
         )}
       </div>
     </main>

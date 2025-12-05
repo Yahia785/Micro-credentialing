@@ -44,8 +44,6 @@ Globals:
         PROCTORING_BUCKET_NAME: "micro-credentialing-recordings"
         BCDIPLOMA_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaApiKeySecretName}"
         BCDIPLOMA_ISSUER_ID_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaIssuerIdSecretName}"
-        #BCDIPLOMA_API_KEY_SECRET_ARN: "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJFdmlkZW5aIiwic3ViIjoiQVBJIiwiZXZkel91c2VyX2lkIjoiMjAxMiIsImV2ZHpfaXNzdWVyX2lkIjoiNjkwIiwiZXZkel91c2VyX3JvbGVzIjoiVGVjaG5pY2FsIiwiYXV0aExldmVsIjoxLCJhdXRoZW50aWNhdGVkIjp0cnVlLCJleHAiOjMzNDE5NDMxMTR9.Vr5TXQmapI9OhBGrbI3B_oHWDITQ8dXpGUxv7IhKA-3njn3a-EHBeKeNgFsRwWUUbWZ_lmVOg7hBAoZL2aGp_g"
-        #BCDIPLOMA_ISSUER_ID_SECRET_ARN: "690"
         BCDIPLOMA_API_URL: "https://api-staging.bcdiploma.com"
         
 
@@ -569,6 +567,8 @@ Resources:
             TableName: !Ref UsersTable
         - DynamoDBReadPolicy:
             TableName: !Ref MilestonesTable
+        - DynamoDBCrudPolicy:  
+            TableName: !Ref CredentialsTable
         - Statement:
             - Effect: Allow
               Action:

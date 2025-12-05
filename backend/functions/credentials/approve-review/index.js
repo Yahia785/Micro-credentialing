@@ -2,17 +2,116 @@ const { approveReview } = require('/opt/nodejs/db/proctoring-reviews');
 const { getUser } = require('/opt/nodejs/db/users');
 const { getSubmission, updateSubmission } = require('/opt/nodejs/db/submissions');
 const { getMilestone } = require('/opt/nodejs/db/milestones');
-const { pushCertificate } = require('/opt/nodejs/utils/bcdiploma');
+const { pushCertificate, pullCertificate } = require('/opt/nodejs/utils/bcdiploma');
+const { createCredential } = require('/opt/nodejs/db/credentials');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 
 /**
- * Lambda Handler: Approve Proctoring Review and Initiate BCdiploma Credential
+ * Utility function to wait/sleep
+ */
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Poll BCdiploma for certificate with retries
+ */
+async function pollForCertificate(campaignId, maxAttempts = 6, delayMs = 5000) {
+  console.log(`Starting to poll for campaign ${campaignId}, max attempts: ${maxAttempts}`);
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`Poll attempt ${attempt}/${maxAttempts} for campaign ${campaignId}`);
+    
+    try {
+      const pullResponse = await pullCertificate(campaignId);
+      
+      if (pullResponse.data && pullResponse.data.length > 0) {
+        console.log(`✓ Certificate ready after ${attempt} attempts`);
+        return pullResponse;
+      }
+      
+      console.log(`Certificate not ready yet, waiting ${delayMs}ms...`);
+      
+      // Don't wait after last attempt
+      if (attempt < maxAttempts) {
+        await sleep(delayMs);
+      }
+      
+    } catch (error) {
+      console.error(`Error polling attempt ${attempt}:`, error.message);
+      
+      // If 404, certificate might still be processing
+      if (error.message.includes('404') || error.message.includes('not found')) {
+        console.log(`Certificate still processing, waiting ${delayMs}ms...`);
+        if (attempt < maxAttempts) {
+          await sleep(delayMs);
+        }
+        continue;
+      }
+      
+      // For other errors, throw immediately
+      throw error;
+    }
+  }
+  
+  throw new Error(`Certificate not ready after ${maxAttempts} attempts (${maxAttempts * delayMs / 1000} seconds)`);
+}
+
+/**
+ * Process and save certificate data
+ */
+async function processCertificate(certificate, campaignId, submission, student, milestone) {
+  const submissionId = certificate.ID;
+  
+  console.log(`Processing certificate for submission: ${submissionId}`);
+  
+  // Validate certificate has required fields
+  if (!certificate.key || !certificate.url) {
+    throw new Error('Certificate missing required fields (key or url)');
+  }
+  
+  // Create credential record
+  const credentialData = {
+    userId: submission.userId,
+    milestoneId: submission.milestoneId,
+    submissionId: submissionId,
+    bcdiplomaKey: certificate.key,
+    bcdiplomaUrl: certificate.url,
+    bcdiplomaBadgeUrl: certificate.badge || null,
+    bcdiplomaTemplateId: milestone.bcdiplomaTemplateId,
+    bcdiplomaCampaignId: campaignId,
+    recipientName: student.name || `${certificate.firstName} ${certificate.lastName}`,
+    recipientEmail: student.email,
+    problemTitle: milestone.title,
+    score: submission.score || 0,
+    status: 'issued'
+  };
+  
+  const savedCredential = await createCredential(credentialData);
+  
+  console.log(`Credential created:`, {
+    credentialId: savedCredential.credentialId,
+    certificateUrl: certificate.url,
+    bcdiplomaKey: certificate.key
+  });
+  
+  // Update submission
+  await updateSubmission(submissionId, {
+    credentialIssued: true,
+    credentialId: savedCredential.credentialId
+  });
+  
+  console.log(`✓ Credential issued for submission ${submissionId}`);
+  
+  return savedCredential;
+}
+
+/**
+ * Lambda Handler: Approve Proctoring Review and Issue Credential (WITH POLLING)
  * Endpoint: POST /credentials/approve-review
  * Authorization: Admin only
  * 
- * This marks the submission as approved and initiates BCdiploma credential issuance.
- * The webhook will complete the process when BCdiploma finishes processing.
+ * This marks the submission as approved, pushes to BCdiploma, 
+ * then POLLS until certificate is ready and saves it immediately.
  */
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
@@ -83,26 +182,23 @@ exports.handler = async (event) => {
     
     console.log('Review approved in database. Now pushing to BCdiploma...');
     
-    // Prepare certificate data for BCdiploma - MUST match BCdiploma template exactly
+    // Prepare certificate data for BCdiploma
     const certificateData = [{
-      // Required fields - must match BCdiploma documentation example
-      ID: submissionId, // Unique identifier - CRITICAL for webhook to find this submission
+      ID: submissionId,
       Email: student.email,
       language: 'en',
       firstName: student.name ? student.name.split(' ')[0] : student.email.split('@')[0],
       lastName: student.name ? student.name.split(' ').slice(1).join(' ') : '',
-      obtentionDate: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
-      expirationDate: '', // Empty string for lifelong credential (not null)
-      
-      // Optional fields - can be empty strings
-      assessment: '', // You can populate this with milestone.title if needed
-      linkLabel: '', // e.g., "View Solution" 
-      linkURL: '' // e.g., link to student's solution
+      obtentionDate: new Date().toISOString().split('T')[0],
+      expirationDate: '',
+      assessment: '',
+      linkLabel: '',
+      linkURL: ''
     }];
     
     console.log('Certificate data (BCdiploma format):', JSON.stringify(certificateData, null, 2));
     
-    // Store custom fields in your database (NOT sent to BCdiploma)
+    // Store custom metadata
     const customCredentialMetadata = {
       problemTitle: milestone.title,
       score: submission.score || 0,
@@ -111,46 +207,98 @@ exports.handler = async (event) => {
       completionDate: new Date().toISOString().split('T')[0]
     };
     
-    console.log('Custom metadata (will be stored in DB):', JSON.stringify(customCredentialMetadata, null, 2));
-    
-    // Push to BCdiploma (webhook will complete the process)
+    // Push to BCdiploma
     let pushResult;
     try {
       pushResult = await pushCertificate(
         milestone.bcdiplomaTemplateId,
         certificateData
-        // No options needed - notes and notification added automatically as empty strings
       );
       
       console.log('✓ BCdiploma Push successful. Campaign ID:', pushResult.campaignId);
       
     } catch (bcdiplomaError) {
       console.error('BCdiploma Push API error:', bcdiplomaError);
-      
-      // Return error - don't mark as approved if BCdiploma failed
       return errorResponse(500, 'Failed to initiate credential issuance', bcdiplomaError.message);
     }
     
-    // Mark submission as credential awarded (pending webhook completion)
-    // Store custom metadata here for later retrieval
+    const campaignId = pushResult.campaignId;
+    
+    // Update submission with campaign ID
     await updateSubmission(submissionId, {
       credentialAwarded: true,
-      bcdiplomaCampaignId: pushResult.campaignId,
-      // Store custom metadata in submission record
+      bcdiplomaCampaignId: campaignId,
       credentialMetadata: customCredentialMetadata
     });
     
     console.log('✓ Review approved, credential pushed to BCdiploma');
-    console.log('⏳ Waiting for webhook to complete credential issuance...');
+    console.log('⏳ Now polling for certificate to be ready...');
     
-    // Return success immediately - webhook will save the credential
-    return successResponse(200, {
-      message: 'Review approved successfully. Certificate is being generated and will be available shortly.',
-      submission: updatedSubmission,
-      campaignId: pushResult.campaignId,
-      status: 'processing',
-      note: 'The webhook will save the credential when BCdiploma finishes processing (typically 5-10 seconds)'
-    });
+    // POLLING APPROACH: Wait and poll for certificate
+    let pullResponse;
+    try {
+      // Poll with 6 attempts, 5 seconds apart = max 30 seconds wait
+      pullResponse = await pollForCertificate(campaignId, 2, 30000);
+    } catch (pollError) {
+      console.error('Error polling for certificate:', pollError);
+      
+      // Certificate push succeeded but polling failed
+      // Return partial success - admin can manually pull later
+      return successResponse(200, {
+        message: 'Review approved and pushed to BCdiploma, but certificate is taking longer than expected to generate',
+        submission: updatedSubmission,
+        campaignId: campaignId,
+        status: 'processing',
+        note: 'Certificate is still being generated. It will be available shortly. You may need to refresh or check back in a minute.',
+        error: pollError.message
+      });
+    }
+    
+    // Process the certificate
+    try {
+      if (!pullResponse.data || pullResponse.data.length === 0) {
+        throw new Error('No certificate data in response');
+      }
+      
+      const certificate = pullResponse.data[0]; // Should only be one certificate
+      const savedCredential = await processCertificate(
+        certificate,
+        campaignId,
+        submission,
+        student,
+        milestone
+      );
+      
+      console.log('✓✓✓ Complete! Credential issued successfully');
+      
+      return successResponse(200, {
+        message: 'Review approved and credential issued successfully!',
+        submission: {
+          ...updatedSubmission,
+          credentialIssued: true,
+          credentialId: savedCredential.credentialId
+        },
+        credential: {
+          credentialId: savedCredential.credentialId,
+          certificateUrl: certificate.url,
+          badgeUrl: certificate.badge,
+          bcdiplomaKey: certificate.key
+        },
+        campaignId: campaignId,
+        status: 'completed'
+      });
+      
+    } catch (processError) {
+      console.error('Error processing certificate:', processError);
+      
+      return successResponse(200, {
+        message: 'Review approved and certificate generated, but error saving to database',
+        campaignId: campaignId,
+        status: 'generated_but_not_saved',
+        error: processError.message,
+        note: 'Certificate exists in BCdiploma but could not be saved. Contact support with Campaign ID: ' + campaignId
+      });
+    }
     
   } catch (error) {
     console.error('Error in approve-review handler:', error);
