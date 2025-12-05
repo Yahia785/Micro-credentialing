@@ -1,0 +1,8 @@
+{
+  "name": "configure-webhook",
+  "version": "1.0.0",
+  "description": "One-time setup to configure BCdiploma webhook URL",
+  "main": "index.js",
+  "dependencies": {},
+  "devDependencies": {}
+}

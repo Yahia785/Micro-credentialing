@@ -53,7 +53,8 @@ exports.handler = async (event) => {
       language: body.language || 'python',
       starterCode: body.starterCode || '',
       timeLimit: body.timeLimit || 5000,
-      memoryLimit: body.memoryLimit || 256000
+      memoryLimit: body.memoryLimit || 256000,
+      bcdiplomaTemplateId: body.bcdiplomaTemplateId
     });
     
     console.log('Milestone created:', milestone);

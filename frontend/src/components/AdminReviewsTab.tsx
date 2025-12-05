@@ -285,10 +285,10 @@ export function AdminReviewsTab() {
               
               {/* Student Info */}
               <div style={{ marginBottom: '20px' }}>
-                <p style={{ margin: '5px 0' }}><strong>Student:</strong> {selectedSubmission.studentName}</p>
-                <p style={{ margin: '5px 0' }}><strong>Email:</strong> {selectedSubmission.studentEmail}</p>
-                <p style={{ margin: '5px 0' }}><strong>Problem:</strong> {selectedSubmission.problemTitle}</p>
-                <p style={{ margin: '5px 0' }}>
+                <p style={{ margin: '5px 0', color: '#000' }}><strong>Student:</strong> {selectedSubmission.studentName}</p>
+                <p style={{ margin: '5px 0', color: '#000' }}><strong>Email:</strong> {selectedSubmission.studentEmail}</p>
+                <p style={{ margin: '5px 0', color: '#000' }}><strong>Problem:</strong> {selectedSubmission.problemTitle}</p>
+                <p style={{ margin: '5px 0', color: '#000' }}>
                   <strong>Score:</strong> {selectedSubmission.passedTests}/{selectedSubmission.totalTests} ({selectedSubmission.score}%)
                 </p>
               </div>

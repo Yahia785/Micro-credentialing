@@ -1,0 +1,8 @@
+{
+  "name": "bcdiploma-webhook-handler",
+  "version": "1.0.0",
+  "description": "Receives BCdiploma webhook notifications when certificates are ready",
+  "main": "index.js",
+  "dependencies": {},
+  "devDependencies": {}
+}

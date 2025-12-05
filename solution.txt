@@ -1,16 +1,30 @@
-#include <iostream>
-using namespace std;
+def solution():
+    # Read the array
+    nums = list(map(int, input().split()))
+    
+    # Read the target
+    target = int(input())
+    
+    # Your code here
+    # Find two indices i and j where nums[i] + nums[j] = target
+    # Store the result as: result = f"{i} {j}" where i < j
+    
+    seen = {}  # value -> index
+    i = j = -1
+    for idx, val in enumerate(nums):
+        complement = target - val
+        if complement in seen:
+            i, j = seen[complement], idx
+            break
+        seen[val] = idx
+    
+    if i > j:
+        i, j = j, i
 
-int solution(int a, int b) {
-    return a + b;
-}
+    result = f"{i} {j}"
+    
+    # Print the result
+    print(result)
 
-int main() {
-    int a, b;
-    cin >> a;  // Judge0 provides first number here
-    cin >> b;  // Judge0 provides second number here
-
-    cout << solution(a, b) << endl;  // Output goes to Judge0 for checking
-
-    return 0;
-}
+if __name__ == "__main__":
+    solution()

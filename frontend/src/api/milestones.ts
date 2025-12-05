@@ -64,16 +64,17 @@ export async function createMilestone(data: {
 }) {
   const token = await getAuthToken();
 
-  // Ensure language is included in the request
+  // Build request data with all fields
   const requestData = {
     title: data.title,
     description: data.description,
     difficulty: data.difficulty,
-    language: data.language, // Make sure language is always sent
+    language: data.language,
     ...(data.concept && { concept: data.concept }),
     ...(data.starterCode && { starterCode: data.starterCode }),
     ...(data.timeLimit && { timeLimit: data.timeLimit }),
-    ...(data.memoryLimit && { memoryLimit: data.memoryLimit })
+    ...(data.memoryLimit && { memoryLimit: data.memoryLimit }),
+    ...(data.bcdiplomaTemplateId && { bcdiplomaTemplateId: data.bcdiplomaTemplateId }) // Fixed: Now included
   };
 
   console.log('Creating milestone with data:', requestData);

@@ -27,7 +27,7 @@ Parameters:
 Globals:
   Function:
     Runtime: nodejs18.x
-    Timeout: 60
+    Timeout: 90
     MemorySize: 256
     Layers:
       - !Ref SharedCodeLayer
@@ -44,6 +44,8 @@ Globals:
         PROCTORING_BUCKET_NAME: "micro-credentialing-recordings"
         BCDIPLOMA_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaApiKeySecretName}"
         BCDIPLOMA_ISSUER_ID_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaIssuerIdSecretName}"
+        #BCDIPLOMA_API_KEY_SECRET_ARN: "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJFdmlkZW5aIiwic3ViIjoiQVBJIiwiZXZkel91c2VyX2lkIjoiMjAxMiIsImV2ZHpfaXNzdWVyX2lkIjoiNjkwIiwiZXZkel91c2VyX3JvbGVzIjoiVGVjaG5pY2FsIiwiYXV0aExldmVsIjoxLCJhdXRoZW50aWNhdGVkIjp0cnVlLCJleHAiOjMzNDE5NDMxMTR9.Vr5TXQmapI9OhBGrbI3B_oHWDITQ8dXpGUxv7IhKA-3njn3a-EHBeKeNgFsRwWUUbWZ_lmVOg7hBAoZL2aGp_g"
+        #BCDIPLOMA_ISSUER_ID_SECRET_ARN: "690"
         BCDIPLOMA_API_URL: "https://api-staging.bcdiploma.com"
         
 
@@ -542,14 +544,15 @@ Resources:
             TableName: !Ref MilestonesTable
 
   # ------------------------------------------
-  # LAMBDA: Approve Review
+  # LAMBDA: Approve Review (UPDATED - Now uses webhook)
   # ------------------------------------------
   ApproveReviewFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: functions/credentials/approve-review/
       Handler: index.handler
-      Description: Approve proctoring review and issue BCdiploma credential (admin only)
+      Description: Approve proctoring review and push to BCdiploma (webhook completes process)
+      Timeout: 30  # Reduced from 120 since we don't wait anymore!
       Events:
         ApproveReview:
           Type: Api
@@ -566,8 +569,6 @@ Resources:
             TableName: !Ref UsersTable
         - DynamoDBReadPolicy:
             TableName: !Ref MilestonesTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref CredentialsTable
         - Statement:
             - Effect: Allow
               Action:
@@ -626,6 +627,82 @@ Resources:
         - S3ReadPolicy:
             BucketName: micro-credentialing-recordings
 
+
+# ------------------------------------------
+  # LAMBDA: BCdiploma Webhook Handler (NEW - WEEK 3)
+  # ------------------------------------------
+  BCdiplomaWebhookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/webhooks/bcdiploma-notification/
+      Handler: index.handler
+      Description: Receives BCdiploma webhook notifications when certificates are ready
+      Timeout: 60
+      Events:
+        WebhookGet:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /webhooks/bcdiploma-notification
+            Method: GET
+            Auth:
+              Authorizer: NONE  # Webhook doesn't use Cognito auth
+        WebhookPost:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /webhooks/bcdiploma-notification
+            Method: POST
+            Auth:
+              Authorizer: NONE  # Webhook doesn't use Cognito auth
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref SubmissionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubmissionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref MilestonesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CredentialsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaApiKeySecretName}*"
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaIssuerIdSecretName}*"
+ 
+ # ------------------------------------------
+  # LAMBDA: Configure BCdiploma Webhook (ONE-TIME SETUP)
+  # ------------------------------------------
+  ConfigureWebhookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/webhooks/configure-bcdiploma/
+      Handler: index.handler
+      Description: One-time function to configure BCdiploma webhook URL
+      Timeout: 30
+      Events:
+        ConfigureWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /admin/configure-webhook
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaApiKeySecretName}*"
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaIssuerIdSecretName}*"
+ 
+ 
   # ==========================================
   # DYNAMODB TABLES
   # ==========================================
