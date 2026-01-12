@@ -66,7 +66,7 @@ export function CodeEditor({
   const [output, setOutput] = useState('');
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [loadingSubmission, setLoadingSubmission] = useState(false); // ADD THIS
-  const [submissionData, setSubmissionData] = useState<any>(null); // ADD THIS
+  //const [submissionData, setSubmissionData] = useState<any>(null); // ADD THIS
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'description' | 'output'>('description');
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'success' | 'failed'>('idle');
@@ -115,7 +115,7 @@ export function CodeEditor({
             
             // Load the code
             setCode(submission.code);
-            setSubmissionData(submission);
+        //    setSubmissionData(submission);
             
             // Load test results if available
             if (submission.testResults) {
@@ -422,39 +422,34 @@ const stopRecording = () => {
               console.log('📹 Webcam blob size:', (webcamBlob.size / 1024 / 1024).toFixed(2), 'MB');
               console.log('🖥️ Screen blob size:', (screenBlob.size / 1024 / 1024).toFixed(2), 'MB');
               
-              const completedAt = new Date().toISOString();
+              //const completedAt = new Date().toISOString();
               
-              // Upload webcam recording
-              console.log('📤 Uploading webcam recording...');
-              const webcamKey = await uploadRecording(
-                submissionId,
-                'webcam',
-                webcamBlob,
-                recordingStartTime,
-                completedAt
-              );
-              console.log('✅ Webcam uploaded:', webcamKey);
-              
-              // Upload screen recording
-              console.log('📤 Uploading screen recording...');
-              const screenKey = await uploadRecording(
-                submissionId,
-                'screen',
-                screenBlob,
-                recordingStartTime,
-                completedAt
-              );
-              console.log('✅ Screen uploaded:', screenKey);
-              
-              // Save metadata to DynamoDB
-              console.log('💾 Saving recording metadata to DynamoDB...');
-              await saveRecordingMetadata({
-                submissionId,
-                webcamKey,
-                screenKey,
-                startedAt: recordingStartTime,
-                completedAt
-              });
+              // Define completedAt timestamp
+                const completedAt = new Date().toISOString();
+
+                // Upload webcam recording
+                console.log('📤 Uploading webcam recording...');
+                const webcamKey = await uploadRecording(
+                  submissionId,
+                  'webcam',
+                  webcamBlob
+                );
+
+                // Upload screen recording
+                console.log('📤 Uploading screen recording...');
+                const screenKey = await uploadRecording(
+                  submissionId,
+                  'screen',
+                  screenBlob
+                );
+
+                // Save metadata to DynamoDB
+                console.log('💾 Saving recording metadata to DynamoDB...');
+                await saveRecordingMetadata({
+                  submissionId,
+                  webcamKey,
+                  screenKey
+                });
               
               console.log('✅ All proctoring recordings uploaded and metadata saved successfully!');
             }

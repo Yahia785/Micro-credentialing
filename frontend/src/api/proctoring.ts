@@ -63,8 +63,6 @@ export async function saveRecordingMetadata(data: {
   submissionId: string;
   webcamKey?: string;
   screenKey?: string;
-  startedAt: string;
-  completedAt: string;
 }) {
   const token = await getAuthToken();
 
@@ -95,8 +93,6 @@ export async function uploadRecording(
   submissionId: string,
   fileType: 'webcam' | 'screen',
   blob: Blob,
-  startedAt: string,
-  completedAt: string
 ): Promise<string> {
   try {
     // Step 1: Get presigned upload URL (metadata set by Lambda)
