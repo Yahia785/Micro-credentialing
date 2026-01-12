@@ -6,6 +6,14 @@ Description: Micro-Credentialing Platform Backend
 # PARAMETERS
 # ==========================================
 Parameters:
+  Environment:
+    Type: String
+    Default: "dev"
+    AllowedValues:
+      - dev
+      - production
+    Description: Deployment environment (dev or production)
+  
   CognitoUserPoolId:
     Type: String
     Description: Cognito User Pool ID from Amplify
@@ -19,7 +27,13 @@ Parameters:
   BCDiplomaIssuerIdSecretName:
     Type: String
     Description: Name of the BCdiploma Issuer ID secret in Secrets Manager
-    Default: "micro-credentialing/bcdiploma-issuer-id"    
+    Default: "micro-credentialing/bcdiploma-issuer-id"  
+
+# ==========================================
+# CONDITIONS
+# ==========================================
+Conditions:
+  CreateTables: !Equals [!Ref Environment, "dev"]  
 
 # ==========================================
 # GLOBALS
@@ -33,11 +47,12 @@ Globals:
       - !Ref SharedCodeLayer
     Environment:
       Variables:
-        USERS_TABLE: !Ref UsersTable
-        CREDENTIALS_TABLE: !Ref CredentialsTable
-        MILESTONES_TABLE: !Ref MilestonesTable
-        TESTCASES_TABLE: !Ref TestCasesTable
-        SUBMISSIONS_TABLE: !Ref SubmissionsTable
+        ENVIRONMENT: !Ref Environment
+        USERS_TABLE: Users
+        CREDENTIALS_TABLE: Credentials
+        MILESTONES_TABLE: Milestones
+        TESTCASES_TABLE: TestCases
+        SUBMISSIONS_TABLE: Submissions
         COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
         JUDGE0_API_KEY: "{{resolve:ssm:/micro-credentialing/judge0-api-key:1}}"
         JUDGE0_API_HOST: "judge0-ce.p.rapidapi.com"
@@ -70,7 +85,7 @@ Resources:
   MicroCredentialingAPI:
     Type: AWS::Serverless::Api
     Properties:
-      StageName: dev
+      StageName: !Ref Environment
       Cors:
         AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,Authorization'"
@@ -81,7 +96,6 @@ Resources:
           CognitoAuthorizer:
             Type: COGNITO_USER_POOLS
             UserPoolArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
-
   # ==========================================
   # USER MANAGEMENT FUNCTIONS
   # ==========================================
@@ -106,7 +120,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
 
   # ------------------------------------------
   # LAMBDA: Get User
@@ -136,7 +150,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
 
   # ------------------------------------------
   # LAMBDA: Update User (Name only)
@@ -166,7 +180,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
 
   # ------------------------------------------
   # LAMBDA: Initiate Email Change
@@ -208,7 +222,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
 
   # ==========================================
   # MILESTONE (PROBLEM) MANAGEMENT FUNCTIONS
@@ -234,7 +248,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref MilestonesTable
+            TableName: Milestones
 
   # ------------------------------------------
   # LAMBDA: Get Milestone(s)
@@ -264,7 +278,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref MilestonesTable
+            TableName: Milestones
 
   # ------------------------------------------
   # LAMBDA: Update Milestone
@@ -286,7 +300,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref MilestonesTable
+            TableName: Milestones
 
   # ------------------------------------------
   # LAMBDA: Delete Milestone
@@ -308,7 +322,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref MilestonesTable
+            TableName: Milestones
 
   # ==========================================
   # TEST CASES MANAGEMENT FUNCTIONS
@@ -334,9 +348,9 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref TestCasesTable
+            TableName: TestCases
         - DynamoDBCrudPolicy:
-            TableName: !Ref MilestonesTable
+            TableName: Milestones
 
   # ------------------------------------------
   # LAMBDA: Get Test Cases
@@ -358,11 +372,11 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref TestCasesTable
+            TableName: TestCases
         - DynamoDBReadPolicy:
-            TableName: !Ref MilestonesTable
+            TableName: Milestones
         - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
 
   # ==========================================
   # SUBMISSIONS FUNCTIONS
@@ -389,13 +403,13 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref SubmissionsTable
+            TableName: Submissions
         - DynamoDBReadPolicy:
-            TableName: !Ref TestCasesTable
+            TableName: TestCases
         - DynamoDBReadPolicy:
-            TableName: !Ref MilestonesTable
+            TableName: Milestones
         - DynamoDBCrudPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
 
   # ------------------------------------------
   # LAMBDA: Get Submission
@@ -417,7 +431,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref SubmissionsTable
+            TableName: Submissions
 
   # ==========================================
   # PROCTORING FUNCTIONS
@@ -465,7 +479,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref SubmissionsTable
+            TableName: Submissions
 
   # ==========================================
   # CREDENTIAL MANAGEMENT FUNCTIONS
@@ -491,7 +505,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref CredentialsTable
+            TableName: Credentials
 
   # ------------------------------------------
   # LAMBDA: Get Single Credential
@@ -513,7 +527,7 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref CredentialsTable
+            TableName: Credentials
 
   # ------------------------------------------
   # LAMBDA: Get Pending Reviews
@@ -535,11 +549,11 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref SubmissionsTable
+            TableName: Submissions
         - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
         - DynamoDBReadPolicy:
-            TableName: !Ref MilestonesTable
+            TableName: Milestones
 
   # ------------------------------------------
   # LAMBDA: Approve Review (UPDATED - Now uses webhook)
@@ -562,13 +576,13 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref SubmissionsTable
+            TableName: Submissions
         - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
         - DynamoDBReadPolicy:
-            TableName: !Ref MilestonesTable
+            TableName: Milestones
         - DynamoDBCrudPolicy:  
-            TableName: !Ref CredentialsTable
+            TableName: Credentials
         - Statement:
             - Effect: Allow
               Action:
@@ -597,9 +611,9 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref SubmissionsTable
+            TableName: Submissions
         - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
 
   # ------------------------------------------
   # LAMBDA: Get Recording URLs
@@ -621,9 +635,9 @@ Resources:
               Authorizer: CognitoAuthorizer
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref SubmissionsTable
+            TableName: Submissions
         - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
         - S3ReadPolicy:
             BucketName: micro-credentialing-recordings
 
@@ -657,15 +671,15 @@ Resources:
               Authorizer: NONE  # Webhook doesn't use Cognito auth
       Policies:
         - DynamoDBReadPolicy:
-            TableName: !Ref SubmissionsTable
+            TableName: Submissions
         - DynamoDBCrudPolicy:
-            TableName: !Ref SubmissionsTable
+            TableName: Submissions
         - DynamoDBReadPolicy:
-            TableName: !Ref UsersTable
+            TableName: Users
         - DynamoDBReadPolicy:
-            TableName: !Ref MilestonesTable
+            TableName: Milestones
         - DynamoDBCrudPolicy:
-            TableName: !Ref CredentialsTable
+            TableName: Credentials
         - Statement:
             - Effect: Allow
               Action:
@@ -712,6 +726,9 @@ Resources:
   # ------------------------------------------
   UsersTable:
     Type: AWS::DynamoDB::Table
+    Condition: CreateTables
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: Users
       BillingMode: PAY_PER_REQUEST
@@ -727,6 +744,9 @@ Resources:
   # ------------------------------------------
   CredentialsTable:
     Type: AWS::DynamoDB::Table
+    Condition: CreateTables
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: Credentials
       BillingMode: PAY_PER_REQUEST
@@ -759,6 +779,9 @@ Resources:
   # ------------------------------------------
   MilestonesTable:
     Type: AWS::DynamoDB::Table
+    Condition: CreateTables
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: Milestones
       BillingMode: PAY_PER_REQUEST
@@ -774,6 +797,9 @@ Resources:
   # ------------------------------------------
   TestCasesTable:
     Type: AWS::DynamoDB::Table
+    Condition: CreateTables
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: TestCases
       BillingMode: PAY_PER_REQUEST
@@ -798,6 +824,9 @@ Resources:
   # ------------------------------------------
   SubmissionsTable:
     Type: AWS::DynamoDB::Table
+    Condition: CreateTables
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: Submissions
       BillingMode: PAY_PER_REQUEST
@@ -837,31 +866,35 @@ Resources:
 # OUTPUTS
 # ==========================================
 Outputs:
+  Environment:
+    Description: "Deployment environment"
+    Value: !Ref Environment
+  
   ApiEndpoint:
     Description: "API Gateway endpoint URL"
-    Value: !Sub "https://${MicroCredentialingAPI}.execute-api.${AWS::Region}.amazonaws.com/dev"
+    Value: !Sub "https://${MicroCredentialingAPI}.execute-api.${AWS::Region}.amazonaws.com/${Environment}"
     Export:
-      Name: MicroCredentialingApiEndpoint
+      Name: !Sub "MicroCredentialingApiEndpoint-${Environment}"
 
   UsersTableName:
     Description: "DynamoDB Users Table"
-    Value: !Ref UsersTable
+    Value: Users
 
   CredentialsTableName:
     Description: "DynamoDB Credentials Table"
-    Value: !Ref CredentialsTable
+    Value: Credentials
 
   MilestonesTableName:
     Description: "DynamoDB Milestones Table"
-    Value: !Ref MilestonesTable
+    Value: Milestones
 
   TestCasesTableName:
     Description: "DynamoDB TestCases Table"
-    Value: !Ref TestCasesTable
+    Value: TestCases
 
   SubmissionsTableName:
     Description: "DynamoDB Submissions Table"
-    Value: !Ref SubmissionsTable
+    Value: Submissions
 
   SharedCodeLayerArn:
     Description: "ARN of the shared code layer"

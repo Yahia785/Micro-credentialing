@@ -1,0 +1,15 @@
+version = 0.1
+
+[production.deploy.parameters]
+stack_name = "micro-credentialing-backend-production"
+resolve_s3 = true
+s3_prefix = "micro-credentialing-backend-production"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = false
+parameter_overrides = "CognitoUserPoolId=\"us-east-1_CkcMQmOst\" Environment=\"production\""
+tags = "Environment=\"production\" Project=\"micro-credentialing\""
+
+[production.global.parameters]
+region = "us-east-1"
