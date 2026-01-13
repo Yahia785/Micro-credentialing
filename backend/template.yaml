@@ -148,6 +148,23 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsUserId:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users/{userId}
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+        OptionsUserMe:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users/me
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBReadPolicy:
             TableName: Users
