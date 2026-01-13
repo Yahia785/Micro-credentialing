@@ -87,9 +87,9 @@ Resources:
     Properties:
       StageName: !Ref Environment
       Cors:
-        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
-        AllowHeaders: "'Content-Type,Authorization'"
         AllowOrigin: "'*'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
       Auth:
         DefaultAuthorizer: CognitoAuthorizer
         Authorizers:
