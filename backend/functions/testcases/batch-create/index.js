@@ -2,6 +2,7 @@ const { createTestCasesBatch } = require('/opt/nodejs/db/testcases');
 const { updateMilestone, getMilestone } = require('/opt/nodejs/db/milestones');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
+const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
 
 /**
  * Lambda Handler: Batch Create Test Cases
@@ -11,6 +12,15 @@ const { errorResponse } = require('/opt/nodejs/utils/errors');
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
   
+    // Handle OPTIONS preflight request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: CORS_HEADERS,
+      body: ''
+    };
+  }
+
   try {
     // Get userId from JWT token (logged in user)
     const authenticatedUserId = event.requestContext?.authorizer?.claims?.sub;

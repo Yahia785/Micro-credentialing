@@ -4,6 +4,7 @@ const { getMilestone } = require('/opt/nodejs/db/milestones');
 const { getUser, updateUser, addCompletedMilestone } = require('/opt/nodejs/db/users');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
+const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
 const { 
   getLanguageId, 
   submitBatch, 
@@ -31,6 +32,15 @@ const {
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
   
+    // Handle OPTIONS preflight request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: CORS_HEADERS,
+      body: ''
+    };
+  }
+
   try {
     // Get userId from JWT token (logged in user)
     const userId = event.requestContext?.authorizer?.claims?.sub;

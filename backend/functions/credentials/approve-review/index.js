@@ -6,6 +6,7 @@ const { pushCertificate, pullCertificate } = require('/opt/nodejs/utils/bcdiplom
 const { createCredential } = require('/opt/nodejs/db/credentials');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
+const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
 
 /**
  * Utility function to wait/sleep
@@ -116,6 +117,15 @@ async function processCertificate(certificate, campaignId, submission, student, 
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
   
+    // Handle OPTIONS preflight request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: CORS_HEADERS,
+      body: ''
+    };
+  }
+
   try {
     // Get userId from JWT token
     const authenticatedUserId = event.requestContext?.authorizer?.claims?.sub;

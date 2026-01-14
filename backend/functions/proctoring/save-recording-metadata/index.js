@@ -2,6 +2,7 @@ const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
+const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
 
 // Initialize DynamoDB client
 const client = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
@@ -32,6 +33,15 @@ const SUBMISSIONS_TABLE = process.env.SUBMISSIONS_TABLE;
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
   
+  // Handle OPTIONS preflight request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: CORS_HEADERS,
+      body: ''
+    };
+  }
+
   try {
     // Get userId from JWT token (authenticated user)
     const userId = event.requestContext?.authorizer?.claims?.sub;

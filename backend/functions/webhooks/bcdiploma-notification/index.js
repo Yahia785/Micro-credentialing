@@ -5,6 +5,7 @@ const { createCredential } = require('/opt/nodejs/db/credentials');
 const { pullCertificate } = require('/opt/nodejs/utils/bcdiploma');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
+const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
 
 /**
  * Lambda Handler: BCdiploma Webhook Receiver
@@ -18,7 +19,16 @@ const { errorResponse } = require('/opt/nodejs/utils/errors');
  */
 exports.handler = async (event) => {
   console.log('BCdiploma Webhook Event:', JSON.stringify(event, null, 2));
-  
+   
+    // Handle OPTIONS preflight request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: CORS_HEADERS,
+      body: ''
+    };
+  }
+
   try {
     // Extract campaignId from either GET or POST request
     let campaignId;

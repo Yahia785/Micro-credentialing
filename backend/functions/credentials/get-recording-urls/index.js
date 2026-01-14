@@ -4,6 +4,7 @@ const { getUser } = require('/opt/nodejs/db/users');
 const { getSubmission } = require('/opt/nodejs/db/submissions');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
+const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
 
 // Initialize S3 client
 const s3Client = new S3Client({ 
@@ -22,6 +23,15 @@ const BUCKET_NAME = process.env.PROCTORING_BUCKET_NAME || 'micro-credentialing-r
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
   
+    // Handle OPTIONS preflight request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: CORS_HEADERS,
+      body: ''
+    };
+  }
+
   try {
     // Get userId from JWT token
     const authenticatedUserId = event.requestContext?.authorizer?.claims?.sub;

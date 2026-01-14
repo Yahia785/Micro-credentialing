@@ -118,6 +118,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Users
@@ -169,7 +178,7 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: Users
 
-  # ------------------------------------------
+ # ------------------------------------------
   # LAMBDA: Update User (Name only)
   # ------------------------------------------
   UpdateUserFunction:
@@ -217,6 +226,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsInitiateEmailChange:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users/initiate-email-change
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies: []
 
   # ------------------------------------------
@@ -237,6 +255,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsVerifyEmailChange:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /users/verify-email-change
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Users
@@ -293,6 +320,23 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsMilestones:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+        OptionsMilestoneId:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones/{milestoneId}
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBReadPolicy:
             TableName: Milestones
@@ -363,6 +407,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsBatchTestCases:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones/{milestoneId}/testcases/batch
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBCrudPolicy:
             TableName: TestCases
@@ -387,6 +440,15 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsTestCases:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /milestones/{milestoneId}/testcases
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBReadPolicy:
             TableName: TestCases
@@ -418,6 +480,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsSubmit:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /submissions/submit
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Submissions
@@ -446,6 +517,15 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsSubmission:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /submissions/{submissionId}
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBReadPolicy:
             TableName: Submissions
@@ -472,6 +552,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsUploadUrls:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/upload-urls
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - S3CrudPolicy:
             BucketName: micro-credentialing-recordings
@@ -494,6 +583,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsRecordingMetadata:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/recording-metadata
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Submissions
@@ -520,6 +618,15 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsCredentials:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /credentials
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBReadPolicy:
             TableName: Credentials
@@ -542,6 +649,15 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsCredentialId:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /credentials/{credentialId}
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBReadPolicy:
             TableName: Credentials
@@ -564,6 +680,15 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsPendingReviews:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /credentials/get-pending-reviews
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBReadPolicy:
             TableName: Submissions
@@ -591,6 +716,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsApproveReview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /credentials/approve-review
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Submissions
@@ -626,6 +760,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsRejectReview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/reject-review
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Submissions
@@ -650,6 +793,15 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsRecordingUrls:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /credentials/get-recording-urls/{submissionId}
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBReadPolicy:
             TableName: Submissions
@@ -659,7 +811,7 @@ Resources:
             BucketName: micro-credentialing-recordings
 
 
-# ------------------------------------------
+  # ------------------------------------------
   # LAMBDA: BCdiploma Webhook Handler (NEW - WEEK 3)
   # ------------------------------------------
   BCdiplomaWebhookFunction:
@@ -686,6 +838,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: NONE  # Webhook doesn't use Cognito auth
+        # OPTIONS - NO AUTH (already public endpoint)
+        OptionsWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /webhooks/bcdiploma-notification
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - DynamoDBReadPolicy:
             TableName: Submissions
@@ -705,7 +866,7 @@ Resources:
                 - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaApiKeySecretName}*"
                 - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaIssuerIdSecretName}*"
  
- # ------------------------------------------
+  # ------------------------------------------
   # LAMBDA: Configure BCdiploma Webhook (ONE-TIME SETUP)
   # ------------------------------------------
   ConfigureWebhookFunction:
@@ -724,6 +885,15 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsConfigureWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /admin/configure-webhook
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
       Policies:
         - Statement:
             - Effect: Allow

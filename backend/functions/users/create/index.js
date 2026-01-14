@@ -1,6 +1,7 @@
 const { createUser } = require('/opt/nodejs/db/users');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
+const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
 
 // List of admin emails
 const ADMIN_EMAILS = [
@@ -20,6 +21,15 @@ function getUserRole(email) {
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
   
+    // Handle OPTIONS preflight request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: CORS_HEADERS,
+      body: ''
+    };
+  }
+
   try {
     // Check if triggered by Cognito (Post Confirmation)
     if (event.triggerSource === 'PostConfirmation_ConfirmSignUp') {

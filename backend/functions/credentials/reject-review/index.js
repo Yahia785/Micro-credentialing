@@ -3,6 +3,7 @@ const { getUser } = require('/opt/nodejs/db/users');
 const { getSubmission } = require('/opt/nodejs/db/submissions');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
+const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
 
 /**
  * Lambda Handler: Reject Proctoring Review
@@ -14,6 +15,15 @@ const { errorResponse } = require('/opt/nodejs/utils/errors');
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
   
+    // Handle OPTIONS preflight request
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: CORS_HEADERS,
+      body: ''
+    };
+  }
+
   try {
     // Get userId from JWT token
     const authenticatedUserId = event.requestContext?.authorizer?.claims?.sub;
