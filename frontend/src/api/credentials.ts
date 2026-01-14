@@ -21,7 +21,7 @@ export interface Credential {
   status: 'issued' | 'revoked';
   createdAt: string;
 }
-
+//sdw
 /**
  * Get all credentials for the current user
  */
