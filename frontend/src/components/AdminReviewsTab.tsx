@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from '../api/config';
 
 interface PendingSubmission {
   submissionId: string;
@@ -43,7 +44,7 @@ export function AdminReviewsTab() {
       setError(null);
       
       const token = await getAuthToken();
-      const response = await fetch('/api/credentials/get-pending-reviews', {
+      const response = await fetch(`${API_BASE}/credentials/get-pending-reviews`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -70,7 +71,7 @@ export function AdminReviewsTab() {
       setScreenUrl(null);
       
       const token = await getAuthToken();
-      const response = await fetch(`/api/credentials/get-recording-urls/${submissionId}`, {
+      const response = await fetch(`${API_BASE}/credentials/get-recording-urls/${submissionId}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -109,7 +110,7 @@ export function AdminReviewsTab() {
       setProcessing(true);
       
       const token = await getAuthToken();
-      const response = await fetch('/api/credentials/approve-review', {
+      const response = await fetch(`${API_BASE}/credentials/approve-review`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -152,7 +153,7 @@ export function AdminReviewsTab() {
       setProcessing(true);
       
       const token = await getAuthToken();
-      const response = await fetch('/api/proctoring/reject-review', {
+      const response = await fetch(`${API_BASE}/proctoring/reject-review`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
