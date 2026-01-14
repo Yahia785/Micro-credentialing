@@ -1,9 +1,20 @@
 import { fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth';
 
-// Use proxy in development, direct API in production
-export const API_BASE = import.meta.env.DEV 
-  ? '/api'  // Development: Use Vite proxy
-  : import.meta.env.VITE_API_ENDPOINT;  // Production: Direct API call
+// ONLY use proxy on actual localhost, never on deployed environments
+const isLocalhost = typeof window !== 'undefined' && 
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+// Use proxy ONLY on localhost, direct API everywhere else (including Amplify dev deployments)
+export const API_BASE = isLocalhost
+  ? '/api'  // Localhost only: Use Vite proxy
+  : import.meta.env.VITE_API_ENDPOINT;  // Amplify/Production: Direct API call
+
+console.log('🔧 API Configuration:', {
+  isLocalhost,
+  hostname: typeof window !== 'undefined' ? window.location.hostname : 'server',
+  API_BASE,
+  VITE_API_ENDPOINT: import.meta.env.VITE_API_ENDPOINT
+});
 
 /**
  * Get authentication token
