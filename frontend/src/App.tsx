@@ -223,7 +223,22 @@ function UserProfileLoader({ user, signOut }: any) {
 
 function App() {
   return (
-    <Authenticator>
+    <Authenticator
+      formFields={{
+        signIn: {
+          username: {
+            label: 'Email',
+            placeholder: 'Enter your email'
+          }
+        },
+        signUp: {
+          username: {
+            label: 'Email',
+            placeholder: 'Enter your email'
+          }
+        }
+      }}
+    >
       {({ signOut, user }) => (
         <UserProfileLoader user={user} signOut={signOut} />
       )}
