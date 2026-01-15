@@ -1,0 +1,22 @@
+if op == '+':
+    result = a + b
+elif op == '-':
+    result = a - b
+elif op == '*':
+    result = a * b
+elif op == '/':
+    result = a // b   # integer division
+
+
+
+
+
+ if (op == '+')  result = a + b;
+    else if (op == '-') result = a - b;
+    else if (op == '*') result = a * b;
+    else if (op == '/') result = a / b;
+
+
+
+
+    
