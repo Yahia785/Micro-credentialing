@@ -620,18 +620,25 @@ const stopRecording = () => {
               await onClose();
               console.log('✅ Editor closed and problems updated');
             }}
+            disabled={!hasSubmitted && !isAlreadyCompleted && !isViewMode}
             style={{
               padding: '8px 16px',
-              backgroundColor: '#6c757d',
-              color: 'white',
+              backgroundColor: (!hasSubmitted && !isAlreadyCompleted && !isViewMode) ? '#dee2e6' : '#6c757d',
+              color: (!hasSubmitted && !isAlreadyCompleted && !isViewMode) ? '#6c757d' : 'white',
               border: 'none',
               borderRadius: '4px',
-              cursor: 'pointer',
+              cursor: (!hasSubmitted && !isAlreadyCompleted && !isViewMode) ? 'not-allowed' : 'pointer',
               fontSize: '14px',
-              fontWeight: 'bold'
+              fontWeight: 'bold',
+              opacity: (!hasSubmitted && !isAlreadyCompleted && !isViewMode) ? 0.6 : 1
             }}
+            title={
+              (!hasSubmitted && !isAlreadyCompleted && !isViewMode)
+                ? '🔒 You must submit before closing'
+                : 'Close coding environment'
+            }
           >
-            Close
+            {(!hasSubmitted && !isAlreadyCompleted && !isViewMode) ? '🔒 Submit First' : 'Close'}
           </button>
         </div>
 
