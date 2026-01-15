@@ -27,7 +27,7 @@ export function ProctoringInstructions({
     try {
       setIsRequesting(true);
       setWebcamError(null);
-      console.log('🎥 Requesting webcam access...');
+      console.log('🎥 Requesting webcam and microphone access...');
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -35,7 +35,11 @@ export function ProctoringInstructions({
           height: { ideal: 720 },
           facingMode: 'user'
         },
-        audio: false
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
       });
 
       webcamStreamRef.current = stream;
@@ -45,12 +49,12 @@ export function ProctoringInstructions({
       }
 
       setWebcamGranted(true);
-      console.log('✅ Webcam access granted');
+      console.log('✅ Webcam and microphone access granted');
     } catch (err: any) {
       console.error('❌ Webcam access error:', err);
       const errorMessage = err.name === 'NotAllowedError' 
-        ? 'Camera permission denied. Please allow camera access to continue.'
-        : `Failed to access camera: ${err.message}`;
+        ? 'Camera and microphone permission denied. Please allow access to continue.'
+        : `Failed to access camera and microphone: ${err.message}`;
       setWebcamError(errorMessage);
     } finally {
       setIsRequesting(false);
@@ -197,10 +201,10 @@ export function ProctoringInstructions({
           </h3>
           <ul style={{ color: '#333', lineHeight: '1.8', marginBottom: 0 }}>
             <li>This problem requires <strong>proctoring</strong> to ensure academic integrity</li>
-            <li>Your <strong>webcam</strong> will record you during the assessment</li>
+            <li>Your <strong>webcam and microphone</strong> will record you during the assessment</li>
             <li>Your <strong>screen</strong> will be recorded during the assessment</li>
             <li>Recordings will be reviewed by instructors</li>
-            <li>You must grant both permissions to proceed</li>
+            <li>You must grant all permissions to proceed</li>
           </ul>
         </div>
 
@@ -235,7 +239,7 @@ export function ProctoringInstructions({
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
             <h3 style={{ margin: 0, color: '#333', fontSize: '18px' }}>
-              📹 Step 1: Enable Webcam
+              📹 Step 1: Enable Webcam & Microphone
             </h3>
             {webcamGranted && (
               <span style={{ color: '#28a745', fontWeight: 'bold', fontSize: '16px' }}>
@@ -260,7 +264,7 @@ export function ProctoringInstructions({
                 width: '100%'
               }}
             >
-              {isRequesting ? '⏳ Requesting Access...' : '🎥 Allow Webcam Access'}
+              {isRequesting ? '⏳ Requesting Access...' : '🎥 🎤 Allow Camera & Microphone'}
             </button>
           )}
 
@@ -291,6 +295,15 @@ export function ProctoringInstructions({
                   objectFit: 'cover'
                 }}
               />
+              <p style={{ 
+                marginTop: '10px', 
+                fontSize: '13px', 
+                color: '#28a745',
+                fontWeight: 'bold',
+                textAlign: 'center' 
+              }}>
+                🎤 Microphone active - Your audio will be recorded
+              </p>
             </div>
           )}
         </div>
@@ -403,7 +416,7 @@ export function ProctoringInstructions({
             {canProceed 
               ? '✅ Start Problem' 
               : !webcamGranted 
-                ? '⏸️ Grant Webcam Permission to Continue'
+                ? '⏸️ Grant Camera & Microphone to Continue'
                 : !screenGranted
                   ? '⏸️ Share Your Entire Screen to Continue'
                   : '⏸️ Select "Entire Screen" to Continue'}
