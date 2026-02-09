@@ -60,8 +60,8 @@ Globals:
         BCDIPLOMA_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaApiKeySecretName}"
         BCDIPLOMA_ISSUER_ID_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaIssuerIdSecretName}"
         BCDIPLOMA_API_URL: "https://api-staging.bcdiploma.com"
-        ALLOWED_DOMAINS: "canvas.instructure.com,ti.com,dev.ti.com,onlinegdb.com"
-        FORBIDDEN_DOMAINS: "chatgpt,openai.com,claude.ai,anthropic.com,google.com/search,stackoverflow.com,discord,whatsapp"
+        ALLOWED_DOMAINS: "canvas.instructure.com,ti.com,dev.ti.com,onlinegdb.com,virginia.edu"
+        FORBIDDEN_DOMAINS: "chatgpt.com,openai.com,claude.ai,anthropic.com,google.com/search,stackoverflow.com,discord.com,whatsapp.com,github.com/copilot"
         
 
 # ==========================================
