@@ -60,6 +60,8 @@ Globals:
         BCDIPLOMA_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaApiKeySecretName}"
         BCDIPLOMA_ISSUER_ID_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaIssuerIdSecretName}"
         BCDIPLOMA_API_URL: "https://api-staging.bcdiploma.com"
+        ALLOWED_DOMAINS: "canvas.instructure.com,ti.com,dev.ti.com,onlinegdb.com"
+        FORBIDDEN_DOMAINS: "chatgpt,openai.com,claude.ai,anthropic.com,google.com/search,stackoverflow.com,discord,whatsapp"
         
 
 # ==========================================
@@ -595,6 +597,46 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Submissions
+
+  # ------------------------------------------
+  # LAMBDA: OCR Screenshot Analysis
+  # ------------------------------------------
+  OcrScreenshotAnalysisFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/proctoring/ocr-screenshot-analysis/
+      Handler: index.handler
+      Description: Analyze screenshots with AWS Textract for OCR violation detection
+      MemorySize: 512  # Textract API calls need slightly more memory
+      Timeout: 30
+      Events:
+        AnalyzeScreenshot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/analyze-screenshot
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsAnalyzeScreenshot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/analyze-screenshot
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - S3ReadPolicy:
+            BucketName: micro-credentialing-recordings
+        - DynamoDBCrudPolicy:
+            TableName: Submissions
+        - Statement:
+            - Effect: Allow
+              Action:
+                - textract:DetectDocumentText
+              Resource: "*"
 
   # ==========================================
   # CREDENTIAL MANAGEMENT FUNCTIONS

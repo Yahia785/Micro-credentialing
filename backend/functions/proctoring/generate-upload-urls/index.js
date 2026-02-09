@@ -20,13 +20,14 @@ const BUCKET_NAME = process.env.PROCTORING_BUCKET_NAME || 'micro-credentialing-r
  * Request Body:
  * {
  *   submissionId: "sub_123",
- *   fileType: "webcam" | "screen"
+ *   fileType: "webcam" | "screen" | "screenshot",
+ *   timestamp?: "1707478200000"  // Required for screenshots (milliseconds since epoch)
  * }
  * 
  * Response:
  * {
  *   uploadUrl: "https://s3.amazonaws.com/...",
- *   key: "recordings/user123/sub_456/webcam.webm",
+ *   key: "recordings/user123/sub_456/webcam.webm" OR "screenshots/sub_456/1707478200000.jpg",
  *   expiresIn: 1800
  * }
  */
@@ -52,7 +53,7 @@ exports.handler = async (event) => {
     
     // Parse request body
     const body = JSON.parse(event.body || '{}');
-    const { submissionId, fileType } = body;
+    const { submissionId, fileType, timestamp } = body;
     
     // Validate required fields
     if (!submissionId) {
@@ -64,18 +65,43 @@ exports.handler = async (event) => {
     }
     
     // Validate fileType
-    const validFileTypes = ['webcam', 'screen'];
+    const validFileTypes = ['webcam', 'screen', 'screenshot'];
     if (!validFileTypes.includes(fileType)) {
       return errorResponse(400, `fileType must be one of: ${validFileTypes.join(', ')}`);
     }
     
-    // Generate S3 key (file path)
-    const s3Key = `recordings/${userId}/${submissionId}/${fileType}.webm`;
+    // Validate timestamp for screenshots
+    if (fileType === 'screenshot' && !timestamp) {
+      return errorResponse(400, 'timestamp is required for screenshot uploads');
+    }
+    
+    // Generate S3 key (file path) and content type based on fileType
+    let s3Key;
+    let contentType;
+    
+    if (fileType === 'webcam') {
+      // Webcam videos: recordings/{userId}/{submissionId}/webcam.webm
+      s3Key = `recordings/${userId}/${submissionId}/webcam.webm`;
+      contentType = 'video/webm';
+    } 
+    else if (fileType === 'screen') {
+      // Screen recordings: recordings/{userId}/{submissionId}/screen.webm
+      // NOTE: This will be deprecated in Phase 3, but keeping for backward compatibility
+      s3Key = `recordings/${userId}/${submissionId}/screen.webm`;
+      contentType = 'video/webm';
+    } 
+    else if (fileType === 'screenshot') {
+      // Screenshots: screenshots/{submissionId}/{timestamp}.jpg
+      // Note: No userId in path - screenshots are organized by submission only
+      s3Key = `screenshots/${submissionId}/${timestamp}.jpg`;
+      contentType = 'image/jpeg';
+    }
     
     console.log('Generating presigned URL for:', {
       userId,
       submissionId,
       fileType,
+      timestamp: timestamp || 'N/A',
       s3Key
     });
     
@@ -84,19 +110,20 @@ exports.handler = async (event) => {
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
       Key: s3Key,
-      ContentType: 'video/webm',
+      ContentType: contentType,
       Metadata: {
         'uploaded-by': userId,
         'submission-id': submissionId,
         'file-type': fileType,
-        'uploaded-at': new Date().toISOString()
+        'uploaded-at': new Date().toISOString(),
+        ...(timestamp && { 'timestamp': timestamp }) // Add timestamp for screenshots
       }
       // DO NOT set ChecksumAlgorithm - it causes signature mismatches with browsers
     });
     
-    // Generate presigned URL (valid for 30 minutes)
-    // Do NOT add unhoistableHeaders or signableHeaders
-    const expiresIn = 1800; // 30 minutes in seconds
+    // Generate presigned URL (valid for 30 minutes for videos, 5 minutes for screenshots)
+    // Shorter expiry for screenshots since they're uploaded immediately
+    const expiresIn = fileType === 'screenshot' ? 300 : 1800; // 5 min for screenshots, 30 min for videos
     const uploadUrl = await getSignedUrl(s3Client, command, { 
       expiresIn
     });

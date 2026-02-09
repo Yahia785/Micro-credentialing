@@ -1,0 +1,12 @@
+{
+  "name": "ocr-screenshot-analysis",
+  "version": "1.0.0",
+  "description": "Analyze screenshots with AWS Textract for proctoring violations",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.709.0",
+    "@aws-sdk/lib-dynamodb": "^3.709.0",
+    "@aws-sdk/client-s3": "^3.709.0",
+    "@aws-sdk/client-textract": "^3.709.0"
+  }
+}
