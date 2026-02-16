@@ -7,6 +7,7 @@ import { Tabs } from './components/Tabs';
 import { ProblemsTab } from './components/ProblemsTab';
 import { AdminReviewsTab } from './components/AdminReviewsTab';
 import { CredentialsTab } from './components/Credentialstab';
+import { KnowledgeAssessmentsTab } from './components/KnowledgeAssessmentsTab';
 import './App.css';
 
 function UserProfileLoader({ user, signOut }: any) {
@@ -81,13 +82,15 @@ function UserProfileLoader({ user, signOut }: any) {
   const tabs = userProfile?.role === 'admin'
   ? [
     { id: 'profile', label: 'Profile' },
-    { id: 'problems', label: 'Problems' },
+    { id: 'problems', label: 'Coding Problems' },
+    { id: 'knowledge', label: 'Knowledge Assessments' },
     { id: 'reviews', label: 'Reviews' },
     { id: 'credentials', label: 'Credentials' }
   ]
 : [
         { id: 'profile', label: 'Profile' },
-        { id: 'problems', label: 'Problems' },
+        { id: 'problems', label: 'Coding Problems' },
+        { id: 'knowledge', label: 'Knowledge Assessments' },
         { id: 'credentials', label: 'Credentials' }
       ];
 
@@ -215,6 +218,16 @@ function UserProfileLoader({ user, signOut }: any) {
 
         {activeTab === 'credentials' && (
           <CredentialsTab />
+        )}
+
+        {activeTab === 'knowledge' && (
+          <KnowledgeAssessmentsTab 
+            userProfile={userProfile}
+            onSelectAssessment={(assessment) => {
+              console.log('Selected assessment:', assessment);
+              // Will be implemented in Phase 4 (Student Interface)
+            }}
+          />
         )}
       </div>
     </main>
