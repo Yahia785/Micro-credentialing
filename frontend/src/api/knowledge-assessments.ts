@@ -103,7 +103,7 @@ export interface KnowledgeSubmissionResult {
 /**
  * Get all knowledge assessments
  */
-export async function getAllKnowledgeAssessments(): Promise<KnowledgeAssessment[]> {
+export async function getAllKnowledgeAssessments(): Promise<{ assessments: KnowledgeAssessment[] }> {
   const token = await getAuthToken();
 
   const response = await fetch(`${API_BASE}/knowledge-assessments`, {

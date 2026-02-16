@@ -70,18 +70,18 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
   }, []);
 
   async function loadAssessments() {
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await getAllKnowledgeAssessments();
-      setAssessments(result || []);
-    } catch (err: any) {
-      console.error('Failed to load knowledge assessments:', err);
-      setError('Failed to load knowledge assessments');
-    } finally {
-      setLoading(false);
-    }
+  try {
+    setLoading(true);
+    setError(null);
+    const result = await getAllKnowledgeAssessments();
+    setAssessments(result.assessments || []);  // <-- Extract assessments array
+  } catch (err: any) {
+    console.error('Failed to load knowledge assessments:', err);
+    setError('Failed to load knowledge assessments');
+  } finally {
+    setLoading(false);
   }
+}
 
   const handleCreateAssessment = async () => {
     if (!newAssessment.title.trim()) {
