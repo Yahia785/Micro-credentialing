@@ -1,7 +1,7 @@
 const { getKnowledgeAssessment, getAllKnowledgeAssessments } = require('/opt/nodejs/db/knowledge-assessments');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
-
+const { handleOptionsRequest } = require('/opt/nodejs/middleware/cors-middleware');
 /**
  * Lambda Handler: Get Knowledge Assessment(s)
  * Endpoint: GET /knowledge-assessments (all)
@@ -11,6 +11,11 @@ const { errorResponse } = require('/opt/nodejs/utils/errors');
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
   
+      // Handle CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return handleOptionsRequest();
+  }
+
   try {
     // Get userId from JWT token
     const authenticatedUserId = event.requestContext?.authorizer?.claims?.sub;

@@ -3,7 +3,7 @@ const { createKnowledgeSubmission } = require('/opt/nodejs/db/knowledge-submissi
 const { gradeKnowledgeAssessment } = require('/opt/nodejs/utils/knowledge-grading');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
-
+const { handleOptionsRequest } = require('/opt/nodejs/middleware/cors-middleware');
 /**
  * Lambda Handler: Submit Knowledge Assessment
  * Endpoint: POST /knowledge-assessments/{assessmentId}/submit
@@ -12,6 +12,11 @@ const { errorResponse } = require('/opt/nodejs/utils/errors');
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
   
+      // Handle CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return handleOptionsRequest();
+  }
+
   try {
     // Get userId from JWT token
     const authenticatedUserId = event.requestContext?.authorizer?.claims?.sub;
