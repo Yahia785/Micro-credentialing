@@ -1,0 +1,6 @@
+{
+  "name": "knowledge-assessments-functions",
+  "version": "1.0.0",
+  "description": "Knowledge assessment Lambda functions",
+  "private": true
+}
