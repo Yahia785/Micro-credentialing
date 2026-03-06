@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 interface ProctoringInstructionsProps {
   problemTitle: string;
@@ -23,6 +23,21 @@ export function ProctoringInstructions({
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
 
+  // Video elements are always in the DOM (hidden via CSS) so their refs are
+  // guaranteed to be populated. We assign srcObject here after state updates,
+  // not inside the async functions where the element may not exist yet.
+  useEffect(() => {
+    if (webcamGranted && webcamStreamRef.current && webcamVideoRef.current) {
+      webcamVideoRef.current.srcObject = webcamStreamRef.current;
+    }
+  }, [webcamGranted]);
+
+  useEffect(() => {
+    if (screenGranted && isEntireScreen && screenStreamRef.current && screenVideoRef.current) {
+      screenVideoRef.current.srcObject = screenStreamRef.current;
+    }
+  }, [screenGranted, isEntireScreen]);
+
   const requestWebcamAccess = async () => {
     try {
       setIsRequesting(true);
@@ -43,11 +58,6 @@ export function ProctoringInstructions({
       });
 
       webcamStreamRef.current = stream;
-
-      if (webcamVideoRef.current) {
-        webcamVideoRef.current.srcObject = stream;
-      }
-
       setWebcamGranted(true);
       console.log('✅ Webcam and microphone access granted');
     } catch (err: any) {
@@ -75,23 +85,17 @@ export function ProctoringInstructions({
         audio: false
       });
 
-      // Check what type of screen share was selected
       const videoTrack = stream.getVideoTracks()[0];
       const settings = videoTrack.getSettings();
       
       console.log('📺 Screen share settings:', settings);
       console.log('📺 Display surface:', settings.displaySurface);
 
-      // Check if entire screen was shared
       const isFullScreen = settings.displaySurface === 'monitor';
       
       if (!isFullScreen) {
-        // User shared a tab or window, not entire screen
         console.warn('⚠️ User did not share entire screen:', settings.displaySurface);
-        
-        // Stop the stream immediately
         stream.getTracks().forEach(track => track.stop());
-        
         setScreenError(
           `You selected "${settings.displaySurface === 'browser' ? 'a browser tab' : 'a window'}" instead of "Entire Screen". ` +
           'Please click "Share Screen" again and select "Entire Screen" from the options.'
@@ -103,12 +107,7 @@ export function ProctoringInstructions({
         return;
       }
 
-      // Entire screen was shared successfully
       screenStreamRef.current = stream;
-
-      if (screenVideoRef.current) {
-        screenVideoRef.current.srcObject = stream;
-      }
 
       // Handle user stopping screen share via browser UI
       stream.getVideoTracks()[0].addEventListener('ended', () => {
@@ -142,7 +141,6 @@ export function ProctoringInstructions({
   };
 
   const handleCancel = () => {
-    // Stop all streams
     if (webcamStreamRef.current) {
       webcamStreamRef.current.getTracks().forEach(track => track.stop());
     }
@@ -281,31 +279,31 @@ export function ProctoringInstructions({
             </div>
           )}
 
-          {webcamGranted && (
-            <div style={{ marginTop: '15px' }}>
-              <video
-                ref={webcamVideoRef}
-                autoPlay
-                muted
-                style={{
-                  width: '100%',
-                  maxHeight: '200px',
-                  borderRadius: '8px',
-                  backgroundColor: '#000',
-                  objectFit: 'cover'
-                }}
-              />
-              <p style={{ 
-                marginTop: '10px', 
-                fontSize: '13px', 
-                color: '#28a745',
-                fontWeight: 'bold',
-                textAlign: 'center' 
-              }}>
-                🎤 Microphone active - Your audio will be recorded
-              </p>
-            </div>
-          )}
+          {/* Always rendered so ref is populated when stream arrives */}
+          <div style={{ marginTop: '15px', display: webcamGranted ? 'block' : 'none' }}>
+            <video
+              ref={webcamVideoRef}
+              autoPlay
+              muted
+              playsInline
+              style={{
+                width: '100%',
+                maxHeight: '200px',
+                borderRadius: '8px',
+                backgroundColor: '#000',
+                objectFit: 'cover'
+              }}
+            />
+            <p style={{ 
+              marginTop: '10px', 
+              fontSize: '13px', 
+              color: '#28a745',
+              fontWeight: 'bold',
+              textAlign: 'center' 
+            }}>
+              🎤 Microphone active - Your audio will be recorded
+            </p>
+          </div>
         </div>
 
         {/* Screen Share Permission */}
@@ -361,22 +359,22 @@ export function ProctoringInstructions({
             </div>
           )}
 
-          {screenGranted && isEntireScreen && (
-            <div style={{ marginTop: '15px' }}>
-              <video
-                ref={screenVideoRef}
-                autoPlay
-                muted
-                style={{
-                  width: '100%',
-                  maxHeight: '200px',
-                  borderRadius: '8px',
-                  backgroundColor: '#000',
-                  objectFit: 'contain'
-                }}
-              />
-            </div>
-          )}
+          {/* Always rendered so ref is populated when stream arrives */}
+          <div style={{ marginTop: '15px', display: (screenGranted && isEntireScreen) ? 'block' : 'none' }}>
+            <video
+              ref={screenVideoRef}
+              autoPlay
+              muted
+              playsInline
+              style={{
+                width: '100%',
+                maxHeight: '200px',
+                borderRadius: '8px',
+                backgroundColor: '#000',
+                objectFit: 'contain'
+              }}
+            />
+          </div>
         </div>
 
         {/* Action Buttons */}

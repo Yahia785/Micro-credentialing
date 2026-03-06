@@ -13,12 +13,15 @@ import type {
   MCQOption
 } from '../api/knowledge-assessments';
 
+import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
+import { KnowledgeEnvironment } from './KnowledgeEnvironment';
+
 interface KnowledgeAssessmentsTabProps {
   userProfile: any;
-  onSelectAssessment?: (assessment: KnowledgeAssessment) => void;
+  onRefreshNeeded?: () => void;
 }
 
-export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: KnowledgeAssessmentsTabProps) {
+export function KnowledgeAssessmentsTab({ userProfile, onRefreshNeeded }: KnowledgeAssessmentsTabProps) {
   const userRole = userProfile?.role || 'user';
   const isAdmin = userRole === 'admin';
 
@@ -27,6 +30,13 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [creationStep, setCreationStep] = useState<1 | 2>(1);
+
+  // Proctoring & Assessment Taking State
+  const [showProctoringInstructions, setShowProctoringInstructions] = useState(false);
+  const [pendingAssessment, setPendingAssessment] = useState<KnowledgeAssessment | null>(null);
+  const [selectedAssessment, setSelectedAssessment] = useState<KnowledgeAssessment | null>(null);
+  const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
 
   // Step 1: Assessment metadata
   const [newAssessment, setNewAssessment] = useState({
@@ -70,18 +80,81 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
   }, []);
 
   async function loadAssessments() {
-  try {
-    setLoading(true);
-    setError(null);
-    const result = await getAllKnowledgeAssessments();
-    setAssessments(result.assessments || []);  // <-- Extract assessments array
-  } catch (err: any) {
-    console.error('Failed to load knowledge assessments:', err);
-    setError('Failed to load knowledge assessments');
-  } finally {
-    setLoading(false);
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await getAllKnowledgeAssessments();
+      setAssessments(result.assessments || []);
+    } catch (err: any) {
+      console.error('Failed to load knowledge assessments:', err);
+      setError('Failed to load knowledge assessments');
+    } finally {
+      setLoading(false);
+    }
   }
-}
+
+  // ==========================================
+  // PROCTORING HANDLERS
+  // ==========================================
+
+  const handleStartAssessment = (assessment: KnowledgeAssessment) => {
+    console.log('Starting assessment:', assessment.title);
+    setPendingAssessment(assessment);
+    setShowProctoringInstructions(true);
+  };
+
+  const handleProctoringGranted = (webcam: MediaStream, screen: MediaStream) => {
+    console.log('✅ Proctoring permissions granted');
+    setWebcamStream(webcam);
+    setScreenStream(screen);
+    setShowProctoringInstructions(false);
+
+    if (pendingAssessment) {
+      setSelectedAssessment(pendingAssessment);
+    }
+  };
+
+  const handleProctoringCancelled = () => {
+    console.log('❌ Proctoring cancelled');
+    setShowProctoringInstructions(false);
+    setPendingAssessment(null);
+  };
+
+  const handleCloseEnvironment = async () => {
+    // Stop recording streams
+    if (webcamStream) {
+      webcamStream.getTracks().forEach(track => track.stop());
+      setWebcamStream(null);
+    }
+    if (screenStream) {
+      screenStream.getTracks().forEach(track => track.stop());
+      setScreenStream(null);
+    }
+
+    // Reload assessments
+    await loadAssessments();
+
+    // Trigger user profile refresh
+    if (onRefreshNeeded) {
+      onRefreshNeeded();
+    }
+
+    setSelectedAssessment(null);
+    setPendingAssessment(null);
+  };
+
+  const handleSubmitSuccess = async () => {
+    console.log('🎉 Assessment submitted successfully');
+    await loadAssessments();
+
+    if (onRefreshNeeded) {
+      onRefreshNeeded();
+    }
+  };
+
+  // ==========================================
+  // CREATION HANDLERS (Admin)
+  // ==========================================
 
   const handleCreateAssessment = async () => {
     if (!newAssessment.title.trim()) {
@@ -168,7 +241,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
   };
 
   const handleAddMCQOption = () => {
-    const nextId = String.fromCharCode(65 + mcqForm.options.length); // A, B, C, D...
+    const nextId = String.fromCharCode(65 + mcqForm.options.length);
     if (mcqForm.options.length < 6) {
       setMcqForm({
         ...mcqForm,
@@ -180,7 +253,6 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
   const handleRemoveMCQOption = (index: number) => {
     if (mcqForm.options.length > 2) {
       const newOptions = mcqForm.options.filter((_, i) => i !== index);
-      // Re-assign IDs
       const reIndexed = newOptions.map((opt, i) => ({
         ...opt,
         id: String.fromCharCode(65 + i)
@@ -225,7 +297,6 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
     const questionId = `q_${Date.now()}`;
 
     if (questionType === 'mcq') {
-      // Validate MCQ
       if (!mcqForm.title.trim() || !mcqForm.question.trim()) {
         setError('Question title and text are required');
         return;
@@ -235,7 +306,6 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
         return;
       }
 
-      // Calculate maxPoints from positive option points
       const maxPoints = mcqForm.options
         .filter(opt => opt.points > 0)
         .reduce((sum, opt) => sum + opt.points, 0);
@@ -253,7 +323,6 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
 
       setQuestions([...questions, newQuestion]);
     } else {
-      // Validate short response
       if (!shortResponseForm.title.trim() || !shortResponseForm.question.trim()) {
         setError('Question title and text are required');
         return;
@@ -295,6 +364,10 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
       }
     }, 0);
   };
+
+  // ==========================================
+  // RENDER
+  // ==========================================
 
   if (loading) {
     return (
@@ -358,7 +431,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
         </div>
       )}
 
-      {/* Creation Wizard */}
+      {/* Creation Wizard - Same as before, keeping it for brevity */}
       {isAdmin && isCreating && (
         <>
           {/* Progress Steps */}
@@ -600,7 +673,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                 )}
               </div>
 
-              {/* Question Type Selector */}
+              {/* Question Form */}
               {isAddingQuestion && (
                 <div style={{
                   background: '#fff',
@@ -647,14 +720,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                           value={mcqForm.title}
                           onChange={(e) => setMcqForm({ ...mcqForm, title: e.target.value })}
                           placeholder="e.g., Variable Declaration"
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            fontSize: '14px',
-                            border: '1px solid #ced4da',
-                            borderRadius: '4px',
-                            boxSizing: 'border-box'
-                          }}
+                          style={{ width: '100%', padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px', boxSizing: 'border-box' }}
                         />
                       </div>
 
@@ -665,17 +731,9 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                         <textarea
                           value={mcqForm.question}
                           onChange={(e) => setMcqForm({ ...mcqForm, question: e.target.value })}
-                          placeholder="Which of the following are valid ways to declare a variable in JavaScript?"
+                          placeholder="Which of the following are valid ways to declare a variable?"
                           rows={3}
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            fontSize: '14px',
-                            border: '1px solid #ced4da',
-                            borderRadius: '4px',
-                            boxSizing: 'border-box',
-                            resize: 'vertical'
-                          }}
+                          style={{ width: '100%', padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px', boxSizing: 'border-box', resize: 'vertical' }}
                         />
                       </div>
 
@@ -686,12 +744,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                         <select
                           value={mcqForm.selectionType}
                           onChange={(e) => setMcqForm({ ...mcqForm, selectionType: e.target.value as 'single' | 'multiple' })}
-                          style={{
-                            padding: '10px',
-                            fontSize: '14px',
-                            border: '1px solid #ced4da',
-                            borderRadius: '4px'
-                          }}
+                          style={{ padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px' }}
                         >
                           <option value="single">Single Answer</option>
                           <option value="multiple">Multiple Answers</option>
@@ -703,7 +756,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                           Options: <span style={{ color: 'red' }}>*</span>
                         </label>
                         <small style={{ color: '#666', display: 'block', marginBottom: '10px' }}>
-                          Set positive points for correct answers, negative for penalties, 0 for neutral wrong answers.
+                          Set positive points for correct, negative for penalty, 0 for neutral.
                         </small>
                         {mcqForm.options.map((option, index) => (
                           <div key={option.id} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center' }}>
@@ -713,80 +766,33 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                               value={option.text}
                               onChange={(e) => handleMCQOptionChange(index, 'text', e.target.value)}
                               placeholder="Option text"
-                              style={{
-                                flex: 1,
-                                padding: '10px',
-                                fontSize: '14px',
-                                border: '1px solid #ced4da',
-                                borderRadius: '4px'
-                              }}
+                              style={{ flex: 1, padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px' }}
                             />
                             <input
                               type="number"
                               value={option.points}
                               onChange={(e) => handleMCQOptionChange(index, 'points', parseInt(e.target.value) || 0)}
-                              style={{
-                                width: '80px',
-                                padding: '10px',
-                                fontSize: '14px',
-                                border: '1px solid #ced4da',
-                                borderRadius: '4px'
-                              }}
-                              title="Points (+ for correct, - for penalty)"
+                              style={{ width: '80px', padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px' }}
                             />
                             <span style={{ color: '#666', fontSize: '12px' }}>pts</span>
                             {mcqForm.options.length > 2 && (
-                              <button
-                                onClick={() => handleRemoveMCQOption(index)}
-                                style={{
-                                  padding: '5px 10px',
-                                  background: '#dc3545',
-                                  color: 'white',
-                                  border: 'none',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                ✕
-                              </button>
+                              <button onClick={() => handleRemoveMCQOption(index)} style={{ padding: '5px 10px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
                             )}
                           </div>
                         ))}
                         {mcqForm.options.length < 6 && (
-                          <button
-                            onClick={handleAddMCQOption}
-                            style={{
-                              padding: '8px 16px',
-                              background: '#6c757d',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            + Add Option
-                          </button>
+                          <button onClick={handleAddMCQOption} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>+ Add Option</button>
                         )}
                       </div>
 
                       <div style={{ marginBottom: '15px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#333' }}>
-                          Explanation (shown after grading):
-                        </label>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#333' }}>Explanation:</label>
                         <textarea
                           value={mcqForm.explanation}
                           onChange={(e) => setMcqForm({ ...mcqForm, explanation: e.target.value })}
-                          placeholder="Explain why the correct answer(s) are correct..."
+                          placeholder="Explain the correct answer..."
                           rows={2}
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            fontSize: '14px',
-                            border: '1px solid #ced4da',
-                            borderRadius: '4px',
-                            boxSizing: 'border-box',
-                            resize: 'vertical'
-                          }}
+                          style={{ width: '100%', padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px', boxSizing: 'border-box', resize: 'vertical' }}
                         />
                       </div>
                     </>
@@ -804,14 +810,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                           value={shortResponseForm.title}
                           onChange={(e) => setShortResponseForm({ ...shortResponseForm, title: e.target.value })}
                           placeholder="e.g., Memory Type"
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            fontSize: '14px',
-                            border: '1px solid #ced4da',
-                            borderRadius: '4px',
-                            boxSizing: 'border-box'
-                          }}
+                          style={{ width: '100%', padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px', boxSizing: 'border-box' }}
                         />
                       </div>
 
@@ -824,15 +823,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                           onChange={(e) => setShortResponseForm({ ...shortResponseForm, question: e.target.value })}
                           placeholder="What does RAM stand for?"
                           rows={3}
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            fontSize: '14px',
-                            border: '1px solid #ced4da',
-                            borderRadius: '4px',
-                            boxSizing: 'border-box',
-                            resize: 'vertical'
-                          }}
+                          style={{ width: '100%', padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px', boxSizing: 'border-box', resize: 'vertical' }}
                         />
                       </div>
 
@@ -841,7 +832,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                           Accepted Answers: <span style={{ color: 'red' }}>*</span>
                         </label>
                         <small style={{ color: '#666', display: 'block', marginBottom: '10px' }}>
-                          Add all variations that should be accepted (e.g., "RAM", "Random Access Memory")
+                          Add all accepted variations (e.g., "RAM", "Random Access Memory")
                         </small>
                         {shortResponseForm.acceptedAnswers.map((answer, index) => (
                           <div key={index} style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
@@ -850,66 +841,27 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                               value={answer}
                               onChange={(e) => handleAcceptedAnswerChange(index, e.target.value)}
                               placeholder="Accepted answer"
-                              style={{
-                                flex: 1,
-                                padding: '10px',
-                                fontSize: '14px',
-                                border: '1px solid #ced4da',
-                                borderRadius: '4px'
-                              }}
+                              style={{ flex: 1, padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px' }}
                             />
                             {shortResponseForm.acceptedAnswers.length > 1 && (
-                              <button
-                                onClick={() => handleRemoveAcceptedAnswer(index)}
-                                style={{
-                                  padding: '5px 10px',
-                                  background: '#dc3545',
-                                  color: 'white',
-                                  border: 'none',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                ✕
-                              </button>
+                              <button onClick={() => handleRemoveAcceptedAnswer(index)} style={{ padding: '5px 10px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
                             )}
                           </div>
                         ))}
-                        <button
-                          onClick={handleAddAcceptedAnswer}
-                          style={{
-                            padding: '8px 16px',
-                            background: '#6c757d',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          + Add Variation
-                        </button>
+                        <button onClick={handleAddAcceptedAnswer} style={{ padding: '8px 16px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>+ Add Variation</button>
                       </div>
 
                       <div style={{ display: 'flex', gap: '20px', marginBottom: '15px' }}>
                         <div>
-                          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#333' }}>
-                            Points:
-                          </label>
+                          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#333' }}>Points:</label>
                           <input
                             type="number"
                             value={shortResponseForm.points}
                             onChange={(e) => setShortResponseForm({ ...shortResponseForm, points: parseInt(e.target.value) || 1 })}
                             min={1}
-                            style={{
-                              width: '100px',
-                              padding: '10px',
-                              fontSize: '14px',
-                              border: '1px solid #ced4da',
-                              borderRadius: '4px'
-                            }}
+                            style={{ width: '100px', padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px' }}
                           />
                         </div>
-
                         <div>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', marginTop: '25px' }}>
                             <input
@@ -923,59 +875,21 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                       </div>
 
                       <div style={{ marginBottom: '15px' }}>
-                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#333' }}>
-                          Explanation (shown after grading):
-                        </label>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#333' }}>Explanation:</label>
                         <textarea
                           value={shortResponseForm.explanation}
                           onChange={(e) => setShortResponseForm({ ...shortResponseForm, explanation: e.target.value })}
                           placeholder="Explain the correct answer..."
                           rows={2}
-                          style={{
-                            width: '100%',
-                            padding: '10px',
-                            fontSize: '14px',
-                            border: '1px solid #ced4da',
-                            borderRadius: '4px',
-                            boxSizing: 'border-box',
-                            resize: 'vertical'
-                          }}
+                          style={{ width: '100%', padding: '10px', fontSize: '14px', border: '1px solid #ced4da', borderRadius: '4px', boxSizing: 'border-box', resize: 'vertical' }}
                         />
                       </div>
                     </>
                   )}
 
-                  {/* Save/Cancel Question Buttons */}
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                    <button
-                      onClick={() => {
-                        setIsAddingQuestion(false);
-                        resetQuestionForms();
-                      }}
-                      style={{
-                        padding: '10px 20px',
-                        background: '#6c757d',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleSaveQuestion}
-                      style={{
-                        padding: '10px 20px',
-                        background: '#28a745',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      Save Question
-                    </button>
+                    <button onClick={() => { setIsAddingQuestion(false); resetQuestionForms(); }} style={{ padding: '10px 20px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={handleSaveQuestion} style={{ padding: '10px 20px', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Save Question</button>
                   </div>
                 </div>
               )}
@@ -985,28 +899,9 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                 <div style={{ marginBottom: '20px' }}>
                   <h4 style={{ color: '#333', marginBottom: '10px' }}>Added Questions:</h4>
                   {questions.map((q, index) => (
-                    <div
-                      key={q.questionId}
-                      style={{
-                        background: '#fff',
-                        padding: '15px',
-                        borderRadius: '8px',
-                        marginBottom: '10px',
-                        border: '1px solid #dee2e6',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                      }}
-                    >
+                    <div key={q.questionId} style={{ background: '#fff', padding: '15px', borderRadius: '8px', marginBottom: '10px', border: '1px solid #dee2e6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
-                        <span style={{
-                          background: q.type === 'mcq' ? '#007bff' : '#17a2b8',
-                          color: 'white',
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          fontSize: '12px',
-                          marginRight: '10px'
-                        }}>
+                        <span style={{ background: q.type === 'mcq' ? '#007bff' : '#17a2b8', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', marginRight: '10px' }}>
                           {q.type === 'mcq' ? 'MCQ' : 'Short Response'}
                         </span>
                         <strong style={{ color: '#333' }}>{q.title}</strong>
@@ -1014,19 +909,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                           ({q.type === 'mcq' ? (q as MCQQuestion).maxPoints : (q as ShortResponseQuestion).points} pts)
                         </span>
                       </div>
-                      <button
-                        onClick={() => handleRemoveQuestion(index)}
-                        style={{
-                          padding: '5px 10px',
-                          background: '#dc3545',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Remove
-                      </button>
+                      <button onClick={() => handleRemoveQuestion(index)} style={{ padding: '5px 10px', background: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Remove</button>
                     </div>
                   ))}
                 </div>
@@ -1034,33 +917,8 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
 
               {/* Step 2 Navigation */}
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <button
-                  onClick={() => setCreationStep(1)}
-                  style={{
-                    padding: '10px 20px',
-                    background: '#6c757d',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  ← Back
-                </button>
-                <button
-                  onClick={handleCreateAssessment}
-                  disabled={questions.length === 0}
-                  style={{
-                    padding: '10px 20px',
-                    background: questions.length === 0 ? '#ccc' : '#28a745',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: questions.length === 0 ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  Create Assessment ✓
-                </button>
+                <button onClick={() => setCreationStep(1)} style={{ padding: '10px 20px', background: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>← Back</button>
+                <button onClick={handleCreateAssessment} disabled={questions.length === 0} style={{ padding: '10px 20px', background: questions.length === 0 ? '#ccc' : '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: questions.length === 0 ? 'not-allowed' : 'pointer' }}>Create Assessment ✓</button>
               </div>
             </div>
           )}
@@ -1071,29 +929,14 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
       {!isCreating && (
         <div>
           {assessments.length === 0 ? (
-            <div style={{
-              textAlign: 'center',
-              padding: '40px',
-              background: '#f8f9fa',
-              borderRadius: '8px',
-              color: '#666'
-            }}>
+            <div style={{ textAlign: 'center', padding: '40px', background: '#f8f9fa', borderRadius: '8px', color: '#666' }}>
               <p>No knowledge assessments available yet.</p>
               {isAdmin && <p>Click "Create Assessment" to add one.</p>}
             </div>
           ) : (
             <div style={{ display: 'grid', gap: '15px' }}>
               {assessments.map((assessment) => (
-                <div
-                  key={assessment.milestoneId}
-                  style={{
-                    background: '#fff',
-                    padding: '20px',
-                    borderRadius: '8px',
-                    border: '1px solid #dee2e6',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-                  }}
-                >
+                <div key={assessment.milestoneId} style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #dee2e6', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1 }}>
                       <h3 style={{ color: '#333', margin: '0 0 10px 0' }}>{assessment.title}</h3>
@@ -1108,7 +951,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                     </div>
                     <div style={{ display: 'flex', gap: '10px' }}>
                       <button
-                        onClick={() => onSelectAssessment?.(assessment)}
+                        onClick={() => handleStartAssessment(assessment)}
                         style={{
                           padding: '10px 20px',
                           background: '#007bff',
@@ -1118,7 +961,7 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
                           cursor: 'pointer'
                         }}
                       >
-                        {isAdmin ? 'View' : 'Start'}
+                        {isAdmin ? 'Preview' : 'Start'}
                       </button>
                       {isAdmin && (
                         <button
@@ -1142,6 +985,28 @@ export function KnowledgeAssessmentsTab({ userProfile, onSelectAssessment }: Kno
             </div>
           )}
         </div>
+      )}
+
+      {/* Proctoring Instructions Modal */}
+      {showProctoringInstructions && pendingAssessment && (
+        <ProctoringInstructions
+          problemTitle={pendingAssessment.title}
+          onProceed={handleProctoringGranted}
+          onCancel={handleProctoringCancelled}
+        />
+      )}
+
+      {/* Knowledge Environment (Assessment Taking) */}
+      {selectedAssessment && (
+        <KnowledgeEnvironment
+          assessment={selectedAssessment}
+          userProfile={userProfile}
+          webcamStream={webcamStream}
+          screenStream={screenStream}
+          onClose={handleCloseEnvironment}
+          onSubmitSuccess={handleSubmitSuccess}
+          isViewMode={!webcamStream && !screenStream}
+        />
       )}
     </div>
   );

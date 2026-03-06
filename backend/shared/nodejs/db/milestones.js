@@ -14,6 +14,7 @@ async function createMilestone(milestoneData) {
     TableName: process.env.MILESTONES_TABLE,
     Item: {
       milestoneId: milestoneData.milestoneId || `milestone_${Date.now()}`,
+      type: 'coding',
       title: milestoneData.title,
       description: milestoneData.description,
       difficulty: milestoneData.difficulty || 'medium',
@@ -24,7 +25,6 @@ async function createMilestone(milestoneData) {
       memoryLimit: milestoneData.memoryLimit || 256000,
       sampleTestCases: milestoneData.sampleTestCases || [],
       testCaseCount: milestoneData.testCaseCount || 0,
-      // NEW: BCdiploma template ID for this problem
       bcdiplomaTemplateId: milestoneData.bcdiplomaTemplateId || null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -56,7 +56,10 @@ async function getMilestone(milestoneId) {
  */
 async function getAllMilestones() {
   const params = {
-    TableName: process.env.MILESTONES_TABLE
+    TableName: process.env.MILESTONES_TABLE,
+    FilterExpression: 'attribute_not_exists(#type) OR #type = :coding',
+    ExpressionAttributeNames: { '#type': 'type' },
+    ExpressionAttributeValues: { ':coding': 'coding' }
   };
   
   const result = await dynamodb.send(new ScanCommand(params));
