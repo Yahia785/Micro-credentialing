@@ -121,8 +121,7 @@ export function CodeEditor({
             if (submission.testResults) {
               setTestResults(submission.testResults);
               setOutput(
-                `🎉 Previous Submission Results\n\n` +
-                `Status: ${submission.status}\n` +
+                `Submission Results\n\n` +
                 `Score: ${submission.passedTests}/${submission.totalTests} (${submission.score}%)\n` +
                 `Submitted: ${new Date(submission.submittedAt || submission.createdAt).toLocaleString()}\n\n` +
                 `View test results below.`
