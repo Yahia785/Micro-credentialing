@@ -2,7 +2,7 @@ interface TestResult {
   testCaseId?: string;
   passed: boolean;
   input: string;
-  output: string;
+  actualOutput: string;
   expectedOutput: string;
   executionTime?: number;
   memory?: number;
@@ -113,7 +113,7 @@ export function TestCaseResult({ result, index }: TestCaseResultProps) {
               fontSize: '13px',
               color: '#333'
             }}>
-              {result.output || '(no output)'}
+              {result.actualOutput || '(no output)'}
             </pre>
           </div>
 

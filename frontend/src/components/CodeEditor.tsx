@@ -10,7 +10,7 @@ interface TestResult {
   testCaseId?: string;
   passed: boolean;
   input: string;
-  output: string;
+  actualOutput: string;
   expectedOutput: string;
   executionTime?: number;
   memory?: number;
@@ -63,7 +63,7 @@ export function CodeEditor({
   const defaultStarterCode = milestone.starterCode || getDefaultStarterCode(defaultLanguage);
 
   const [code, setCode] = useState(defaultStarterCode);
-  const [output, setOutput] = useState('');
+  const [actualOutput, setOutput] = useState('');
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [loadingSubmission, setLoadingSubmission] = useState(false); // ADD THIS
   //const [submissionData, setSubmissionData] = useState<any>(null); // ADD THIS
@@ -828,32 +828,9 @@ const stopRecording = () => {
                     borderRadius: '8px',
                     border: '2px solid #0066cc'
                   }}>
-                    <h4 style={{ color: '#0066cc', marginTop: 0 }}>📚 How to Solve This Problem</h4>
+                    <h4 style={{ color: '#0066cc', marginTop: 0 }}> How to test your code? </h4>
                     <ol style={{ color: '#333', lineHeight: '1.8', paddingLeft: '20px' }}>
-                      <li>
-                        <strong>Click "📋 Copy Code"</strong> button below to copy the starter code
-                      </li>
-                      <li>
-                        <strong>Click "🔗 Open OnlineGDB"</strong> to open the external IDE in a new tab
-                      </li>
-                      <li>
-                        <strong>Paste the starter code</strong> in OnlineGDB editor
-                      </li>
-                      <li>
-                        <strong>Write your solution</strong> in OnlineGDB
-                      </li>
-                      <li>
-                        <strong>Test with sample inputs</strong> shown above (unlimited testing - FREE!)
-                      </li>
-                      <li>
-                        <strong>Once working, copy your final code</strong> from OnlineGDB
-                      </li>
-                      <li>
-                        <strong>Paste it back</strong> in the editor (right side)
-                      </li>
-                      <li>
-                        <strong>Click "Submit"</strong> to run against all test cases (Judge0)
-                      </li>
+                      <li> Copy your code and test in onlineGDB</li>
                     </ol>
 
                     <div style={{
@@ -951,7 +928,7 @@ const stopRecording = () => {
                     border: '1px solid #e0e0e0',
                     whiteSpace: 'pre-wrap'
                   }}>
-                    {output || 'Click "Submit" to see results here...'}
+                    {actualOutput || 'Click "Submit" to see results here...'}
                   </pre>
                   
                   {submissionStatus === 'success' && (
