@@ -897,7 +897,7 @@ const stopRecording = () => {
                   </div>
 
                   {/* Constraints */}
-                  <div style={{
+                  {/* <div style={{
                     marginTop: '20px',
                     padding: '15px',
                     backgroundColor: '#fff3cd',
@@ -910,7 +910,7 @@ const stopRecording = () => {
                       <li>Time Limit: <strong>{milestone.timeLimit || 5000}ms</strong></li>
                       <li>Memory Limit: <strong>{(milestone.memoryLimit || 256000) / 1024}MB</strong></li>
                     </ul>
-                  </div>
+                  </div> */}
                 </div>
               ) : (
                 <div>
