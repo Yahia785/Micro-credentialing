@@ -1,5 +1,9 @@
 version = 0.1
 
+[production.build.parameters]
+cached = true
+parallel = true
+
 [production.deploy.parameters]
 stack_name = "micro-credentialing-backend-production"
 resolve_s3 = true

@@ -1,5 +1,9 @@
 version = 0.1
 
+[dev.build.parameters]
+cached = true
+parallel = true
+
 [dev.deploy.parameters]
 stack_name = "micro-credentialing-backend-dev"
 resolve_s3 = true
