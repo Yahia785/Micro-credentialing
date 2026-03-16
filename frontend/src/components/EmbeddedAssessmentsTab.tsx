@@ -182,8 +182,29 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
 
   if (selectedAssessment) {
     return (
-      <EmbeddedEnvironment
-        assessment={selectedAssessment}
+      <ProctoringInstructions
+        problemTitle={pendingAssessment.title}
+        onProceed={handleProctoringGranted}
+        onCancel={handleProctoringCancelled}
+      />
+    );
+  }
+
+  if (selectedAssessment) {
+    return (
+      <CodeEditor
+        milestone={{
+          milestoneId: selectedAssessment.milestoneId,
+          title: selectedAssessment.title,
+          description: selectedAssessment.description,
+          difficulty: selectedAssessment.difficulty,
+          language: 'c',
+          starterCode: '',
+          type: 'embedded'
+        }}
+        userProfile={userProfile}
+        webcamStream={webcamStream}
+        screenStream={screenStream}
         onClose={handleCloseEnvironment}
         onSubmitSuccess={handleSubmitSuccess}
       />
