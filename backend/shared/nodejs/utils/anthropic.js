@@ -13,6 +13,7 @@ async function getAnthropicApiKey() {
 }
 
 async function gradeEmbeddedCode(code, rubric) {
+  // Attempt to get API key — fall back to mock if secret doesn't exist yet
   let apiKey;
   try {
     apiKey = await getAnthropicApiKey();
