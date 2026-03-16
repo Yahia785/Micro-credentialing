@@ -51,7 +51,11 @@ exports.handler = async (event) => {
           ...submission,
           problemTitle: milestone?.title || 'Unknown Problem',
           studentName: submitter?.name || 'Unknown Student',
-          studentEmail: submitter?.email || 'Unknown Email'
+          studentEmail: submitter?.email || 'Unknown Email',
+          milestoneType: submission.type || 'coding',
+          rubricResults: submission.rubricResults || [],
+          passedCriteria: submission.passedCriteria || 0,
+          totalCriteria: submission.totalCriteria || 0
         };
       })
     );

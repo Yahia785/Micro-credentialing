@@ -1,0 +1,6 @@
+{
+  "name": "embedded-assessments-functions",
+  "version": "1.0.0",
+  "description": "Embedded systems assessment Lambda functions",
+  "private": true
+}
