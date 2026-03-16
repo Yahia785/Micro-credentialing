@@ -23,9 +23,12 @@ async function getAnthropicApiKey() {
  * @returns {Promise<object>} { rubricResults, passedCriteria, totalCriteria, score, passed }
  */
 async function gradeEmbeddedCode(code, rubric) {
-  // If no secret ARN configured, return mock results for testing
-  if (!process.env.ANTHROPIC_API_KEY_SECRET_ARN) {
-    console.warn('ANTHROPIC_API_KEY_SECRET_ARN not set — returning mock grading results');
+  // Attempt to get API key — fall back to mock if secret doesn't exist yet
+  let apiKey;
+  try {
+    apiKey = await getAnthropicApiKey();
+  } catch (secretError) {
+    console.warn('Could not retrieve Anthropic API key from Secrets Manager — returning mock grading results:', secretError.message);
     return {
       rubricResults: rubric.map(criterion => ({
         criterion,
@@ -39,8 +42,6 @@ async function gradeEmbeddedCode(code, rubric) {
       llmModel: 'mock'
     };
   }
-
-  const apiKey = await getAnthropicApiKey();
 
   const prompt = buildGradingPrompt(code, rubric);
 

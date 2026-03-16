@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { submitCode, getSubmission } from '../api/submissions';
+import { submitEmbeddedAssessment } from '../api/embedded-assessments';
 import { getTestCases } from '../api/testcases';
 import { TestCaseResult } from './TestCaseResult';
 import { uploadRecording, saveRecordingMetadata } from '../api/proctoring';
@@ -37,6 +38,7 @@ interface Milestone {
   starterCode?: string;
   timeLimit?: number;
   memoryLimit?: number;
+  type?: string;
 }
 
 interface CodeEditorProps {
@@ -349,13 +351,21 @@ const stopRecording = () => {
   };
 
   const handleSubmit = async () => {
+    const isEmbedded = milestone.type === 'embedded';
+
     if (!window.confirm(
-      '⚠️ IMPORTANT: Before submitting, make sure:\n\n' +
-      '✅ You tested your code in OnlineGDB\n' +
-      '✅ Your code works with the sample test cases\n' +
-      '✅ You copied your final code back to this editor\n\n' +
-      'This submission will use Judge0 to test your code against all test cases (including hidden ones).\n\n' +
-      'Continue with submission?'
+      isEmbedded
+        ? '⚠️ IMPORTANT: Before submitting, make sure:\n\n' +
+          '✅ Your code is complete and ready for grading\n' +
+          '✅ You have implemented all required functionality\n\n' +
+          'This submission will be graded automatically.\n\n' +
+          'Continue with submission?'
+        : '⚠️ IMPORTANT: Before submitting, make sure:\n\n' +
+          '✅ You tested your code in OnlineGDB\n' +
+          '✅ Your code works with the sample test cases\n' +
+          '✅ You copied your final code back to this editor\n\n' +
+          'This submission will use Judge0 to test your code against all test cases (including hidden ones).\n\n' +
+          'Continue with submission?'
     )) {
       return;
     }
@@ -367,21 +377,44 @@ const stopRecording = () => {
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     setIsSubmitting(true);
-    setOutput('⏳ Submitting your code to Judge0 for grading...\n\nPlease wait...');
+    setOutput(
+      isEmbedded
+        ? '⏳ Submitting your code for grading...\n\nPlease wait...'
+        : '⏳ Submitting your code to Judge0 for grading...\n\nPlease wait...'
+    );
     setTestResults([]);
     setActiveTab('output');
     setSubmissionStatus('idle');
 
     try {
-      console.log('📤 Submitting code to Judge0...');
-      
-      const result = await submitCode({
-        milestoneId: milestone.milestoneId,
-        code,
-        language: defaultLanguage,
-      });
+      let result: any;
 
-      console.log('✅ Judge0 result:', result);
+      if (isEmbedded) {
+        console.log('📤 Submitting embedded code for LLM grading...');
+        const embeddedResult = await submitEmbeddedAssessment(
+          milestone.milestoneId,
+          code
+        );
+        // Shape the result to match the existing flow
+        result = {
+          submission: {
+            submissionId: embeddedResult.submissionId,
+            status: embeddedResult.passed ? 'passed' : 'failed',
+            passedTests: embeddedResult.passedCriteria,
+            totalTests: embeddedResult.totalCriteria,
+            testResults: [],
+          }
+        };
+      } else {
+        console.log('📤 Submitting code to Judge0...');
+        result = await submitCode({
+          milestoneId: milestone.milestoneId,
+          code,
+          language: defaultLanguage,
+        });
+      }
+
+      console.log('✅ Submission result:', result);
 
       if (result.error) {
         setOutput(`❌ Error: ${result.error}`);

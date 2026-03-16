@@ -6,7 +6,7 @@ import {
 } from '../api/embedded-assessments';
 import type { EmbeddedAssessment } from '../api/embedded-assessments';
 import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
-import { EmbeddedEnvironment } from './EmbeddedEnvironment';
+import { CodeEditor } from './CodeEditor';
 
 interface EmbeddedAssessmentsTabProps {
   userProfile: any;
@@ -182,8 +182,19 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
 
   if (selectedAssessment) {
     return (
-      <EmbeddedEnvironment
-        assessment={selectedAssessment}
+      <CodeEditor
+        milestone={{
+          milestoneId: selectedAssessment.milestoneId,
+          title: selectedAssessment.title,
+          description: selectedAssessment.description,
+          difficulty: selectedAssessment.difficulty,
+          language: 'c',
+          starterCode: '',
+          type: 'embedded'
+        }}
+        userProfile={userProfile}
+        webcamStream={webcamStream}
+        screenStream={screenStream}
         onClose={handleCloseEnvironment}
         onSubmitSuccess={handleSubmitSuccess}
       />
