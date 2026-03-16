@@ -27,7 +27,12 @@ Parameters:
   BCDiplomaIssuerIdSecretName:
     Type: String
     Description: Name of the BCdiploma Issuer ID secret in Secrets Manager
-    Default: "micro-credentialing/bcdiploma-issuer-id"  
+    Default: "micro-credentialing/bcdiploma-issuer-id"
+
+  AnthropicApiKeySecretName:
+    Type: String
+    Description: Name of the Anthropic API Key secret in Secrets Manager
+    Default: "micro-credentialing/anthropic-api-key"    
 
 # ==========================================
 # CONDITIONS
@@ -63,7 +68,7 @@ Globals:
         BCDIPLOMA_API_URL: "https://api-staging.bcdiploma.com"
         ALLOWED_DOMAINS: "canvas.instructure.com,ti.com,dev.ti.com,onlinegdb.com,virginia.edu"
         FORBIDDEN_DOMAINS: "chatgpt.com,openai.com,claude.ai,anthropic.com,google.com/search,stackoverflow.com,discord.com,whatsapp.com,github.com/copilot"
-        
+        ANTHROPIC_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AnthropicApiKeySecretName}"
 
 # ==========================================
 # RESOURCES
@@ -575,6 +580,169 @@ Resources:
             TableName: Submissions
         - DynamoDBReadPolicy:
             TableName: Users
+
+  # ==========================================
+  # EMBEDDED ASSESSMENT FUNCTIONS
+  # ==========================================
+
+  # ------------------------------------------
+  # LAMBDA: Create Embedded Assessment
+  # ------------------------------------------
+  CreateEmbeddedAssessmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/embedded-assessments/create/
+      Handler: index.handler
+      Description: Creates an embedded systems assessment with rubric
+      Events:
+        CreateEmbeddedAssessment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /embedded-assessments
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsEmbeddedAssessments:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /embedded-assessments
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Milestones
+        - DynamoDBReadPolicy:
+            TableName: Users
+
+  # ------------------------------------------
+  # LAMBDA: Get Embedded Assessment(s)
+  # ------------------------------------------
+  GetEmbeddedAssessmentsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/embedded-assessments/get/
+      Handler: index.handler
+      Description: Gets embedded assessments
+      Events:
+        GetAllEmbeddedAssessments:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /embedded-assessments
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        GetEmbeddedAssessment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /embedded-assessments/{assessmentId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsEmbeddedAssessmentId:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /embedded-assessments/{assessmentId}
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: Milestones
+
+  # ------------------------------------------
+  # LAMBDA: Update Embedded Assessment
+  # ------------------------------------------
+  UpdateEmbeddedAssessmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/embedded-assessments/update/
+      Handler: index.handler
+      Description: Updates an embedded assessment
+      Events:
+        UpdateEmbeddedAssessment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /embedded-assessments/{assessmentId}
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Milestones
+        - DynamoDBReadPolicy:
+            TableName: Users
+
+  # ------------------------------------------
+  # LAMBDA: Delete Embedded Assessment
+  # ------------------------------------------
+  DeleteEmbeddedAssessmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/embedded-assessments/delete/
+      Handler: index.handler
+      Description: Deletes an embedded assessment
+      Events:
+        DeleteEmbeddedAssessment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /embedded-assessments/{assessmentId}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Milestones
+        - DynamoDBReadPolicy:
+            TableName: Users
+
+  # ------------------------------------------
+  # LAMBDA: Submit Embedded Assessment
+  # ------------------------------------------
+  SubmitEmbeddedAssessmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/embedded-assessments/submit/
+      Handler: index.handler
+      Description: Submit embedded systems code for LLM rubric grading
+      Timeout: 30
+      Events:
+        SubmitEmbeddedAssessment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /embedded-assessments/{assessmentId}/submit
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsSubmitEmbedded:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /embedded-assessments/{assessmentId}/submit
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: Milestones
+        - DynamoDBCrudPolicy:
+            TableName: Submissions
+        - DynamoDBCrudPolicy:
+            TableName: Users
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AnthropicApiKeySecretName}*"
 
   # ==========================================
   # TEST CASES MANAGEMENT FUNCTIONS

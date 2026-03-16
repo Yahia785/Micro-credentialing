@@ -1,16 +1,26 @@
 import { useState, useEffect } from 'react';
 import { API_BASE } from '../api/config';
 
+interface RubricResult {
+  criterion: string;
+  passed: boolean;
+  feedback: string;
+}
+
 interface PendingSubmission {
   submissionId: string;
   userId: string;
   milestoneId: string;
+  milestoneType?: string;
   studentName: string;
   studentEmail: string;
   problemTitle: string;
   score: number;
   passedTests: number;
   totalTests: number;
+  passedCriteria?: number;
+  totalCriteria?: number;
+  rubricResults?: RubricResult[];
   submittedAt: string;
   proctoringData?: {
     recordings?: {
@@ -264,7 +274,10 @@ export function AdminReviewsTab() {
                     {submission.problemTitle}
                   </p>
                   <p style={{ margin: '4px 0', fontSize: '13px', color: '#28a745', fontWeight: 'bold' }}>
-                    Score: {submission.passedTests}/{submission.totalTests} ({submission.score}%)
+                    Score: {submission.milestoneType === 'embedded'
+                      ? `${submission.passedCriteria ?? 0}/${submission.totalCriteria ?? 0} criteria (${submission.score}%)`
+                      : `${submission.passedTests}/${submission.totalTests} (${submission.score}%)`
+                    }
                   </p>
                   <p style={{ margin: '4px 0', fontSize: '12px', color: '#999' }}>
                     {new Date(submission.submittedAt).toLocaleString()}
@@ -290,9 +303,48 @@ export function AdminReviewsTab() {
                 <p style={{ margin: '5px 0', color: '#000' }}><strong>Email:</strong> {selectedSubmission.studentEmail}</p>
                 <p style={{ margin: '5px 0', color: '#000' }}><strong>Problem:</strong> {selectedSubmission.problemTitle}</p>
                 <p style={{ margin: '5px 0', color: '#000' }}>
-                  <strong>Score:</strong> {selectedSubmission.passedTests}/{selectedSubmission.totalTests} ({selectedSubmission.score}%)
+                  <strong>Score:</strong>{' '}
+                  {selectedSubmission.milestoneType === 'embedded'
+                    ? `${selectedSubmission.passedCriteria ?? 0} / ${selectedSubmission.totalCriteria ?? 0} criteria (${selectedSubmission.score}%)`
+                    : `${selectedSubmission.passedTests}/${selectedSubmission.totalTests} (${selectedSubmission.score}%)`
+                  }
                 </p>
               </div>
+
+              {/* Rubric breakdown — embedded submissions only */}
+              {selectedSubmission.milestoneType === 'embedded' && selectedSubmission.rubricResults && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ color: '#333', marginBottom: '12px' }}>AI Grading Breakdown</h4>
+                  {selectedSubmission.rubricResults.map((result, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        display: 'flex', alignItems: 'flex-start', gap: '10px',
+                        padding: '10px', marginBottom: '8px',
+                        background: result.passed ? '#d4edda' : '#f8d7da',
+                        borderRadius: '6px',
+                        border: `1px solid ${result.passed ? '#c3e6cb' : '#f5c6cb'}`
+                      }}
+                    >
+                      <span style={{
+                        background: result.passed ? '#28a745' : '#dc3545',
+                        color: 'white', padding: '2px 8px', borderRadius: '4px',
+                        fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0
+                      }}>
+                        {result.passed ? '✓' : '✗'}
+                      </span>
+                      <div>
+                        <p style={{ margin: '0 0 4px 0', color: '#333', fontSize: '13px', fontWeight: 'bold' }}>
+                          {result.criterion}
+                        </p>
+                        <p style={{ margin: 0, color: '#555', fontSize: '13px' }}>
+                          {result.feedback}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Proctoring Videos */}
               <div style={{ marginBottom: '20px' }}>

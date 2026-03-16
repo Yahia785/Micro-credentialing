@@ -8,6 +8,7 @@ import { ProblemsTab } from './components/ProblemsTab';
 import { AdminReviewsTab } from './components/AdminReviewsTab';
 import { CredentialsTab } from './components/Credentialstab';
 import { KnowledgeAssessmentsTab } from './components/KnowledgeAssessmentsTab';
+import { EmbeddedAssessmentsTab } from './components/EmbeddedAssessmentsTab';
 import './App.css';
 
 function UserProfileLoader({ user, signOut }: any) {
@@ -84,15 +85,17 @@ function UserProfileLoader({ user, signOut }: any) {
     { id: 'profile', label: 'Profile' },
     { id: 'problems', label: 'Coding Problems' },
     { id: 'knowledge', label: 'Knowledge Assessments' },
+    { id: 'embedded', label: 'Embedded Systems' },
     { id: 'reviews', label: 'Reviews' },
     { id: 'credentials', label: 'Credentials' }
   ]
 : [
-        { id: 'profile', label: 'Profile' },
-        { id: 'problems', label: 'Coding Problems' },
-        { id: 'knowledge', label: 'Knowledge Assessments' },
-        { id: 'credentials', label: 'Credentials' }
-      ];
+    { id: 'profile', label: 'Profile' },
+    { id: 'problems', label: 'Coding Problems' },
+    { id: 'knowledge', label: 'Knowledge Assessments' },
+    { id: 'embedded', label: 'Embedded Systems' },
+    { id: 'credentials', label: 'Credentials' }
+  ];
 
   if (loading) {
     return (
@@ -220,13 +223,17 @@ function UserProfileLoader({ user, signOut }: any) {
           <CredentialsTab />
         )}
 
-        {activeTab === 'knowledge' && (
+         {activeTab === 'knowledge' && (
           <KnowledgeAssessmentsTab 
             userProfile={userProfile}
-            onSelectAssessment={(assessment) => {
-              console.log('Selected assessment:', assessment);
-              // Will be implemented in Phase 4 (Student Interface)
-            }}
+            onRefreshNeeded={() => setRefreshKey(prev => prev + 1)}
+          />
+        )}
+
+        {activeTab === 'embedded' && (
+          <EmbeddedAssessmentsTab
+            userProfile={userProfile}
+            onRefreshNeeded={() => setRefreshKey(prev => prev + 1)}
           />
         )}
       </div>
