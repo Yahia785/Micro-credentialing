@@ -712,7 +712,7 @@ Resources:
       CodeUri: functions/embedded-assessments/submit/
       Handler: index.handler
       Description: Submit embedded systems code for LLM rubric grading
-      Timeout: 30
+      Timeout: 90
       Events:
         SubmitEmbeddedAssessment:
           Type: Api
