@@ -117,15 +117,11 @@ export function CodeEditor({
             setCode(submission.code);
         //    setSubmissionData(submission);
             
-            // Load test results if available
-           if (submission.type === 'embedded' && submission.rubricResults) {
+            if (submission.type === 'embedded' && submission.rubricResults) {
               setOutput(
                 `AI Grading Results\n\n` +
                 `Score: ${submission.passedCriteria}/${submission.totalCriteria} criteria (${submission.score}%)\n` +
-                `Submitted: ${new Date(submission.submittedAt || submission.createdAt).toLocaleString()}\n\n` +
-                `${submission.rubricResults.map((r: any, i: number) =>
-                  `${i + 1}. [${r.passed ? '✓' : '✗'}] ${r.criterion}\n   ${r.feedback}`
-                ).join('\n\n')}`
+                `Submitted: ${new Date(submission.submittedAt || submission.createdAt).toLocaleString()}`
               );
               setActiveTab('output');
             } else if (submission.testResults) {
