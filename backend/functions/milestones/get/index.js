@@ -44,16 +44,19 @@ exports.handler = async (event) => {
       console.log('Milestone found:', milestone);
       return successResponse(200, { milestone });
     } else {
-      // Get all milestones
-      console.log('Getting all milestones');
-      const milestones = await getAllMilestones();
-      
-      console.log(`Found ${milestones.length} milestones`);
-      return successResponse(200, { 
-        milestones,
-        count: milestones.length 
-      });
-    }
+  // Get all milestones
+  console.log('Getting all milestones');
+  const milestones = await getAllMilestones();
+
+  // Filter out hidden items (used to hide dev/test problems from production)
+  const visibleMilestones = milestones.filter(m => !m.isHidden);
+
+  console.log(`Found ${visibleMilestones.length} milestones (${milestones.length - visibleMilestones.length} hidden)`);
+  return successResponse(200, { 
+    milestones: visibleMilestones,
+    count: visibleMilestones.length 
+  });
+}
     
   } catch (error) {
     console.error('Error getting milestone(s):', error);
