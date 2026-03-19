@@ -118,7 +118,17 @@ export function CodeEditor({
         //    setSubmissionData(submission);
             
             // Load test results if available
-            if (submission.testResults) {
+           if (submission.type === 'embedded' && submission.rubricResults) {
+              setOutput(
+                `AI Grading Results\n\n` +
+                `Score: ${submission.passedCriteria}/${submission.totalCriteria} criteria (${submission.score}%)\n` +
+                `Submitted: ${new Date(submission.submittedAt || submission.createdAt).toLocaleString()}\n\n` +
+                `${submission.rubricResults.map((r: any, i: number) =>
+                  `${i + 1}. [${r.passed ? '✓' : '✗'}] ${r.criterion}\n   ${r.feedback}`
+                ).join('\n\n')}`
+              );
+              setActiveTab('output');
+            } else if (submission.testResults) {
               setTestResults(submission.testResults);
               setOutput(
                 `Submission Results\n\n` +
@@ -128,7 +138,7 @@ export function CodeEditor({
               );
               setActiveTab('output');
             }
-          } else {
+                      } else {
             console.log('⚠️ No submission data found, using starter code');
             setCode(defaultStarterCode);
           }

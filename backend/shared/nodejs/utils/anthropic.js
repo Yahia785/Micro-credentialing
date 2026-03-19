@@ -1,9 +1,5 @@
 const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
 
-/**
- * Get Anthropic API key from AWS Secrets Manager
- * @returns {Promise<string>} API key
- */
 async function getAnthropicApiKey() {
   const secretsClient = new SecretsManagerClient({});
 
@@ -16,14 +12,7 @@ async function getAnthropicApiKey() {
   return response.SecretString;
 }
 
-/**
- * Grade student embedded systems code against a rubric using Claude Haiku
- * @param {string} code - Student's submitted C code
- * @param {string[]} rubric - Array of grading criteria strings
- * @returns {Promise<object>} { rubricResults, passedCriteria, totalCriteria, score, passed }
- */
 async function gradeEmbeddedCode(code, rubric) {
-  // Attempt to get API key — fall back to mock if secret doesn't exist yet
   let apiKey;
   try {
     apiKey = await getAnthropicApiKey();
@@ -32,13 +21,13 @@ async function gradeEmbeddedCode(code, rubric) {
     return {
       rubricResults: rubric.map(criterion => ({
         criterion,
-        passed: true,
-        feedback: 'Mock grading: criterion marked as passed for testing purposes.'
+        passed: false,
+        feedback: 'Grading unavailable: could not reach grading service. Admin review required.'
       })),
-      passedCriteria: rubric.length,
+      passedCriteria: 0,
       totalCriteria: rubric.length,
-      score: 100,
-      passed: true,
+      score: 0,
+      passed: false,
       llmModel: 'mock'
     };
   }
@@ -55,7 +44,7 @@ async function gradeEmbeddedCode(code, rubric) {
       'content-type': 'application/json'
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1024,
       messages: [
         {
@@ -89,16 +78,10 @@ async function gradeEmbeddedCode(code, rubric) {
     totalCriteria,
     score,
     passed,
-    llmModel: 'claude-haiku-4-5-20251001'
+    llmModel: 'claude-sonnet-4-6'
   };
 }
 
-/**
- * Build the grading prompt sent to Claude
- * @param {string} code - Student code
- * @param {string[]} rubric - Rubric criteria
- * @returns {string} Prompt string
- */
 function buildGradingPrompt(code, rubric) {
   const rubricList = rubric
     .map((criterion, index) => `${index + 1}. ${criterion}`)
@@ -128,16 +111,8 @@ Example format:
 ]`;
 }
 
-/**
- * Parse Claude's JSON response into rubric results
- * Falls back gracefully if Claude returns malformed output
- * @param {string} rawText - Raw text from Claude
- * @param {string[]} rubric - Original rubric criteria
- * @returns {Array} Parsed rubric results
- */
 function parseGradingResponse(rawText, rubric) {
   try {
-    // Strip any accidental markdown code fences
     const cleaned = rawText.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(cleaned);
 
@@ -145,7 +120,6 @@ function parseGradingResponse(rawText, rubric) {
       throw new Error('Response is not an array');
     }
 
-    // Validate each item has required fields
     return parsed.map((item, index) => ({
       criterion: item.criterion || rubric[index] || `Criterion ${index + 1}`,
       passed: typeof item.passed === 'boolean' ? item.passed : false,
@@ -156,8 +130,6 @@ function parseGradingResponse(rawText, rubric) {
     console.error('Failed to parse Anthropic grading response:', error);
     console.error('Raw text was:', rawText);
 
-    // Fallback: return all criteria as failed with an error note
-    // This surfaces the issue to the admin during review rather than silently passing
     return rubric.map(criterion => ({
       criterion,
       passed: false,
