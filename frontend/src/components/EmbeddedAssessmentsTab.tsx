@@ -531,12 +531,12 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
                 </span>
                 {isCompleted && completedData && (
                   <span style={{
-                    background: completedData.score === 100 ? '#28a745' : '#dc3545',
+                    background: '#007bff',
                     color: 'white',
                     padding: '4px 8px', borderRadius: '4px',
                     fontSize: '12px', fontWeight: 'bold'
                   }}>
-                    {completedData.score === 100 ? '✅' : '❌'} Submitted ({completedData.score}%)
+                    ✅ Submitted — Under Review
                   </span>
                 )}
               </div>
