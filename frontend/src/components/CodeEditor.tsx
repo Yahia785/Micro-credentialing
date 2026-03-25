@@ -67,8 +67,8 @@ export function CodeEditor({
   const [code, setCode] = useState(defaultStarterCode);
   const [actualOutput, setOutput] = useState('');
   const [testResults, setTestResults] = useState<TestResult[]>([]);
-  const [loadingSubmission, setLoadingSubmission] = useState(false); // ADD THIS
-  //const [submissionData, setSubmissionData] = useState<any>(null); // ADD THIS
+  const [loadingSubmission, setLoadingSubmission] = useState(false);
+  const [submissionData, setSubmissionData] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'description' | 'output'>('description');
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'success' | 'failed'>('idle');
@@ -117,14 +117,24 @@ export function CodeEditor({
             
             // Load the code
             setCode(submission.code);
-        //    setSubmissionData(submission);
+            setSubmissionData(submission);
             
-            if (submission.type === 'embedded' && submission.rubricResults) {
-              setOutput(
-                `AI Grading Results\n\n` +
-                `Score: ${submission.passedCriteria}/${submission.totalCriteria} criteria (${submission.score}%)\n` +
-                `Submitted: ${new Date(submission.submittedAt || submission.createdAt).toLocaleString()}`
-              );
+            const reviewStatus = submission.proctoringData?.reviewStatus;
+            const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
+            
+            if (submission.type === 'embedded') {
+              if (isReviewed) {
+                setOutput(
+                  `AI Grading Results\n\n` +
+                  `Score: ${submission.passedCriteria}/${submission.totalCriteria} criteria (${submission.score}%)\n` +
+                  `Submitted: ${new Date(submission.submittedAt || submission.createdAt).toLocaleString()}`
+                );
+              } else {
+                setOutput(
+                  `Your submission has been recorded and is under review by the instructor.\n\n` +
+                  `Results will be available after the review is complete.`
+                );
+              }
               setActiveTab('output');
             } else if (submission.testResults) {
               setTestResults(submission.testResults);
@@ -505,7 +515,19 @@ const stopRecording = () => {
           });
         }
         
-        if (status === 'passed') {
+         const isEmbeddedSubmission = milestone.type === 'embedded';
+        
+        if (isEmbeddedSubmission) {
+          // For embedded assessments, don't reveal score — it's under instructor review
+          setOutput(
+            `✅ Submission Received\n\n` +
+            `Your code has been submitted successfully.\n\n` +
+            `Your submission is now under review by the instructor.\n` +
+            `Results will be available after the review is complete.\n\n` +
+            `You can now close the editor.`
+          );
+          setSubmissionStatus(status === 'passed' ? 'success' : 'failed');
+        } else if (status === 'passed') {
           setOutput(
             `🎉 CONGRATULATIONS! 🎉\n\n` +
             `All ${totalTests} test cases passed!\n\n` +
@@ -515,13 +537,11 @@ const stopRecording = () => {
             `Great job! You can now close the editor and move on to the next problem.`
           );
           setSubmissionStatus('success');
-          
-          // Don't call onSubmitSuccess here - let the Close button handle it
         } else {
           setOutput(
             `📊 Submission Results: ${passedTests}/${totalTests} test cases passed\n\n` +
             `❌ Some test cases failed.\n\n` +
-            `You can review the results below. The Submit button is now disabled.`
+            `You can review the results below.`
           );
           setSubmissionStatus('failed');
         }
@@ -680,30 +700,47 @@ const stopRecording = () => {
           </button>
         </div>
 
-        {/* Submission Status Banner */}
-        {isAlreadyCompleted && completedMilestone && (
-          <div style={{
-            padding: '15px 30px',
-            backgroundColor: completedMilestone.score === 100 ? '#d4edda' : '#f8d7da',
-            borderBottom: `2px solid ${completedMilestone.score === 100 ? '#28a745' : '#dc3545'}`,
-            color: completedMilestone.score === 100 ? '#155724' : '#721c24'
-          }}>
-            <strong>
-              {completedMilestone.score === 100 
-                ? '🏆 Problem Completed Successfully!' 
-                : '📝 Submission Recorded'}
-            </strong>
-            <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
-              Score: {completedMilestone.passedTests}/{completedMilestone.totalTests} ({completedMilestone.score}%) | 
-              Submitted on: {new Date(completedMilestone.completedAt).toLocaleDateString()}
-            </p>
-            <p style={{ margin: '5px 0 0 0', fontSize: '13px', fontStyle: 'italic' }}>
-              {completedMilestone.score === 100 
-                ? 'You have successfully completed this problem. Viewing your solution in read-only mode.'
-                : 'You have submitted this problem. Only one submission is allowed per problem. Viewing your submission in read-only mode.'}
-            </p>
-          </div>
-        )}
+        {isAlreadyCompleted && completedMilestone && (() => {
+          const reviewStatus = submissionData?.proctoringData?.reviewStatus;
+          const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
+          const isEmbeddedType = milestone.type === 'embedded';
+          const showScore = !isEmbeddedType || isReviewed;
+          
+          return (
+            <div style={{
+              padding: '15px 30px',
+              backgroundColor: !showScore ? '#e7f3ff' : completedMilestone.score === 100 ? '#d4edda' : '#f8d7da',
+              borderBottom: `2px solid ${!showScore ? '#007bff' : completedMilestone.score === 100 ? '#28a745' : '#dc3545'}`,
+              color: !showScore ? '#004085' : completedMilestone.score === 100 ? '#155724' : '#721c24'
+            }}>
+              <strong>
+                {!showScore
+                  ? '📋 Submission Under Review'
+                  : completedMilestone.score === 100 
+                    ? '🏆 Problem Completed Successfully!' 
+                    : '📝 Submission Recorded'}
+              </strong>
+              <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
+                {showScore
+                  ? `Score: ${completedMilestone.passedTests}/${completedMilestone.totalTests} (${completedMilestone.score}%) | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
+                  : `Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
+                }
+              </p>
+              <p style={{ margin: '5px 0 0 0', fontSize: '13px', fontStyle: 'italic' }}>
+                {!showScore
+                  ? 'Your submission is being reviewed by the instructor. Results will be available after the review is complete.'
+                  : completedMilestone.score === 100 
+                    ? 'You have successfully completed this problem. Viewing your solution in read-only mode.'
+                    : 'You have submitted this problem. Only one submission is allowed per problem. Viewing your submission in read-only mode.'}
+              </p>
+              {isEmbeddedType && reviewStatus === 'rejected' && submissionData?.proctoringData?.rejectionReason && (
+                <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#721c24', fontWeight: 'bold' }}>
+                  Rejection reason: {submissionData.proctoringData.rejectionReason}
+                </p>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Main Content Area */}
         <div style={{
@@ -769,9 +806,36 @@ const stopRecording = () => {
               {activeTab === 'description' ? (
                 <div>
                   <h3 style={{ color: '#333', marginTop: 0 }}>Problem Description</h3>
-                  <p style={{ color: '#666', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
-                    {milestone.description}
-                  </p>
+                  {(() => {
+                    const reviewStatus = submissionData?.proctoringData?.reviewStatus;
+                    const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
+                    const isEmbeddedType = milestone.type === 'embedded';
+                   const hideDescription = isEmbeddedType && (isViewMode || hasSubmitted) && !isReviewed;
+                    
+                    if (hideDescription) {
+                      return (
+                        <div style={{
+                          padding: '20px',
+                          backgroundColor: '#e7f3ff',
+                          borderRadius: '8px',
+                          border: '1px solid #b8daff',
+                          color: '#004085',
+                          textAlign: 'center'
+                        }}>
+                          <p style={{ fontSize: '16px', margin: '0 0 8px 0' }}>🔒</p>
+                          <p style={{ margin: 0, lineHeight: '1.6' }}>
+                            Problem details are hidden while your submission is under review.
+                            They will become available after the instructor completes the review.
+                          </p>
+                        </div>
+                      );
+                    }
+                    return (
+                      <p style={{ color: '#666', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                        {milestone.description}
+                      </p>
+                    );
+                  })()}
 
                   {/* Sample Test Cases */}
                   {loadingTestCases ? (
@@ -969,7 +1033,7 @@ const stopRecording = () => {
                     {actualOutput || 'Click "Submit" to see results here...'}
                   </pre>
                   
-                  {submissionStatus === 'success' && (
+                 {submissionStatus === 'success' && milestone.type !== 'embedded' && (
                     <div style={{
                       marginTop: '20px',
                       padding: '20px',
