@@ -113,12 +113,17 @@ export function CodeEditor({
             const submission = result.submission;
             console.log('✅ Found submitted code:', submission);
             
-            // Load the code
-            setCode(submission.code);
             setSubmissionData(submission);
             
             const reviewStatus = submission.proctoringData?.reviewStatus;
             const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
+            
+            // Only load actual code if reviewed — hide it otherwise
+            if (submission.type === 'embedded' && !isReviewed) {
+              setCode('// Your submitted code is hidden while your submission is under review.\n// It will become visible after the instructor completes the review.');
+            } else {
+              setCode(submission.code);
+            }
             
             if (submission.type === 'embedded') {
               if (isReviewed) {
@@ -494,6 +499,7 @@ const stopRecording = () => {
             `You can now close the editor.`
           );
           setSubmissionStatus(status === 'passed' ? 'success' : 'failed');
+          setCode('// Your submitted code is hidden while your submission is under review.\n// It will become visible after the instructor completes the review.');
         } else if (status === 'passed') {
           setOutput(
             `🎉 CONGRATULATIONS! 🎉\n\n` +
