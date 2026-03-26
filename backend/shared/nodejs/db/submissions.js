@@ -156,6 +156,11 @@ async function updateSubmission(submissionId, updates) {
     updateExpressions.push('score = :score');
     expressionAttributeValues[':score'] = updates.score;
   }
+
+  if (updates.originalScore !== undefined) {
+    updateExpressions.push('originalScore = :originalScore');
+    expressionAttributeValues[':originalScore'] = updates.originalScore;
+  }
   
   if (updates.testResults !== undefined) {
     updateExpressions.push('testResults = :testResults');

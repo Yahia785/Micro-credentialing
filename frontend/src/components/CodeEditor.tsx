@@ -1033,6 +1033,85 @@ const stopRecording = () => {
                       ))}
                     </div>
                   )}
+
+                  {/* Rubric breakdown for reviewed embedded submissions */}
+                  {isViewMode && submissionData?.type === 'embedded' && (() => {
+                    const reviewStatus = submissionData?.proctoringData?.reviewStatus;
+                    const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
+                    
+                    if (!isReviewed || !submissionData.rubricResults) return null;
+                    
+                    return (
+                      <div style={{ marginTop: '20px' }}>
+                        {/* Rejection reason banner */}
+                        {reviewStatus === 'rejected' && (
+                          <div style={{
+                            padding: '15px',
+                            backgroundColor: '#f8d7da',
+                            borderRadius: '8px',
+                            border: '1px solid #f5c6cb',
+                            marginBottom: '15px',
+                            color: '#721c24'
+                          }}>
+                            <strong>❌ Submission Rejected</strong>
+                            {(submissionData.proctoringData?.rejectionReason || submissionData.proctoringData?.reviewNotes) && (
+                              <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>
+                                Reason: {submissionData.proctoringData.rejectionReason || submissionData.proctoringData.reviewNotes}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        
+                        {reviewStatus === 'approved' && (
+                          <div style={{
+                            padding: '15px',
+                            backgroundColor: '#d4edda',
+                            borderRadius: '8px',
+                            border: '1px solid #c3e6cb',
+                            marginBottom: '15px',
+                            color: '#155724'
+                          }}>
+                            <strong>✅ Submission Reviewed & Approved</strong>
+                            {submissionData.originalScore !== undefined && submissionData.originalScore !== submissionData.score && (
+                              <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>
+                                Score adjusted by instructor: {submissionData.originalScore}% → {submissionData.score}%
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        <h3 style={{ color: '#333' }}>Grading Breakdown</h3>
+                        {submissionData.rubricResults.map((result: any, index: number) => (
+                          <div
+                            key={index}
+                            style={{
+                              display: 'flex', alignItems: 'flex-start', gap: '10px',
+                              padding: '10px', marginBottom: '8px',
+                              background: result.passed ? '#d4edda' : '#f8d7da',
+                              borderRadius: '6px',
+                              border: `1px solid ${result.passed ? '#c3e6cb' : '#f5c6cb'}`
+                            }}
+                          >
+                            <span style={{
+                              background: result.passed ? '#28a745' : '#dc3545',
+                              color: 'white', padding: '2px 8px', borderRadius: '4px',
+                              fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0
+                            }}>
+                              {result.passed ? '✓' : '✗'}
+                            </span>
+                            <div>
+                              <p style={{ margin: '0 0 4px 0', color: '#333', fontSize: '13px', fontWeight: 'bold' }}>
+                                {result.criterion}
+                              </p>
+                              <p style={{ margin: 0, color: '#555', fontSize: '13px' }}>
+                                {result.feedback}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
