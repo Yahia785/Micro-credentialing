@@ -8,6 +8,9 @@ const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
 
+// TODO: Make this per-assessment configurable (stored on milestone in DynamoDB)
+const PASSING_THRESHOLD = 83;
+
 /**
  * Utility function to wait/sleep
  */
@@ -111,13 +114,21 @@ async function processCertificate(certificate, campaignId, submission, student, 
  * Endpoint: POST /credentials/approve-review
  * Authorization: Admin only
  * 
- * This marks the submission as approved, pushes to BCdiploma, 
- * then POLLS until certificate is ready and saves it immediately.
+ * Supports both passed and failed submissions:
+ * - Passed submissions: approve as-is (issues credential if score >= threshold),
+ *   or override score downward (may prevent credential issuance)
+ * - Failed submissions: approve as-is (confirms LLM grading, no credential),
+ *   or override score upward (may trigger credential issuance if score >= threshold)
+ * 
+ * Request body:
+ *   submissionId (required) - The submission to approve
+ *   reviewNotes (optional) - Admin notes
+ *   adjustedScore (optional) - Override the LLM score (0-100)
  */
 exports.handler = async (event) => {
   console.log('Event:', JSON.stringify(event, null, 2));
   
-    // Handle OPTIONS preflight request
+  // Handle OPTIONS preflight request
   if (event.httpMethod === 'OPTIONS') {
     return {
       statusCode: 200,
@@ -142,10 +153,18 @@ exports.handler = async (event) => {
     
     // Parse request body
     const body = JSON.parse(event.body || '{}');
-    const { submissionId, reviewNotes } = body;
+    const { submissionId, reviewNotes, adjustedScore } = body;
     
     if (!submissionId) {
       return errorResponse(400, 'submissionId is required');
+    }
+    
+    // Validate adjustedScore if provided
+    if (adjustedScore !== undefined && adjustedScore !== null) {
+      const score = Number(adjustedScore);
+      if (isNaN(score) || score < 0 || score > 100) {
+        return errorResponse(400, 'adjustedScore must be a number between 0 and 100');
+      }
     }
     
     console.log('Approving review for submission:', submissionId);
@@ -156,15 +175,52 @@ exports.handler = async (event) => {
       return errorResponse(404, 'Submission not found');
     }
     
-    // Verify submission is eligible for approval (passed tests)
-    if (submission.status !== 'passed') {
-      return errorResponse(400, 'Can only approve submissions that passed all tests');
-    }
-    
     // Check if credential already issued
     if (submission.credentialIssued) {
       return errorResponse(400, 'Credential has already been issued for this submission');
     }
+    
+    // Determine effective score — use admin override if provided, otherwise original
+    const effectiveScore = (adjustedScore !== undefined && adjustedScore !== null)
+      ? Number(adjustedScore)
+      : submission.score;
+    const shouldIssueCredential = effectiveScore >= PASSING_THRESHOLD;
+    
+    // If admin provided an adjusted score, update the submission
+    if (adjustedScore !== undefined && adjustedScore !== null) {
+      console.log(`Admin overriding score from ${submission.score} to ${effectiveScore}`);
+      await updateSubmission(submissionId, {
+        score: effectiveScore,
+        status: effectiveScore >= PASSING_THRESHOLD ? 'passed' : 'failed',
+        originalScore: submission.score
+      });
+    }
+    
+    // Approve the review in database (always runs regardless of credential issuance)
+    const updatedSubmission = await approveReview(
+      submissionId,
+      authenticatedUserId,
+      reviewNotes || 'Approved by admin'
+    );
+    
+    console.log('Review approved in database.');
+    
+    // Only issue credential if effective score meets passing threshold
+    if (!shouldIssueCredential) {
+      console.log(`Submission approved without credential issuance (score: ${effectiveScore}%, threshold: ${PASSING_THRESHOLD}%)`);
+      
+      return successResponse(200, {
+        message: adjustedScore !== undefined
+          ? `Review approved with adjusted score (${effectiveScore}%). No credential issued.`
+          : `Review approved. Grading confirmed (${effectiveScore}%). No credential issued.`,
+        submission: updatedSubmission,
+        status: 'approved_no_credential'
+      });
+    }
+    
+    // --- Credential issuance flow (score >= threshold) ---
+    
+    console.log(`Score ${effectiveScore}% meets threshold ${PASSING_THRESHOLD}%. Proceeding with credential issuance...`);
     
     // Get student details
     const student = await getUser(submission.userId);
@@ -183,14 +239,7 @@ exports.handler = async (event) => {
       return errorResponse(400, 'This problem does not have a BCdiploma template configured');
     }
     
-    // Approve the review in database
-    const updatedSubmission = await approveReview(
-      submissionId,
-      authenticatedUserId,
-      reviewNotes || 'Approved by admin'
-    );
-    
-    console.log('Review approved in database. Now pushing to BCdiploma...');
+    console.log('Now pushing to BCdiploma...');
     
     // Prepare certificate data for BCdiploma
     const certificateData = [{
@@ -211,7 +260,8 @@ exports.handler = async (event) => {
     // Store custom metadata
     const customCredentialMetadata = {
       problemTitle: milestone.title,
-      score: submission.score || 0,
+      score: effectiveScore,
+      originalScore: submission.score,
       passedTests: submission.testResults?.passed || 0,
       totalTests: submission.testResults?.total || 0,
       completionDate: new Date().toISOString().split('T')[0]
@@ -247,7 +297,7 @@ exports.handler = async (event) => {
     // POLLING APPROACH: Wait and poll for certificate
     let pullResponse;
     try {
-      // Poll with 6 attempts, 5 seconds apart = max 30 seconds wait
+      // Poll with 2 attempts, 30 seconds apart = max 60 seconds wait
       pullResponse = await pollForCertificate(campaignId, 2, 30000);
     } catch (pollError) {
       console.error('Error polling for certificate:', pollError);

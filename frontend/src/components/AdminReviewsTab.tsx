@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { API_BASE } from '../api/config';
 
+// TODO: Make this per-assessment configurable (should match backend PASSING_THRESHOLD)
+const PASSING_THRESHOLD = 83;
+
 interface RubricResult {
   criterion: string;
   passed: boolean;
@@ -33,7 +36,9 @@ interface PendingSubmission {
 }
 
 export function AdminReviewsTab() {
-  const [pendingReviews, setPendingReviews] = useState<PendingSubmission[]>([]);
+  const [activeSubTab, setActiveSubTab] = useState<'passed' | 'failed'>('passed');
+  const [passedReviews, setPassedReviews] = useState<PendingSubmission[]>([]);
+  const [failedReviews, setFailedReviews] = useState<PendingSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedSubmission, setSelectedSubmission] = useState<PendingSubmission | null>(null);
@@ -42,6 +47,7 @@ export function AdminReviewsTab() {
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [reviewNotes, setReviewNotes] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
+  const [adjustedScore, setAdjustedScore] = useState<string>('');
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
@@ -54,18 +60,25 @@ export function AdminReviewsTab() {
       setError(null);
       
       const token = await getAuthToken();
-      const response = await fetch(`${API_BASE}/credentials/get-pending-reviews`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      
+      const [passedRes, failedRes] = await Promise.all([
+        fetch(`${API_BASE}/credentials/get-pending-reviews?filter=passed`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`${API_BASE}/credentials/get-pending-reviews?filter=failed`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      ]);
 
-      if (!response.ok) {
+      if (!passedRes.ok || !failedRes.ok) {
         throw new Error('Failed to load pending reviews');
       }
 
-      const data = await response.json();
-      setPendingReviews(data.submissions || []);
+      const passedData = await passedRes.json();
+      const failedData = await failedRes.json();
+      
+      setPassedReviews(passedData.submissions || []);
+      setFailedReviews(failedData.submissions || []);
     } catch (err: any) {
       console.error('Error loading pending reviews:', err);
       setError(err.message);
@@ -106,15 +119,28 @@ export function AdminReviewsTab() {
     setSelectedSubmission(submission);
     setReviewNotes('');
     setRejectionReason('');
+    setAdjustedScore('');
     await loadRecordingUrls(submission.submissionId);
   };
 
   const handleApprove = async () => {
     if (!selectedSubmission) return;
 
-    if (!window.confirm(`Approve this submission and issue credential to ${selectedSubmission.studentName}?`)) {
+    const scoreOverride = adjustedScore.trim() !== '' ? parseInt(adjustedScore) : null;
+    
+    if (scoreOverride !== null && (isNaN(scoreOverride) || scoreOverride < 0 || scoreOverride > 100)) {
+      alert('Adjusted score must be a number between 0 and 100');
       return;
     }
+
+    const effectiveScore = scoreOverride !== null ? scoreOverride : selectedSubmission.score;
+    const willIssueCredential = effectiveScore >= PASSING_THRESHOLD;
+    
+    const confirmMessage = willIssueCredential
+      ? `Approve this submission and issue credential to ${selectedSubmission.studentName}? (Score: ${effectiveScore}%)`
+      : `Approve this submission for ${selectedSubmission.studentName}? No credential will be issued (score: ${effectiveScore}%, threshold: ${PASSING_THRESHOLD}%).`;
+
+    if (!window.confirm(confirmMessage)) return;
 
     try {
       setProcessing(true);
@@ -128,15 +154,19 @@ export function AdminReviewsTab() {
         },
         body: JSON.stringify({
           submissionId: selectedSubmission.submissionId,
-          reviewNotes: reviewNotes || 'Approved'
+          reviewNotes: reviewNotes || 'Approved',
+          ...(scoreOverride !== null && { adjustedScore: scoreOverride })
         })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to approve review');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to approve review');
       }
 
-      alert('Review approved! Credential will be issued.');
+      alert(willIssueCredential 
+        ? 'Review approved! Credential will be issued.' 
+        : 'Review approved. No credential issued.');
       setSelectedSubmission(null);
       await loadPendingReviews();
     } catch (err: any) {
@@ -155,7 +185,7 @@ export function AdminReviewsTab() {
       return;
     }
 
-    if (!window.confirm(`Reject this submission? Student will need to retake the problem.`)) {
+    if (!window.confirm(`Reject this submission? This will be recorded as an integrity concern.`)) {
       return;
     }
 
@@ -190,6 +220,9 @@ export function AdminReviewsTab() {
     }
   };
 
+  // Derive the displayed list from active sub-tab
+  const displayedReviews = activeSubTab === 'passed' ? passedReviews : failedReviews;
+
   if (loading) {
     return (
       <div style={{ padding: '20px', textAlign: 'center' }}>
@@ -216,8 +249,43 @@ export function AdminReviewsTab() {
   return (
     <div style={{ padding: '20px' }}>
       <h2 style={{ marginBottom: '20px', color: '#333' }}>Proctoring Reviews</h2>
+
+      {/* Sub-tab switcher */}
+      <div style={{ display: 'flex', gap: '0', marginBottom: '20px' }}>
+        <button
+          onClick={() => { setActiveSubTab('passed'); setSelectedSubmission(null); }}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: activeSubTab === 'passed' ? '#28a745' : '#f8f9fa',
+            color: activeSubTab === 'passed' ? 'white' : '#333',
+            border: '1px solid #dee2e6',
+            borderRadius: '6px 0 0 6px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}
+        >
+          ✅ Passed ({passedReviews.length})
+        </button>
+        <button
+          onClick={() => { setActiveSubTab('failed'); setSelectedSubmission(null); }}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: activeSubTab === 'failed' ? '#dc3545' : '#f8f9fa',
+            color: activeSubTab === 'failed' ? 'white' : '#333',
+            border: '1px solid #dee2e6',
+            borderLeft: 'none',
+            borderRadius: '0 6px 6px 0',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}
+        >
+          ❌ Failed ({failedReviews.length})
+        </button>
+      </div>
       
-      {pendingReviews.length === 0 ? (
+      {displayedReviews.length === 0 ? (
         <div style={{
           padding: '40px',
           textAlign: 'center',
@@ -225,8 +293,10 @@ export function AdminReviewsTab() {
           borderRadius: '8px',
           color: '#0066cc'
         }}>
-          <p style={{ fontSize: '18px', margin: 0 }}>✅ No pending reviews!</p>
-          <p style={{ fontSize: '14px', margin: '10px 0 0 0' }}>All submissions have been reviewed.</p>
+          <p style={{ fontSize: '18px', margin: 0 }}>
+            {activeSubTab === 'passed' ? '✅ No passed submissions pending review!' : '✅ No failed submissions pending review!'}
+          </p>
+          <p style={{ fontSize: '14px', margin: '10px 0 0 0' }}>All {activeSubTab} submissions have been reviewed.</p>
         </div>
       ) : (
         <div style={{
@@ -237,10 +307,10 @@ export function AdminReviewsTab() {
           {/* Left: List of pending reviews */}
           <div>
             <h3 style={{ color: '#333', marginBottom: '15px' }}>
-              Pending ({pendingReviews.length})
+              {activeSubTab === 'passed' ? 'Passed' : 'Failed'} ({displayedReviews.length})
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {pendingReviews.map((submission) => (
+              {displayedReviews.map((submission) => (
                 <div
                   key={submission.submissionId}
                   onClick={() => handleSelectSubmission(submission)}
@@ -273,7 +343,10 @@ export function AdminReviewsTab() {
                   <p style={{ margin: '4px 0', fontSize: '14px', color: '#666' }}>
                     {submission.problemTitle}
                   </p>
-                  <p style={{ margin: '4px 0', fontSize: '13px', color: '#28a745', fontWeight: 'bold' }}>
+                  <p style={{ 
+                    margin: '4px 0', fontSize: '13px', fontWeight: 'bold',
+                    color: submission.score >= PASSING_THRESHOLD ? '#28a745' : '#dc3545'
+                  }}>
                     Score: {submission.milestoneType === 'embedded'
                       ? `${submission.passedCriteria ?? 0}/${submission.totalCriteria ?? 0} criteria (${submission.score}%)`
                       : `${submission.passedTests}/${submission.totalTests} (${submission.score}%)`
@@ -308,6 +381,9 @@ export function AdminReviewsTab() {
                     ? `${selectedSubmission.passedCriteria ?? 0} / ${selectedSubmission.totalCriteria ?? 0} criteria (${selectedSubmission.score}%)`
                     : `${selectedSubmission.passedTests}/${selectedSubmission.totalTests} (${selectedSubmission.score}%)`
                   }
+                </p>
+                <p style={{ margin: '5px 0', color: '#000' }}>
+                  <strong>Passing threshold:</strong> {PASSING_THRESHOLD}%
                 </p>
               </div>
 
@@ -395,6 +471,49 @@ export function AdminReviewsTab() {
                 )}
               </div>
 
+              {/* Score Override */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  fontWeight: 'bold',
+                  marginBottom: '8px',
+                  color: '#333'
+                }}>
+                  Override Score (optional):
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={adjustedScore}
+                    onChange={(e) => setAdjustedScore(e.target.value)}
+                    placeholder={`Current: ${selectedSubmission.score}%`}
+                    style={{
+                      padding: '10px',
+                      fontSize: '14px',
+                      border: '1px solid #ced4da',
+                      borderRadius: '4px',
+                      width: '150px'
+                    }}
+                  />
+                  <span style={{ color: '#666', fontSize: '13px' }}>
+                    AI score: {selectedSubmission.score}% — Leave blank to keep as-is
+                  </span>
+                </div>
+                {adjustedScore.trim() !== '' && !isNaN(parseInt(adjustedScore)) && (
+                  <p style={{ 
+                    margin: '8px 0 0 0', fontSize: '13px', fontWeight: 'bold',
+                    color: parseInt(adjustedScore) >= PASSING_THRESHOLD ? '#28a745' : '#dc3545'
+                  }}>
+                    {parseInt(adjustedScore) >= PASSING_THRESHOLD 
+                      ? `✅ Adjusted score (${adjustedScore}%) meets passing threshold — credential will be issued`
+                      : `❌ Adjusted score (${adjustedScore}%) below passing threshold — no credential`
+                    }
+                  </p>
+                )}
+              </div>
+
               {/* Review Notes */}
               <div style={{ marginBottom: '20px' }}>
                 <label style={{
@@ -416,7 +535,8 @@ export function AdminReviewsTab() {
                     border: '1px solid #ced4da',
                     borderRadius: '4px',
                     minHeight: '80px',
-                    fontFamily: 'inherit'
+                    fontFamily: 'inherit',
+                    boxSizing: 'border-box'
                   }}
                 />
               </div>
@@ -442,7 +562,8 @@ export function AdminReviewsTab() {
                     border: '1px solid #ced4da',
                     borderRadius: '4px',
                     minHeight: '80px',
-                    fontFamily: 'inherit'
+                    fontFamily: 'inherit',
+                    boxSizing: 'border-box'
                   }}
                 />
               </div>
@@ -464,7 +585,12 @@ export function AdminReviewsTab() {
                     fontWeight: 'bold'
                   }}
                 >
-                  ✅ Approve & Issue Credential
+                  {(() => {
+                    const scoreOverride = adjustedScore.trim() !== '' ? parseInt(adjustedScore) : null;
+                    const effectiveScore = scoreOverride !== null ? scoreOverride : (selectedSubmission?.score ?? 0);
+                    const willIssue = effectiveScore >= PASSING_THRESHOLD;
+                    return willIssue ? '✅ Approve & Issue Credential' : '✅ Approve (No Credential)';
+                  })()}
                 </button>
 
                 <button

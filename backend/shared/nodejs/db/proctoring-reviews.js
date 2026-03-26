@@ -9,17 +9,30 @@ const dynamodb = DynamoDBDocumentClient.from(client);
  * @param {number} limit - Maximum number of results
  * @returns {Array} Array of submissions pending review
  */
-async function getPendingReviews(limit = 50) {
+async function getPendingReviews(limit = 50, filter = 'all') {
+  let filterExpression = 'proctoringData.reviewStatus = :pending';
+  const expressionAttributeValues = {
+    ':pending': 'pending'
+  };
+  const expressionAttributeNames = {};
+
+  if (filter === 'passed') {
+    filterExpression += ' AND #status = :status';
+    expressionAttributeNames['#status'] = 'status';
+    expressionAttributeValues[':status'] = 'passed';
+  } else if (filter === 'failed') {
+    filterExpression += ' AND #status = :status';
+    expressionAttributeNames['#status'] = 'status';
+    expressionAttributeValues[':status'] = 'failed';
+  }
+
   const params = {
     TableName: process.env.SUBMISSIONS_TABLE,
-    FilterExpression: '#status = :passed AND (attribute_not_exists(proctoringData.reviewStatus) OR proctoringData.reviewStatus = :pending)',
-    ExpressionAttributeNames: {
-      '#status': 'status'
-    },
-    ExpressionAttributeValues: {
-      ':passed': 'passed',
-      ':pending': 'pending'
-    },
+    FilterExpression: filterExpression,
+    ExpressionAttributeValues: expressionAttributeValues,
+    ...(Object.keys(expressionAttributeNames).length > 0 && {
+      ExpressionAttributeNames: expressionAttributeNames
+    }),
     Limit: limit
   };
   

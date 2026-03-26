@@ -29,8 +29,8 @@ async function createEmbeddedSubmission(data) {
       passed: data.passed || false,
       status: data.passed ? 'passed' : 'failed',
       llmModel: data.llmModel || null,
-      proctoringData: {
-        reviewStatus: data.passed ? 'pending' : 'not_required'
+       proctoringData: {
+        reviewStatus: 'pending'
       },
       submittedAt: new Date().toISOString(),
       completedAt: new Date().toISOString(),

@@ -38,8 +38,10 @@ exports.handler = async (event) => {
     
     console.log('Fetching pending reviews...');
     
+    const filter = event.queryStringParameters?.filter || 'all'; // 'passed', 'failed', or 'all'
+
     // Get all submissions pending review
-    const pendingSubmissions = await getPendingReviews(100);
+    const pendingSubmissions = await getPendingReviews(100, filter);
     
     // Enrich with milestone and user information
     const enrichedSubmissions = await Promise.all(
