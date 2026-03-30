@@ -37,6 +37,7 @@ interface Milestone {
   starterCode?: string;
   timeLimit?: number;
   memoryLimit?: number;
+  type?: string;
 }
 
 interface CodeEditorProps {

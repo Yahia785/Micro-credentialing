@@ -6,7 +6,8 @@ import {
 } from '../api/embedded-assessments';
 import type { EmbeddedAssessment } from '../api/embedded-assessments';
 import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
-import { EmbeddedEnvironment } from './EmbeddedEnvironment';
+//import { EmbeddedEnvironment } from './EmbeddedEnvironment';
+import { CodeEditor } from './CodeEditor';
 
 interface EmbeddedAssessmentsTabProps {
   userProfile: any;
