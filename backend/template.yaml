@@ -394,191 +394,191 @@ Resources:
 
 
 
-  # ==========================================
-  # KNOWLEDGE ASSESSMENT FUNCTIONS
-  # ==========================================
+  # # ==========================================
+  # # KNOWLEDGE ASSESSMENT FUNCTIONS
+  # # ==========================================
 
-  # ------------------------------------------
-  # LAMBDA: Create Knowledge Assessment
-  # ------------------------------------------
-  CreateKnowledgeAssessmentFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: functions/knowledge-assessments/create/
-      Handler: index.handler
-      Description: Creates a knowledge assessment (MCQ + Short Response)
-      Events:
-        CreateKnowledgeAssessment:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments
-            Method: POST
-            Auth:
-              Authorizer: CognitoAuthorizer
-        OptionsKnowledgeAssessments:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments
-            Method: OPTIONS
-            Auth:
-              Authorizer: NONE
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: Milestones
-        - DynamoDBReadPolicy:
-            TableName: Users
+  # # ------------------------------------------
+  # # LAMBDA: Create Knowledge Assessment
+  # # ------------------------------------------
+  # CreateKnowledgeAssessmentFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: functions/knowledge-assessments/create/
+  #     Handler: index.handler
+  #     Description: Creates a knowledge assessment (MCQ + Short Response)
+  #     Events:
+  #       CreateKnowledgeAssessment:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments
+  #           Method: POST
+  #           Auth:
+  #             Authorizer: CognitoAuthorizer
+  #       OptionsKnowledgeAssessments:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments
+  #           Method: OPTIONS
+  #           Auth:
+  #             Authorizer: NONE
+  #     Policies:
+  #       - DynamoDBCrudPolicy:
+  #           TableName: Milestones
+  #       - DynamoDBReadPolicy:
+  #           TableName: Users
 
-  # ------------------------------------------
-  # LAMBDA: Get Knowledge Assessments
-  # ------------------------------------------
-  GetKnowledgeAssessmentsFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: functions/knowledge-assessments/get/
-      Handler: index.handler
-      Description: Gets knowledge assessments
-      Events:
-        GetAllKnowledgeAssessments:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments
-            Method: GET
-            Auth:
-              Authorizer: CognitoAuthorizer
-        GetKnowledgeAssessment:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments/{assessmentId}
-            Method: GET
-            Auth:
-              Authorizer: CognitoAuthorizer
-        OptionsKnowledgeAssessmentId:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments/{assessmentId}
-            Method: OPTIONS
-            Auth:
-              Authorizer: NONE
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: Milestones
+  # # ------------------------------------------
+  # # LAMBDA: Get Knowledge Assessments
+  # # ------------------------------------------
+  # GetKnowledgeAssessmentsFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: functions/knowledge-assessments/get/
+  #     Handler: index.handler
+  #     Description: Gets knowledge assessments
+  #     Events:
+  #       GetAllKnowledgeAssessments:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments
+  #           Method: GET
+  #           Auth:
+  #             Authorizer: CognitoAuthorizer
+  #       GetKnowledgeAssessment:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments/{assessmentId}
+  #           Method: GET
+  #           Auth:
+  #             Authorizer: CognitoAuthorizer
+  #       OptionsKnowledgeAssessmentId:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments/{assessmentId}
+  #           Method: OPTIONS
+  #           Auth:
+  #             Authorizer: NONE
+  #     Policies:
+  #       - DynamoDBReadPolicy:
+  #           TableName: Milestones
 
-  # ------------------------------------------
-  # LAMBDA: Update Knowledge Assessment
-  # ------------------------------------------
-  UpdateKnowledgeAssessmentFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: functions/knowledge-assessments/update/
-      Handler: index.handler
-      Description: Updates a knowledge assessment
-      Events:
-        UpdateKnowledgeAssessment:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments/{assessmentId}
-            Method: PUT
-            Auth:
-              Authorizer: CognitoAuthorizer
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: Milestones
-        - DynamoDBReadPolicy:
-            TableName: Users
+  # # ------------------------------------------
+  # # LAMBDA: Update Knowledge Assessment
+  # # ------------------------------------------
+  # UpdateKnowledgeAssessmentFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: functions/knowledge-assessments/update/
+  #     Handler: index.handler
+  #     Description: Updates a knowledge assessment
+  #     Events:
+  #       UpdateKnowledgeAssessment:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments/{assessmentId}
+  #           Method: PUT
+  #           Auth:
+  #             Authorizer: CognitoAuthorizer
+  #     Policies:
+  #       - DynamoDBCrudPolicy:
+  #           TableName: Milestones
+  #       - DynamoDBReadPolicy:
+  #           TableName: Users
 
-  # ------------------------------------------
-  # LAMBDA: Delete Knowledge Assessment
-  # ------------------------------------------
-  DeleteKnowledgeAssessmentFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: functions/knowledge-assessments/delete/
-      Handler: index.handler
-      Description: Deletes a knowledge assessment
-      Events:
-        DeleteKnowledgeAssessment:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments/{assessmentId}
-            Method: DELETE
-            Auth:
-              Authorizer: CognitoAuthorizer
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: Milestones
-        - DynamoDBReadPolicy:
-            TableName: Users
+  # # ------------------------------------------
+  # # LAMBDA: Delete Knowledge Assessment
+  # # ------------------------------------------
+  # DeleteKnowledgeAssessmentFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: functions/knowledge-assessments/delete/
+  #     Handler: index.handler
+  #     Description: Deletes a knowledge assessment
+  #     Events:
+  #       DeleteKnowledgeAssessment:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments/{assessmentId}
+  #           Method: DELETE
+  #           Auth:
+  #             Authorizer: CognitoAuthorizer
+  #     Policies:
+  #       - DynamoDBCrudPolicy:
+  #           TableName: Milestones
+  #       - DynamoDBReadPolicy:
+  #           TableName: Users
 
-  # ------------------------------------------
-  # LAMBDA: Submit Knowledge Assessment
-  # ------------------------------------------
-  SubmitKnowledgeAssessmentFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: functions/knowledge-assessments/submit/
-      Handler: index.handler
-      Description: Submit and grade a knowledge assessment
-      Events:
-        SubmitKnowledgeAssessment:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments/{assessmentId}/submit
-            Method: POST
-            Auth:
-              Authorizer: CognitoAuthorizer
-        OptionsSubmitKnowledge:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments/{assessmentId}/submit
-            Method: OPTIONS
-            Auth:
-              Authorizer: NONE
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: Milestones
-        - DynamoDBCrudPolicy:
-            TableName: Submissions
+  # # ------------------------------------------
+  # # LAMBDA: Submit Knowledge Assessment
+  # # ------------------------------------------
+  # SubmitKnowledgeAssessmentFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: functions/knowledge-assessments/submit/
+  #     Handler: index.handler
+  #     Description: Submit and grade a knowledge assessment
+  #     Events:
+  #       SubmitKnowledgeAssessment:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments/{assessmentId}/submit
+  #           Method: POST
+  #           Auth:
+  #             Authorizer: CognitoAuthorizer
+  #       OptionsSubmitKnowledge:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments/{assessmentId}/submit
+  #           Method: OPTIONS
+  #           Auth:
+  #             Authorizer: NONE
+  #     Policies:
+  #       - DynamoDBReadPolicy:
+  #           TableName: Milestones
+  #       - DynamoDBCrudPolicy:
+  #           TableName: Submissions
 
-  # ------------------------------------------
-  # LAMBDA: Get Knowledge Submissions (Admin)
-  # ------------------------------------------
-  GetKnowledgeSubmissionsFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: functions/knowledge-assessments/get-submissions/
-      Handler: index.handler
-      Description: Get submissions for a knowledge assessment
-      Events:
-        GetKnowledgeSubmissions:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments/{assessmentId}/submissions
-            Method: GET
-            Auth:
-              Authorizer: CognitoAuthorizer
-        OptionsKnowledgeSubmissions:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MicroCredentialingAPI
-            Path: /knowledge-assessments/{assessmentId}/submissions
-            Method: OPTIONS
-            Auth:
-              Authorizer: NONE
-      Policies:
-        - DynamoDBReadPolicy:
-            TableName: Submissions
-        - DynamoDBReadPolicy:
-            TableName: Users
+  # # ------------------------------------------
+  # # LAMBDA: Get Knowledge Submissions (Admin)
+  # # ------------------------------------------
+  # GetKnowledgeSubmissionsFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: functions/knowledge-assessments/get-submissions/
+  #     Handler: index.handler
+  #     Description: Get submissions for a knowledge assessment
+  #     Events:
+  #       GetKnowledgeSubmissions:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments/{assessmentId}/submissions
+  #           Method: GET
+  #           Auth:
+  #             Authorizer: CognitoAuthorizer
+  #       OptionsKnowledgeSubmissions:
+  #         Type: Api
+  #         Properties:
+  #           RestApiId: !Ref MicroCredentialingAPI
+  #           Path: /knowledge-assessments/{assessmentId}/submissions
+  #           Method: OPTIONS
+  #           Auth:
+  #             Authorizer: NONE
+  #     Policies:
+  #       - DynamoDBReadPolicy:
+  #           TableName: Submissions
+  #       - DynamoDBReadPolicy:
+  #           TableName: Users
 
   # ==========================================
   # EMBEDDED ASSESSMENT FUNCTIONS

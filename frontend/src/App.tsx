@@ -84,7 +84,7 @@ function UserProfileLoader({ user, signOut }: any) {
   ? [
     { id: 'profile', label: 'Profile' },
     { id: 'problems', label: 'Coding Problems' },
-    { id: 'knowledge', label: 'Knowledge Assessments' },
+    //{ id: 'knowledge', label: 'Knowledge Assessments' },
     { id: 'embedded', label: 'Embedded Systems' },
     { id: 'reviews', label: 'Reviews' },
     { id: 'credentials', label: 'Credentials' }
@@ -92,7 +92,7 @@ function UserProfileLoader({ user, signOut }: any) {
 : [
     { id: 'profile', label: 'Profile' },
     { id: 'problems', label: 'Coding Problems' },
-    { id: 'knowledge', label: 'Knowledge Assessments' },
+    //{ id: 'knowledge', label: 'Knowledge Assessments' },
     { id: 'embedded', label: 'Embedded Systems' },
     { id: 'credentials', label: 'Credentials' }
   ];
