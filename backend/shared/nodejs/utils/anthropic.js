@@ -32,7 +32,7 @@ async function gradeEmbeddedCode(code, rubric) {
     };
   }
 
-  const apiKey = await getAnthropicApiKey();
+
 
   const prompt = buildGradingPrompt(code, rubric);
 
