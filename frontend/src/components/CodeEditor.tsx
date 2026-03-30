@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { submitCode, getSubmission } from '../api/submissions';
+import { submitEmbeddedAssessment } from '../api/embedded-assessments';
 import { getTestCases } from '../api/testcases';
 import { TestCaseResult } from './TestCaseResult';
 import { uploadRecording, saveRecordingMetadata } from '../api/proctoring';
@@ -47,7 +48,7 @@ interface CodeEditorProps {
   screenStream: MediaStream | null;
   onClose: () => void;
   onSubmitSuccess?: () => void;
-  isViewMode?: boolean; // ADD THIS
+  isViewMode?: boolean;
 }
 
 export function CodeEditor({ 
@@ -57,7 +58,7 @@ export function CodeEditor({
   screenStream,
   onClose, 
   onSubmitSuccess,
-  isViewMode = false // ADD THIS with default value
+  isViewMode = false
 }: CodeEditorProps) {
   // Default language and starter code if not provided
   const defaultLanguage = milestone.language || 'python';
@@ -97,6 +98,9 @@ export function CodeEditor({
   const completedMilestone = userProfile?.completedMilestones?.find(
     (m: any) => m.milestoneId === milestone.milestoneId
   );
+
+  // Determine if this is an embedded assessment
+  const isEmbedded = milestone.type === 'embedded';
 
 // Reset code when milestone changes OR load submitted code in view mode
   useEffect(() => {
@@ -371,14 +375,19 @@ const stopRecording = () => {
   };
 
   const handleSubmit = async () => {
-    if (!window.confirm(
-      '⚠️ IMPORTANT: Before submitting, make sure:\n\n' +
-      '✅ You tested your code in OnlineGDB\n' +
-      '✅ Your code works with the sample test cases\n' +
-      '✅ You copied your final code back to this editor\n\n' +
-      'This submission will use Judge0 to test your code against all test cases (including hidden ones).\n\n' +
-      'Continue with submission?'
-    )) {
+    // Different confirmation dialog for embedded vs Judge0
+    const confirmMessage = isEmbedded
+      ? '⚠️ Are you sure you want to submit?\n\n' +
+        'Make sure your code is complete and ready for grading.\n\n' +
+        'You cannot change your submission after this point.'
+      : '⚠️ IMPORTANT: Before submitting, make sure:\n\n' +
+        '✅ You tested your code in OnlineGDB\n' +
+        '✅ Your code works with the sample test cases\n' +
+        '✅ You copied your final code back to this editor\n\n' +
+        'This submission will use Judge0 to test your code against all test cases (including hidden ones).\n\n' +
+        'Continue with submission?';
+
+    if (!window.confirm(confirmMessage)) {
       return;
     }
 
@@ -389,21 +398,44 @@ const stopRecording = () => {
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     setIsSubmitting(true);
-    setOutput('⏳ Submitting your code to Judge0 for grading...\n\nPlease wait...');
+    setOutput(
+      isEmbedded
+        ? '⏳ Submitting your code for grading...\n\nPlease wait...'
+        : '⏳ Submitting your code to Judge0 for grading...\n\nPlease wait...'
+    );
     setTestResults([]);
     setActiveTab('output');
     setSubmissionStatus('idle');
 
     try {
-      console.log('📤 Submitting code to Judge0...');
-      
-      const result = await submitCode({
-        milestoneId: milestone.milestoneId,
-        code,
-        language: defaultLanguage,
-      });
+      let result: any;
 
-      console.log('✅ Judge0 result:', result);
+      if (isEmbedded) {
+        console.log('📤 Submitting embedded code for LLM grading...');
+        const embeddedResult = await submitEmbeddedAssessment(
+          milestone.milestoneId,
+          code
+        );
+        // Shape the result to match the existing flow
+        result = {
+          submission: {
+            submissionId: embeddedResult.submissionId,
+            status: embeddedResult.passed ? 'passed' : 'failed',
+            passedTests: embeddedResult.passedCriteria,
+            totalTests: embeddedResult.totalCriteria,
+            testResults: [],
+          }
+        };
+      } else {
+        console.log('📤 Submitting code to Judge0...');
+        result = await submitCode({
+          milestoneId: milestone.milestoneId,
+          code,
+          language: defaultLanguage,
+        });
+      }
+
+      console.log('✅ Submission result:', result);
 
       if (result.error) {
         setOutput(`❌ Error: ${result.error}`);
@@ -442,8 +474,6 @@ const stopRecording = () => {
               
               console.log('📹 Webcam blob size:', (webcamBlob.size / 1024 / 1024).toFixed(2), 'MB');
               console.log('🖥️ Screen blob size:', (screenBlob.size / 1024 / 1024).toFixed(2), 'MB');
-              
-              //const completedAt = new Date().toISOString();
               
               // Define completedAt timestamp
                 const completedAt = new Date().toISOString();
@@ -972,22 +1002,6 @@ const stopRecording = () => {
                       </button>
                     </div>
                   </div>
-
-                  {/* Constraints */}
-                  {/* <div style={{
-                    marginTop: '20px',
-                    padding: '15px',
-                    backgroundColor: '#fff3cd',
-                    borderRadius: '8px',
-                    border: '1px solid #ffc107'
-                  }}>
-                    <h4 style={{ color: '#856404', marginTop: 0 }}>⚙️ Constraints</h4>
-                    <ul style={{ color: '#856404', lineHeight: '1.6', margin: 0 }}>
-                      <li>Language: <strong>{defaultLanguage.toUpperCase()}</strong></li>
-                      <li>Time Limit: <strong>{milestone.timeLimit || 5000}ms</strong></li>
-                      <li>Memory Limit: <strong>{(milestone.memoryLimit || 256000) / 1024}MB</strong></li>
-                    </ul>
-                  </div> */}
                 </div>
               ) : (
                 <div>
@@ -1161,6 +1175,8 @@ const stopRecording = () => {
                       ? 'Already completed'
                       : hasSubmitted
                       ? 'Already submitted in this session'
+                      : isEmbedded
+                      ? 'Submit for LLM rubric grading'
                       : 'Submit for final grading (uses Judge0)'
                   }
                 >
@@ -1205,7 +1221,7 @@ const stopRecording = () => {
                   tabSize: 4,
                   wordWrap: 'on',
                   padding: { top: 10 },
-                  readOnly: isAlreadyCompleted || isViewMode // ADD isViewMode
+                  readOnly: isAlreadyCompleted || isViewMode
                 }}
               />
             </div>
@@ -1221,6 +1237,8 @@ const stopRecording = () => {
               <strong>💡 {(isAlreadyCompleted || isViewMode) ? 'View Mode' : 'Workflow'}:</strong> {
                 (isAlreadyCompleted || isViewMode)
                   ? 'You are viewing your previous submission. Editor is read-only.'
+                  : isEmbedded
+                  ? 'Write your embedded C solution → Submit for AI rubric grading'
                   : 'Copy code → Test in OnlineGDB → Paste final solution here → Submit'
               }
             </div>
