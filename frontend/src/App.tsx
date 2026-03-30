@@ -222,13 +222,13 @@ function UserProfileLoader({ user, signOut }: any) {
         {activeTab === 'credentials' && (
           <CredentialsTab />
         )}
-
-         {activeTab === 'knowledge' && (
+         
+         {/* {activeTab === 'knowledge' && (
           <KnowledgeAssessmentsTab 
             userProfile={userProfile}
             onRefreshNeeded={() => setRefreshKey(prev => prev + 1)}
           />
-        )}
+        )} */}
 
         {activeTab === 'embedded' && (
           <EmbeddedAssessmentsTab
