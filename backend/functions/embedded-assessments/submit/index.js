@@ -75,6 +75,8 @@ exports.handler = async (event) => {
     // Save submission to DynamoDB
     const submission = await createEmbeddedSubmission({
       userId: authenticatedUserId,
+      studentEmail: user.email,
+      studentName: user.name || '',
       milestoneId: assessmentId,
       code: body.code,
       rubricResults: gradingResult.rubricResults,

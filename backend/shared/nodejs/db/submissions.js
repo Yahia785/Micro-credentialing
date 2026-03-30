@@ -15,6 +15,8 @@ async function createSubmission(submissionData) {
     Item: {
       submissionId: submissionData.submissionId || `sub_${Date.now()}_${submissionData.userId}`,
       userId: submissionData.userId,
+      studentEmail: submissionData.studentEmail || null,
+      studentName: submissionData.studentName || null,
       milestoneId: submissionData.milestoneId,
       userMilestoneKey: `${submissionData.userId}#${submissionData.milestoneId}`,
       code: submissionData.code,

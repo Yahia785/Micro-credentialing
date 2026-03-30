@@ -124,6 +124,8 @@ exports.handler = async (event) => {
     const submissionRecord = {
       submissionId,
       userId,
+      studentEmail: user?.email || null,
+      studentName: user?.name || null,
       milestoneId,
       code,
       language,

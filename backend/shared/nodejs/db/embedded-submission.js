@@ -17,6 +17,8 @@ async function createEmbeddedSubmission(data) {
     Item: {
       submissionId,
       userId: data.userId,
+      studentEmail: data.studentEmail || null,
+      studentName: data.studentName || null,
       milestoneId: data.milestoneId,
       userMilestoneKey: `${data.userId}#${data.milestoneId}`,
       type: 'embedded',
