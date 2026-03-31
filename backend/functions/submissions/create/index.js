@@ -66,6 +66,9 @@ exports.handler = async (event) => {
       return errorResponse(404, 'Milestone not found');
     }
     
+    // Fetch user profile (needed for submission record and admin check)
+    const user = await getUser(userId);
+    
     // Get all test cases for this milestone
     const allTestCases = await getTestCasesByMilestone(milestoneId);
     
@@ -240,7 +243,6 @@ exports.handler = async (event) => {
       
       // Only update credential count if 100% passed
       if (credentialAwarded) {
-        const user = await getUser(userId);
         if (user) {
           await updateUser(userId, {
             credentialsCount: (user.credentialsCount || 0) + 1,
@@ -256,7 +258,6 @@ exports.handler = async (event) => {
     }
     
     // Check if user is admin to determine what to show
-    const user = await getUser(userId);
     const isAdmin = user && user.role === 'admin';
     
     console.log('User role:', user?.role, 'Is admin:', isAdmin);
