@@ -244,30 +244,18 @@ function UserProfileLoader({ user, signOut }: any) {
 function App() {
   return (
     <Authenticator
-      hideSignUp={true}
       formFields={{
         signIn: {
           username: {
             label: 'Email',
             placeholder: 'Enter your email'
           }
-        }
-      }}
-      components={{
-        Header() {
-          return (
-            <div style={{
-              padding: '20px',
-              textAlign: 'center',
-              backgroundColor: '#fff3cd',
-              borderBottom: '1px solid #ffc107',
-              borderRadius: '8px 8px 0 0'
-            }}>
-              <p style={{ margin: 0, color: '#856404', fontSize: '14px' }}>
-                Registration is currently closed. Existing users can sign in below.
-              </p>
-            </div>
-          );
+        },
+        signUp: {
+          username: {
+            label: 'Email',
+            placeholder: 'Enter your email'
+          }
         }
       }}
     >
