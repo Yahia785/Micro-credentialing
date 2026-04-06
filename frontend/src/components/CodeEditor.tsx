@@ -728,7 +728,7 @@ const stopRecording = () => {
               </strong>
               <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
                 {showScore
-                  ? `Score: ${completedMilestone.passedTests}/${completedMilestone.totalTests} (${completedMilestone.score}%) | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
+                  ? `Score: ${submissionData?.passedCriteria ?? completedMilestone.passedTests}/${submissionData?.totalCriteria ?? completedMilestone.totalTests} (${submissionData?.score ?? completedMilestone.score}%) | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
                   : `Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
                 }
               </p>

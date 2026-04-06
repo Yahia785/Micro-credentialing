@@ -1,5 +1,5 @@
 const { approveReview } = require('/opt/nodejs/db/proctoring-reviews');
-const { getUser } = require('/opt/nodejs/db/users');
+const { getUser, updateUser } = require('/opt/nodejs/db/users');
 const { getSubmission, updateSubmission } = require('/opt/nodejs/db/submissions');
 const { getMilestone } = require('/opt/nodejs/db/milestones');
 const { pushCertificate, pullCertificate } = require('/opt/nodejs/utils/bcdiploma');
@@ -221,9 +221,41 @@ if (criteriaModifications && Object.keys(criteriaModifications).length > 0) {
       authenticatedUserId,
       reviewNotes || 'Approved by admin'
     );
-    
+
     console.log('Review approved in database.');
-    
+
+    // Update the user's completedMilestones with review status
+    try {
+      const user = await getUser(submission.userId);
+      if (user && user.completedMilestones) {
+        const completedMilestoneIndex = user.completedMilestones.findIndex(
+          (m) => m.submissionId === submissionId
+        );
+
+        if (completedMilestoneIndex >= 0) {
+          // Update this milestone with review status and final score
+          user.completedMilestones[completedMilestoneIndex] = {
+            ...user.completedMilestones[completedMilestoneIndex],
+            proctoringData: {
+              reviewStatus: shouldIssueCredential ? 'approved' : 'rejected',
+              reviewedBy: authenticatedUserId,
+              reviewedAt: new Date().toISOString()
+            },
+            score: effectiveScore
+          };
+
+         
+          await updateUser(submission.userId, {
+            completedMilestones: user.completedMilestones
+          });
+
+          console.log('Updated completedMilestones with review status');
+        }
+      }
+    } catch (userUpdateErr) {
+      console.error('Failed to update completedMilestones with review status:', userUpdateErr.message);
+      // Don't fail the whole operation if this fails
+    }  
     // Only issue credential if effective score meets passing threshold
     if (!shouldIssueCredential) {
       console.log(`Submission approved without credential issuance (score: ${effectiveScore}%, threshold: ${PASSING_THRESHOLD}%)`);

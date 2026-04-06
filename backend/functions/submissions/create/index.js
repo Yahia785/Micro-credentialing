@@ -65,7 +65,12 @@ exports.handler = async (event) => {
     if (!milestone) {
       return errorResponse(404, 'Milestone not found');
     }
-    
+
+    // PREVENT JUDGE0 SUBMISSIONS FOR EMBEDDED ASSESSMENTS
+    if (milestone.type === 'embedded') {
+      return errorResponse(400, 'Embedded assessments must be submitted via /embedded-assessments/{assessmentId}/submit endpoint, not via /submissions/submit');
+    }
+
     // Get all test cases for this milestone
     const allTestCases = await getTestCasesByMilestone(milestoneId);
     

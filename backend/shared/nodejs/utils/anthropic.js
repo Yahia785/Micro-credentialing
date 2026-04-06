@@ -69,7 +69,7 @@ async function gradeEmbeddedCode(code, rubric) {
   const passedCriteria = rubricResults.filter(r => r.passed).length;
   const totalCriteria = rubricResults.length;
   const score = totalCriteria > 0 ? Math.round((passedCriteria / totalCriteria) * 100) : 0;
-  const passed = score === 100;
+  const passed = score >= 83;
 
   return {
     rubricResults,
