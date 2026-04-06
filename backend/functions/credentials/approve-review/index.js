@@ -153,7 +153,7 @@ exports.handler = async (event) => {
     
     // Parse request body
     const body = JSON.parse(event.body || '{}');
-    const { submissionId, reviewNotes, adjustedScore } = body;
+    const { submissionId, reviewNotes, adjustedScore, criteriaModifications } = body;
     
     if (!submissionId) {
       return errorResponse(400, 'submissionId is required');
@@ -196,6 +196,25 @@ exports.handler = async (event) => {
       });
     }
     
+    // Validate and store criteria modifications if provided
+if (criteriaModifications && Object.keys(criteriaModifications).length > 0) {
+  console.log('Admin modifying criteria:', criteriaModifications);
+  
+  // Validate that all indices are within bounds
+  const totalCriteria = submission.totalCriteria || submission.rubricResults.length;
+  for (const indexStr of Object.keys(criteriaModifications)) {
+    const index = parseInt(indexStr);
+    if (isNaN(index) || index < 0 || index >= totalCriteria) {
+      return errorResponse(400, `Invalid criterion index: ${index}. Must be between 0 and ${totalCriteria - 1}`);
+    }
+  }
+
+  // Store the modifications
+  await updateSubmission(submissionId, {
+    criteriaModifications: criteriaModifications
+  });
+}
+
     // Approve the review in database (always runs regardless of credential issuance)
     const updatedSubmission = await approveReview(
       submissionId,

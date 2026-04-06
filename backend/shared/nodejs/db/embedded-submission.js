@@ -160,11 +160,34 @@ async function updateAdjustedScore(submissionId, adjustedScore, reviewedBy, revi
   return result.Attributes;
 }
 
+/**
+ * Update submission with instructor criterion modifications
+ * @param {string} submissionId - Submission ID
+ * @param {object} criteriaModifications - Map of criterion index to pass/fail boolean
+ * @returns {Promise<object>} Updated submission
+ */
+async function updateCriteriaModifications(submissionId, criteriaModifications) {
+  const params = {
+    TableName: process.env.SUBMISSIONS_TABLE,
+    Key: { submissionId },
+    UpdateExpression: 'SET criteriaModifications = :mods, updatedAt = :updatedAt',
+    ExpressionAttributeValues: {
+      ':mods': criteriaModifications,
+      ':updatedAt': new Date().toISOString()
+    },
+    ReturnValues: 'ALL_NEW'
+  };
+
+  const result = await dynamodb.send(new UpdateCommand(params));
+  return result.Attributes;
+}
+
 module.exports = {
   createEmbeddedSubmission,
   getEmbeddedSubmission,
   getSubmissionsByAssessment,
   getUserSubmissionsForAssessment,
   updateCredentialStatus,
-  updateAdjustedScore
+  updateAdjustedScore,
+  updateCriteriaModifications
 };

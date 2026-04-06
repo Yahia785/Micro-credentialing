@@ -49,6 +49,7 @@ export function AdminReviewsTab() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [adjustedScore, setAdjustedScore] = useState<string>('');
   const [processing, setProcessing] = useState(false);
+  const [criteriaModifications, setCriteriaModifications] = useState<{ [key: number]: boolean }>({});
 
   useEffect(() => {
     loadPendingReviews();
@@ -120,6 +121,7 @@ export function AdminReviewsTab() {
     setReviewNotes('');
     setRejectionReason('');
     setAdjustedScore('');
+    setCriteriaModifications({});
     await loadRecordingUrls(submission.submissionId);
   };
 
@@ -155,7 +157,8 @@ export function AdminReviewsTab() {
         body: JSON.stringify({
           submissionId: selectedSubmission.submissionId,
           reviewNotes: reviewNotes || 'Approved',
-          ...(scoreOverride !== null && { adjustedScore: scoreOverride })
+          ...(scoreOverride !== null && { adjustedScore: scoreOverride }),
+          ...(Object.keys(criteriaModifications).length > 0 && { criteriaModifications })
         })
       });
 
@@ -387,40 +390,166 @@ export function AdminReviewsTab() {
                 </p>
               </div>
 
-              {/* Rubric breakdown — embedded submissions only */}
-              {selectedSubmission.milestoneType === 'embedded' && selectedSubmission.rubricResults && (
-                <div style={{ marginBottom: '20px' }}>
-                  <h4 style={{ color: '#333', marginBottom: '12px' }}>AI Grading Breakdown</h4>
-                  {selectedSubmission.rubricResults.map((result, index) => (
-                    <div
-                      key={index}
-                      style={{
-                        display: 'flex', alignItems: 'flex-start', gap: '10px',
-                        padding: '10px', marginBottom: '8px',
-                        background: result.passed ? '#d4edda' : '#f8d7da',
-                        borderRadius: '6px',
-                        border: `1px solid ${result.passed ? '#c3e6cb' : '#f5c6cb'}`
-                      }}
-                    >
-                      <span style={{
-                        background: result.passed ? '#28a745' : '#dc3545',
-                        color: 'white', padding: '2px 8px', borderRadius: '4px',
-                        fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0
-                      }}>
-                        {result.passed ? '✓' : '✗'}
-                      </span>
-                      <div>
-                        <p style={{ margin: '0 0 4px 0', color: '#333', fontSize: '13px', fontWeight: 'bold' }}>
-                          {result.criterion}
-                        </p>
-                        <p style={{ margin: 0, color: '#555', fontSize: '13px' }}>
-                          {result.feedback}
-                        </p>
+                {/* Rubric breakdown — embedded submissions only */}
+                {selectedSubmission.milestoneType === 'embedded' && selectedSubmission.rubricResults && (
+                  <div style={{ marginBottom: '20px' }}>
+                    <h4 style={{ color: '#333', marginBottom: '12px' }}>AI Grading Breakdown</h4>
+                    {selectedSubmission.rubricResults.map((result, index) => (
+                      <div
+                        key={index}
+                        style={{
+                          display: 'flex', alignItems: 'flex-start', gap: '10px',
+                          padding: '10px', marginBottom: '8px',
+                          background: result.passed ? '#d4edda' : '#f8d7da',
+                          borderRadius: '6px',
+                          border: `1px solid ${result.passed ? '#c3e6cb' : '#f5c6cb'}`
+                        }}
+                      >
+                        <span style={{
+                          background: result.passed ? '#28a745' : '#dc3545',
+                          color: 'white', padding: '2px 8px', borderRadius: '4px',
+                          fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0
+                        }}>
+                          {result.passed ? '✓' : '✗'}
+                        </span>
+                        <div>
+                          <p style={{ margin: '0 0 4px 0', color: '#333', fontSize: '13px', fontWeight: 'bold' }}>
+                            {result.criterion}
+                          </p>
+                          <p style={{ margin: 0, color: '#555', fontSize: '13px' }}>
+                            {result.feedback}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+
+                {/* Criterion Overrides Section */}
+                {selectedSubmission.milestoneType === 'embedded' && selectedSubmission.rubricResults && (
+                  <div style={{ marginBottom: '20px' }}>
+                    <h4 style={{ color: '#333', marginBottom: '12px', marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #dee2e6' }}>
+                      Criterion Overrides (Optional)
+                    </h4>
+                    <p style={{ fontSize: '13px', color: '#666', marginBottom: '15px' }}>
+                      Override individual criteria independently of the overall score.
+                    </p>
+
+                    {selectedSubmission.rubricResults && selectedSubmission.rubricResults.map((result, index) => (
+                      <div
+                        key={index}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '15px',
+                          padding: '12px',
+                          marginBottom: '10px',
+                          background: '#f8f9fa',
+                          borderRadius: '6px',
+                          border: '1px solid #e0e0e0'
+                        }}
+                      >
+                        {/* Current AI status */}
+                        <div style={{ flex: 1 }}>
+                          <strong style={{ color: '#333', fontSize: '13px' }}>
+                            {index + 1}. {result.criterion}
+                          </strong>
+                          <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#666' }}>
+                            AI: <span style={{ fontWeight: 'bold', color: result.passed ? '#28a745' : '#dc3545' }}>
+                              {result.passed ? '✓ PASS' : '✗ FAIL'}
+                            </span>
+                          </p>
+                        </div>
+
+                        {/* Override buttons */}
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            onClick={() => {
+                              const newMods = { ...criteriaModifications };
+                              newMods[index] = true;
+                              setCriteriaModifications(newMods);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              background: criteriaModifications[index] === true ? '#28a745' : '#f0f0f0',
+                              color: criteriaModifications[index] === true ? 'white' : '#333',
+                              border: `1px solid ${criteriaModifications[index] === true ? '#28a745' : '#ccc'}`,
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: 'bold',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            ✓ PASS
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              const newMods = { ...criteriaModifications };
+                              newMods[index] = false;
+                              setCriteriaModifications(newMods);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              background: criteriaModifications[index] === false ? '#dc3545' : '#f0f0f0',
+                              color: criteriaModifications[index] === false ? 'white' : '#333',
+                              border: `1px solid ${criteriaModifications[index] === false ? '#dc3545' : '#ccc'}`,
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: 'bold',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            ✗ FAIL
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              const newMods = { ...criteriaModifications };
+                              delete newMods[index];
+                              setCriteriaModifications(newMods);
+                            }}
+                            style={{
+                              padding: '6px 12px',
+                              background: (index in criteriaModifications) ? '#f0f0f0' : '#e7f3ff',
+                              color: (index in criteriaModifications) ? '#333' : '#0066cc',
+                              border: `1px solid ${(index in criteriaModifications) ? '#ccc' : '#0066cc'}`,
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: 'bold',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            AI Result
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Summary of modifications */}
+                    {Object.keys(criteriaModifications).length > 0 && (
+                      <div style={{
+                        marginTop: '15px',
+                        padding: '10px',
+                        background: '#e7f3ff',
+                        borderRadius: '6px',
+                        border: '1px solid #b8daff',
+                        color: '#0066cc',
+                        fontSize: '13px'
+                      }}>
+                        <strong>Modified: </strong>
+                        {Object.entries(criteriaModifications).map(([idx, val]) => (
+                          <span key={idx} style={{ marginRight: '8px' }}>
+                            #{parseInt(idx) + 1} → {val ? '✓' : '✗'}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
               {/* Proctoring Videos */}
               <div style={{ marginBottom: '20px' }}>

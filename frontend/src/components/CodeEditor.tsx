@@ -1114,34 +1114,62 @@ const stopRecording = () => {
                         )}
 
                         <h3 style={{ color: '#333' }}>Grading Breakdown</h3>
-                        {submissionData.rubricResults.map((result: any, index: number) => (
-                          <div
-                            key={index}
-                            style={{
-                              display: 'flex', alignItems: 'flex-start', gap: '10px',
-                              padding: '10px', marginBottom: '8px',
-                              background: result.passed ? '#d4edda' : '#f8d7da',
-                              borderRadius: '6px',
-                              border: `1px solid ${result.passed ? '#c3e6cb' : '#f5c6cb'}`
-                            }}
-                          >
-                            <span style={{
-                              background: result.passed ? '#28a745' : '#dc3545',
-                              color: 'white', padding: '2px 8px', borderRadius: '4px',
-                              fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0
-                            }}>
-                              {result.passed ? '✓' : '✗'}
-                            </span>
-                            <div>
-                              <p style={{ margin: '0 0 4px 0', color: '#333', fontSize: '13px', fontWeight: 'bold' }}>
-                                {result.criterion}
-                              </p>
-                              <p style={{ margin: 0, color: '#555', fontSize: '13px' }}>
-                                {result.feedback}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
+{submissionData.rubricResults.map((result: any, index: number) => {
+  // Check if this criterion was modified by instructor
+  const wasModified = submissionData.criteriaModifications && submissionData.criteriaModifications[index] !== undefined;
+  const instructorValue = wasModified ? submissionData.criteriaModifications[index] : result.passed;
+  
+  return (
+    <div
+      key={index}
+      style={{
+        display: 'flex', 
+        alignItems: 'flex-start', 
+        gap: '10px',
+        padding: '10px', 
+        marginBottom: '8px',
+        background: instructorValue ? '#d4edda' : '#f8d7da',
+        borderRadius: '6px',
+        border: `1px solid ${instructorValue ? '#c3e6cb' : '#f5c6cb'}`
+      }}
+    >
+      <span style={{
+        background: instructorValue ? '#28a745' : '#dc3545',
+        color: 'white', 
+        padding: '2px 8px', 
+        borderRadius: '4px',
+        fontSize: '11px', 
+        whiteSpace: 'nowrap', 
+        flexShrink: 0
+      }}>
+        {instructorValue ? '✓ PASS' : '✗ FAIL'}
+      </span>
+      
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, color: '#333', fontSize: '13px', fontWeight: '500' }}>
+          {result.criterion}
+          {wasModified && (
+            <span style={{
+              marginLeft: '8px',
+              fontSize: '11px',
+              background: '#fff3cd',
+              color: '#856404',
+              padding: '2px 6px',
+              borderRadius: '3px',
+              fontWeight: 'normal',
+              display: 'inline-block'
+            }}>
+              (Updated by Instructor)
+            </span>
+          )}
+        </p>
+        <p style={{ margin: '4px 0 0 0', color: '#666', fontSize: '12px' }}>
+          {result.feedback}
+        </p>
+      </div>
+    </div>
+  );
+})}
                       </div>
                     );
                   })()}
