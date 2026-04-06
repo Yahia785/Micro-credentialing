@@ -63,7 +63,7 @@ async function pollForCertificate(campaignId, maxAttempts = 6, delayMs = 5000) {
 /**
  * Process and save certificate data
  */
-async function processCertificate(certificate, campaignId, submission, student, milestone) {
+async function processCertificate(certificate, campaignId, submission, student, milestone, effectiveScore) {
   const submissionId = certificate.ID;
   
   console.log(`Processing certificate for submission: ${submissionId}`);
@@ -86,7 +86,7 @@ async function processCertificate(certificate, campaignId, submission, student, 
     recipientName: student.name || `${certificate.firstName} ${certificate.lastName}`,
     recipientEmail: student.email,
     problemTitle: milestone.title,
-    score: submission.score || 0,
+    score: effectiveScore || submission.score || 0,
     status: 'issued'
   };
   
@@ -377,7 +377,8 @@ if (criteriaModifications && Object.keys(criteriaModifications).length > 0) {
         campaignId,
         submission,
         student,
-        milestone
+        milestone,
+        effectiveScore
       );
       
       console.log('✓✓✓ Complete! Credential issued successfully');
