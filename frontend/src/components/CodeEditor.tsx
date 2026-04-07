@@ -710,34 +710,66 @@ const stopRecording = () => {
           const reviewStatus = submissionData?.proctoringData?.reviewStatus;
           const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
           const isEmbeddedType = milestone.type === 'embedded';
-          const showScore = !isEmbeddedType || isReviewed;
-          
+          const isApproved = reviewStatus === 'approved';
+          const isRejected = reviewStatus === 'rejected';
+
+          // Determine colors and message based on type and status
+          let bgColor, borderColor, textColor, message;
+
+          if (isEmbeddedType && !isReviewed) {
+            // Still under review
+            bgColor = '#e7f3ff';
+            borderColor = '#007bff';
+            textColor = '#004085';
+            message = '📋 Submission Under Review';
+          } else if (isEmbeddedType && isApproved) {
+            // Approved by instructor
+            bgColor = '#d4edda';
+            borderColor = '#28a745';
+            textColor = '#155724';
+            message = '✅ Passed';
+          } else if (isEmbeddedType && isRejected) {
+            // Rejected by instructor
+            bgColor = '#f8d7da';
+            borderColor = '#dc3545';
+            textColor = '#721c24';
+            message = '❌ Failed';
+          } else {
+            // Regular coding problem - show by score
+            bgColor = completedMilestone.score === 100 ? '#d4edda' : '#f8d7da';
+            borderColor = completedMilestone.score === 100 ? '#28a745' : '#dc3545';
+            textColor = completedMilestone.score === 100 ? '#155724' : '#721c24';
+            message = completedMilestone.score === 100
+              ? '🏆 Problem Completed Successfully!'
+              : '❌ Failed';
+          }
+
           return (
             <div style={{
               padding: '15px 30px',
-              backgroundColor: !showScore ? '#e7f3ff' : completedMilestone.score === 100 ? '#d4edda' : '#f8d7da',
-              borderBottom: `2px solid ${!showScore ? '#007bff' : completedMilestone.score === 100 ? '#28a745' : '#dc3545'}`,
-              color: !showScore ? '#004085' : completedMilestone.score === 100 ? '#155724' : '#721c24'
+              backgroundColor: bgColor,
+              borderBottom: `2px solid ${borderColor}`,
+              color: textColor
             }}>
-              <strong>
-                {!showScore
-                  ? '📋 Submission Under Review'
-                  : completedMilestone.score === 100 
-                    ? '🏆 Problem Completed Successfully!' 
-                    : '📝 Submission Recorded'}
-              </strong>
+              <strong>{message}</strong>
               <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
-                {showScore
-                  ? `Score: ${submissionData?.passedCriteria ?? completedMilestone.passedTests}/${submissionData?.totalCriteria ?? completedMilestone.totalTests} (${submissionData?.score ?? completedMilestone.score}%) | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
-                  : `Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
+                {isEmbeddedType && !isReviewed
+                  ? `Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
+                  : isEmbeddedType
+                    ? `Score: ${completedMilestone.score}% | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
+                    : `Score: ${completedMilestone.passedTests}/${completedMilestone.totalTests} (${completedMilestone.score}%) | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
                 }
               </p>
               <p style={{ margin: '5px 0 0 0', fontSize: '13px', fontStyle: 'italic' }}>
-                {!showScore
+                {isEmbeddedType && !isReviewed
                   ? 'Your submission is being reviewed by the instructor. Results will be available after the review is complete.'
-                  : completedMilestone.score === 100 
+                  : isEmbeddedType && isApproved
                     ? 'You have successfully completed this problem. Viewing your solution in read-only mode.'
-                    : 'You have submitted this problem. Only one submission is allowed per problem. Viewing your submission in read-only mode.'}
+                    : isEmbeddedType && isRejected
+                      ? 'Your submission was not approved. Please review the feedback and resubmit.'
+                      : completedMilestone.score === 100 
+                        ? 'You have successfully completed this problem. Viewing your solution in read-only mode.'
+                        : 'You have submitted this problem. Only one submission is allowed per problem. Viewing your submission in read-only mode.'}
               </p>
               {isEmbeddedType && reviewStatus === 'rejected' && submissionData?.proctoringData?.rejectionReason && (
                 <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#721c24', fontWeight: 'bold' }}>
