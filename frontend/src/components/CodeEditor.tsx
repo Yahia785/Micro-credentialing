@@ -756,7 +756,7 @@ const stopRecording = () => {
                 {isEmbeddedType && !isReviewed
                   ? `Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
                   : isEmbeddedType
-                    ? `Score: ${completedMilestone.score}% | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
+                    ? `Score: ${submissionData?.score}% | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
                     : `Score: ${completedMilestone.passedTests}/${completedMilestone.totalTests} (${completedMilestone.score}%) | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
                 }
               </p>
@@ -1144,6 +1144,16 @@ const stopRecording = () => {
                             )}
                           </div>
                         )}
+                        {/* AI Grading Results */}
+                        <div style={{ marginBottom: '20px' }}>
+                          <h3 style={{ color: '#333' }}>AI Grading Results</h3>
+                          <p style={{ color: '#666', margin: '5px 0' }}>
+                            Score: {submissionData.passedCriteria}/{submissionData.totalCriteria} criteria ({submissionData.score}%)
+                          </p>
+                          <p style={{ color: '#666', margin: '5px 0', fontSize: '14px' }}>
+                            Submitted: {new Date(submissionData.submittedAt || submissionData.createdAt).toLocaleString()}
+                          </p>
+                        </div>
 
                         <h3 style={{ color: '#333' }}>Grading Breakdown</h3>
 {submissionData.rubricResults.map((result: any, index: number) => {
