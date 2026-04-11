@@ -1,4 +1,5 @@
 import { getAuthToken, API_BASE } from './config';
+import type { LogEntry } from '../utils/proctoringLogger';
 
 /**
  * Get presigned S3 upload URL for a recording
@@ -84,6 +85,34 @@ export async function saveRecordingMetadata(data: {
   }
 
   return response.json();
+}
+
+/**
+ * Send buffered client-side proctoring logs to the backend for storage on the
+ * submission record. Called after upload completes (success or failure) so
+ * failures are traceable server-side.
+ *
+ * Never throws — telemetry must not interrupt the submission flow.
+ */
+export async function sendClientLogs(data: {
+  submissionId: string;
+  logs: LogEntry[];
+}): Promise<void> {
+  const token = await getAuthToken();
+
+  const response = await fetch(`${API_BASE}/proctoring/client-logs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`sendClientLogs HTTP ${response.status}: ${errorText}`);
+  }
 }
 
 /**

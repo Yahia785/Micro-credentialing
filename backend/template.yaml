@@ -954,6 +954,37 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: Submissions
 
+  # ------------------------------------------
+  # LAMBDA: Save Client-Side Proctoring Logs
+  # ------------------------------------------
+  SaveClientLogsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/proctoring/save-client-logs/
+      Handler: index.handler
+      Description: Persist frontend proctoring event logs on the submission record for debugging
+      Events:
+        SaveClientLogs:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/client-logs
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsClientLogs:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/client-logs
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: Submissions
+
   # ==========================================
   # CREDENTIAL MANAGEMENT FUNCTIONS
   # ==========================================
