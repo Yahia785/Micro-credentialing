@@ -4,8 +4,9 @@ import { submitCode, getSubmission } from '../api/submissions';
 import { submitEmbeddedAssessment } from '../api/embedded-assessments';
 import { getTestCases } from '../api/testcases';
 import { TestCaseResult } from './TestCaseResult';
-import { uploadRecording, saveRecordingMetadata } from '../api/proctoring';
+import { uploadRecording, saveRecordingMetadata, sendClientLogs } from '../api/proctoring';
 import { fetchAuthSession } from 'aws-amplify/auth';
+import { proctoringLogger } from '../utils/proctoringLogger';
 
 interface TestResult {
   testCaseId?: string;
@@ -239,100 +240,143 @@ useEffect(() => {
 const startRecording = () => {
   if (!webcamStream || !screenStream) {
     console.log('⚠️ Cannot start recording - streams not available');
+    proctoringLogger.log('recording_start_skipped', 'warn', {
+      reason: 'streams_not_available',
+      hasWebcam: !!webcamStream,
+      hasScreen: !!screenStream,
+    });
     return;
   }
-  
+
   // Prevent starting if already recording
   if (isRecording) {
     console.log('⚠️ Already recording, skipping start');
+    proctoringLogger.log('recording_start_skipped', 'warn', { reason: 'already_recording' });
     return;
   }
-  
+
   try {
     console.log('🔴 Starting proctoring recording...');
     const startTime = new Date().toISOString();
     setRecordingStartTime(startTime);
-    
+
     // Clear previous chunks
     webcamChunksRef.current = [];
     screenChunksRef.current = [];
-    
+
     // Start webcam recording
+    const webcamMimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+      ? 'video/webm;codecs=vp8'
+      : 'video/webm';
     const webcamMR = new MediaRecorder(webcamStream, {
-      mimeType: 'video/webm;codecs=vp9',
+      mimeType: webcamMimeType,
       videoBitsPerSecond: 2500000
     });
-    
+
     webcamMR.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) {
         webcamChunksRef.current.push(e.data);
         console.log('📹 Webcam chunk received:', e.data.size, 'bytes, total chunks:', webcamChunksRef.current.length);
       }
     };
-    
+
     webcamMR.onstop = () => {
       console.log('📹 Webcam recording stopped, total chunks:', webcamChunksRef.current.length);
     };
-    
-    webcamMR.onerror = (e) => {
+
+    webcamMR.onerror = (e: any) => {
       console.error('❌ Webcam recorder error:', e);
+      proctoringLogger.log('recorder_error', 'error', {
+        source: 'webcam',
+        error: e?.error?.toString() ?? String(e),
+      });
     };
-    
+
     webcamMR.start(1000); // Collect data every second
     webcamRecorderRef.current = webcamMR; // Use ref instead of setState
     console.log('✅ Webcam recorder started, state:', webcamMR.state);
-    
+
     // Start screen recording
+    const screenMimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+      ? 'video/webm;codecs=vp8'
+      : 'video/webm';
     const screenMR = new MediaRecorder(screenStream, {
-      mimeType: 'video/webm;codecs=vp9',
+      mimeType: screenMimeType,
       videoBitsPerSecond: 5000000
     });
-    
+
     screenMR.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) {
         screenChunksRef.current.push(e.data);
         console.log('🖥️ Screen chunk received:', e.data.size, 'bytes, total chunks:', screenChunksRef.current.length);
       }
     };
-    
+
     screenMR.onstop = () => {
       console.log('🖥️ Screen recording stopped, total chunks:', screenChunksRef.current.length);
     };
-    
-    screenMR.onerror = (e) => {
+
+    screenMR.onerror = (e: any) => {
       console.error('❌ Screen recorder error:', e);
+      proctoringLogger.log('recorder_error', 'error', {
+        source: 'screen',
+        error: e?.error?.toString() ?? String(e),
+      });
     };
-    
+
     screenMR.start(1000); // Collect data every second
     screenRecorderRef.current = screenMR; // Use ref instead of setState
     console.log('✅ Screen recorder started, state:', screenMR.state);
-    
+
     setIsRecording(true);
     console.log('✅ Recording started successfully at', startTime);
-  } catch (err) {
+
+    proctoringLogger.log('recording_started', 'info', {
+      startTime,
+      webcamMimeType,
+      screenMimeType,
+      webcamTracks: webcamStream.getTracks().map(t => ({
+        kind: t.kind, label: t.label, readyState: t.readyState,
+      })),
+      screenTracks: screenStream.getTracks().map(t => ({
+        kind: t.kind, label: t.label, readyState: t.readyState,
+      })),
+    });
+  } catch (err: any) {
     console.error('❌ Failed to start recording:', err);
+    proctoringLogger.log('recording_start_failed', 'error', {
+      error: err?.message ?? String(err),
+    });
   }
 };
 
 const stopRecording = () => {
   console.log('⏹️ Stopping proctoring recording...');
-  
-  if (webcamRecorderRef.current) {
-    console.log('Webcam recorder state:', webcamRecorderRef.current.state);
-    if (webcamRecorderRef.current.state !== 'inactive') {
-      webcamRecorderRef.current.stop();
-    }
+
+  const webcamState = webcamRecorderRef.current?.state ?? 'not_created';
+  const screenState = screenRecorderRef.current?.state ?? 'not_created';
+
+  if (webcamRecorderRef.current && webcamRecorderRef.current.state !== 'inactive') {
+    webcamRecorderRef.current.stop();
   }
-  
-  if (screenRecorderRef.current) {
-    console.log('Screen recorder state:', screenRecorderRef.current.state);
-    if (screenRecorderRef.current.state !== 'inactive') {
-      screenRecorderRef.current.stop();
-    }
+
+  if (screenRecorderRef.current && screenRecorderRef.current.state !== 'inactive') {
+    screenRecorderRef.current.stop();
   }
-  
+
   setIsRecording(false);
   console.log('⏹️ Recording stop initiated');
+
+  proctoringLogger.log('recording_stopped', 'info', {
+    webcamRecorderState: webcamState,
+    screenRecorderState: screenState,
+    webcamChunks: webcamChunksRef.current.length,
+    screenChunks: screenChunksRef.current.length,
+  });
 };
 
   // Lock body scroll when modal is open
@@ -446,79 +490,128 @@ const stopRecording = () => {
         
         setTestResults(submissionResults || []);
         setHasSubmitted(true);
-        
-        // DEBUG: Log all values to see what's available
-        console.log('🔍 DEBUG - Upload Check:', {
-          submissionId: submissionId,
-          webcamChunksLength: webcamChunksRef.current.length,
-          screenChunksLength: screenChunksRef.current.length,
-          recordingStartTime: recordingStartTime,
-          willUpload: !!(submissionId && webcamChunksRef.current.length > 0 && screenChunksRef.current.length > 0 && recordingStartTime)
-        });
-        
+
         // UPLOAD PROCTORING RECORDINGS
-        if (submissionId && webcamChunksRef.current.length > 0 && screenChunksRef.current.length > 0 && recordingStartTime) {
-          try {
-            console.log('📤 Uploading proctoring recordings for submission:', submissionId);
-            
-            // Get user ID
-            const session = await fetchAuthSession();
-            const userId = session.tokens?.idToken?.payload.sub as string;
-            
-            if (!userId) {
-              console.error('❌ No user ID found - cannot upload recordings');
-            } else {
-              // Create blobs from chunks (using refs now!)
+        const hasWebcamChunks = webcamChunksRef.current.length > 0;
+        const hasScreenChunks = screenChunksRef.current.length > 0;
+
+        // Init logger with this submissionId so all upload events are tied to it
+        proctoringLogger.init(submissionId);
+        proctoringLogger.log('upload_check', 'info', {
+          hasSubmissionId: !!submissionId,
+          hasWebcamChunks,
+          webcamChunkCount: webcamChunksRef.current.length,
+          hasScreenChunks,
+          screenChunkCount: screenChunksRef.current.length,
+          hasRecordingStartTime: !!recordingStartTime,
+        });
+
+        if (submissionId && (hasWebcamChunks || hasScreenChunks) && recordingStartTime) {
+          console.log('📤 Uploading proctoring recordings for submission:', submissionId);
+
+          const session = await fetchAuthSession();
+          const userId = session.tokens?.idToken?.payload.sub as string;
+
+          if (!userId) {
+            console.error('❌ No user ID found - cannot upload recordings');
+            proctoringLogger.log('upload_skipped', 'error', { reason: 'no_user_id' });
+          } else {
+            let webcamKey: string | undefined;
+            let screenKey: string | undefined;
+            let anyUploadFailed = false;
+
+            // Upload webcam independently
+            if (hasWebcamChunks) {
               const webcamBlob = new Blob(webcamChunksRef.current, { type: 'video/webm' });
-              const screenBlob = new Blob(screenChunksRef.current, { type: 'video/webm' });
-              
-              console.log('📹 Webcam blob size:', (webcamBlob.size / 1024 / 1024).toFixed(2), 'MB');
-              console.log('🖥️ Screen blob size:', (screenBlob.size / 1024 / 1024).toFixed(2), 'MB');
-              
-              //const completedAt = new Date().toISOString();
-              
-              // Define completedAt timestamp
-                const completedAt = new Date().toISOString();
-
-                // Upload webcam recording
-                console.log('📤 Uploading webcam recording...');
-                const webcamKey = await uploadRecording(
-                  submissionId,
-                  'webcam',
-                  webcamBlob
-                );
-
-                // Upload screen recording
-                console.log('📤 Uploading screen recording...');
-                const screenKey = await uploadRecording(
-                  submissionId,
-                  'screen',
-                  screenBlob
-                );
-
-                // Save metadata to DynamoDB
-                console.log('💾 Saving recording metadata to DynamoDB...');
-                await saveRecordingMetadata({
-                  submissionId,
-                  webcamKey,
-                  screenKey
+              const webcamSizeMB = parseFloat((webcamBlob.size / 1024 / 1024).toFixed(2));
+              proctoringLogger.log('s3_upload_started', 'info', { fileType: 'webcam', sizeMB: webcamSizeMB });
+              const t0 = Date.now();
+              try {
+                console.log('📹 Uploading webcam recording:', webcamSizeMB, 'MB');
+                webcamKey = await uploadRecording(submissionId, 'webcam', webcamBlob);
+                console.log('✅ Webcam uploaded');
+                proctoringLogger.log('s3_upload_completed', 'info', {
+                  fileType: 'webcam', sizeMB: webcamSizeMB, durationMs: Date.now() - t0,
                 });
-              
-              console.log('✅ All proctoring recordings uploaded and metadata saved successfully!');
+              } catch (err: any) {
+                anyUploadFailed = true;
+                console.error('❌ Webcam upload failed:', err.message);
+                proctoringLogger.log('s3_upload_failed', 'error', {
+                  fileType: 'webcam', sizeMB: webcamSizeMB,
+                  durationMs: Date.now() - t0, error: err.message,
+                });
+              }
             }
-          } catch (uploadErr: any) {
-            console.error('❌ Failed to upload proctoring recordings:', uploadErr);
-            console.error('Error details:', uploadErr.message);
-            // Don't fail the submission if recording upload fails
+
+            // Upload screen independently
+            if (hasScreenChunks) {
+              const screenBlob = new Blob(screenChunksRef.current, { type: 'video/webm' });
+              const screenSizeMB = parseFloat((screenBlob.size / 1024 / 1024).toFixed(2));
+              proctoringLogger.log('s3_upload_started', 'info', { fileType: 'screen', sizeMB: screenSizeMB });
+              const t0 = Date.now();
+              try {
+                console.log('🖥️ Uploading screen recording:', screenSizeMB, 'MB');
+                screenKey = await uploadRecording(submissionId, 'screen', screenBlob);
+                console.log('✅ Screen uploaded');
+                proctoringLogger.log('s3_upload_completed', 'info', {
+                  fileType: 'screen', sizeMB: screenSizeMB, durationMs: Date.now() - t0,
+                });
+              } catch (err: any) {
+                anyUploadFailed = true;
+                console.error('❌ Screen upload failed:', err.message);
+                proctoringLogger.log('s3_upload_failed', 'error', {
+                  fileType: 'screen', sizeMB: screenSizeMB,
+                  durationMs: Date.now() - t0, error: err.message,
+                });
+              }
+            }
+
+            // Save metadata if at least one upload succeeded
+            if (webcamKey || screenKey) {
+              try {
+                console.log('💾 Saving recording metadata to DynamoDB...');
+                proctoringLogger.log('metadata_save_started', 'info', {
+                  hasWebcamKey: !!webcamKey, hasScreenKey: !!screenKey,
+                });
+                await saveRecordingMetadata({ submissionId, webcamKey, screenKey });
+                console.log('✅ All proctoring recordings uploaded and metadata saved successfully!');
+                proctoringLogger.log('metadata_save_completed', 'info', {});
+              } catch (err: any) {
+                anyUploadFailed = true;
+                console.error('❌ Metadata save failed:', err.message);
+                proctoringLogger.log('metadata_save_failed', 'error', { error: err.message });
+              }
+            } else {
+              console.error('❌ Both recording uploads failed — metadata not saved');
+              anyUploadFailed = true;
+              proctoringLogger.log('metadata_save_skipped', 'error', {
+                reason: 'no_successful_uploads',
+              });
+            }
+
+            if (anyUploadFailed) {
+              console.error('⚠️ One or more recording uploads failed for submission:', submissionId);
+            }
           }
         } else {
           console.warn('⚠️ Skipping recording upload - missing data:', {
             hasSubmissionId: !!submissionId,
-            hasWebcamChunks: webcamChunksRef.current.length > 0,
-            hasScreenChunks: screenChunksRef.current.length > 0,
+            hasWebcamChunks,
+            hasScreenChunks,
             hasRecordingStartTime: !!recordingStartTime
           });
+          proctoringLogger.log('upload_skipped', 'warn', {
+            reason: 'missing_prerequisites',
+            hasSubmissionId: !!submissionId,
+            hasWebcamChunks,
+            hasScreenChunks,
+            hasRecordingStartTime: !!recordingStartTime,
+          });
         }
+
+        // Always flush logs to the server — this is the last thing we do
+        // regardless of whether uploads succeeded or failed
+        await proctoringLogger.flush(sendClientLogs);
         
          const isEmbeddedSubmission = milestone.type === 'embedded';
         
