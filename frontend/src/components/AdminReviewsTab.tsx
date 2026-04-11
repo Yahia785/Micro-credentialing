@@ -25,6 +25,7 @@ interface PendingSubmission {
   totalCriteria?: number;
   rubricResults?: RubricResult[];
   submittedAt: string;
+  code?: string;
   proctoringData?: {
     recordings?: {
       webcam?: { s3Key: string; uploadedAt: string };
@@ -550,6 +551,29 @@ export function AdminReviewsTab() {
                     )}
                   </div>
                 )}
+
+              {/* Submitted Code — embedded submissions only */}
+              {selectedSubmission.milestoneType === 'embedded' && selectedSubmission.code && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h4 style={{ color: '#333', marginBottom: '12px' }}>Submitted Code</h4>
+                  <pre style={{
+                    backgroundColor: '#1e1e1e',
+                    color: '#d4d4d4',
+                    padding: '16px',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    lineHeight: '1.5',
+                    overflow: 'auto',
+                    maxHeight: '400px',
+                    border: '1px solid #333',
+                    fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}>
+                    {selectedSubmission.code}
+                  </pre>
+                </div>
+              )}
 
               {/* Proctoring Videos */}
               <div style={{ marginBottom: '20px' }}>
