@@ -6,7 +6,9 @@ const dynamodb = DynamoDBDocumentClient.from(client);
 
 /**
  * Get submissions pending review (passed tests but not yet reviewed)
- * @param {number} limit - Maximum number of results
+ * Uses paginated scan to ensure ALL matching items are found.
+ * @param {number} limit - Maximum number of results to return
+ * @param {string} filter - 'passed', 'failed', or 'all'
  * @returns {Array} Array of submissions pending review
  */
 async function getPendingReviews(limit = 50, filter = 'all') {
@@ -26,38 +28,72 @@ async function getPendingReviews(limit = 50, filter = 'all') {
     expressionAttributeValues[':status'] = 'failed';
   }
 
-  const params = {
-    TableName: process.env.SUBMISSIONS_TABLE,
-    FilterExpression: filterExpression,
-    ExpressionAttributeValues: expressionAttributeValues,
-    ...(Object.keys(expressionAttributeNames).length > 0 && {
-      ExpressionAttributeNames: expressionAttributeNames
-    }),
-    Limit: limit
-  };
-  
-  const result = await dynamodb.send(new ScanCommand(params));
-  return result.Items || [];
+  const allItems = [];
+  let lastEvaluatedKey = undefined;
+
+  do {
+    const params = {
+      TableName: process.env.SUBMISSIONS_TABLE,
+      FilterExpression: filterExpression,
+      ExpressionAttributeValues: expressionAttributeValues,
+      ...(Object.keys(expressionAttributeNames).length > 0 && {
+        ExpressionAttributeNames: expressionAttributeNames
+      }),
+      ...(lastEvaluatedKey && { ExclusiveStartKey: lastEvaluatedKey })
+    };
+
+    const result = await dynamodb.send(new ScanCommand(params));
+    
+    if (result.Items) {
+      allItems.push(...result.Items);
+    }
+
+    lastEvaluatedKey = result.LastEvaluatedKey;
+
+    // Stop early if we already have enough results
+    if (allItems.length >= limit) {
+      break;
+    }
+  } while (lastEvaluatedKey);
+
+  return allItems.slice(0, limit);
 }
 
 /**
  * Get reviewed submissions (approved or rejected)
+ * Uses paginated scan to ensure ALL matching items are found.
  * @param {number} limit - Maximum number of results
  * @returns {Array} Array of reviewed submissions
  */
 async function getReviewedSubmissions(limit = 50) {
-  const params = {
-    TableName: process.env.SUBMISSIONS_TABLE,
-    FilterExpression: 'proctoringData.reviewStatus IN (:approved, :rejected)',
-    ExpressionAttributeValues: {
-      ':approved': 'approved',
-      ':rejected': 'rejected'
-    },
-    Limit: limit
-  };
-  
-  const result = await dynamodb.send(new ScanCommand(params));
-  return result.Items || [];
+  const allItems = [];
+  let lastEvaluatedKey = undefined;
+
+  do {
+    const params = {
+      TableName: process.env.SUBMISSIONS_TABLE,
+      FilterExpression: 'proctoringData.reviewStatus IN (:approved, :rejected)',
+      ExpressionAttributeValues: {
+        ':approved': 'approved',
+        ':rejected': 'rejected'
+      },
+      ...(lastEvaluatedKey && { ExclusiveStartKey: lastEvaluatedKey })
+    };
+
+    const result = await dynamodb.send(new ScanCommand(params));
+
+    if (result.Items) {
+      allItems.push(...result.Items);
+    }
+
+    lastEvaluatedKey = result.LastEvaluatedKey;
+
+    if (allItems.length >= limit) {
+      break;
+    }
+  } while (lastEvaluatedKey);
+
+  return allItems.slice(0, limit);
 }
 
 /**

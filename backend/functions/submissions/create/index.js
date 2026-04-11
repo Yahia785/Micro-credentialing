@@ -65,12 +65,10 @@ exports.handler = async (event) => {
     if (!milestone) {
       return errorResponse(404, 'Milestone not found');
     }
-
-    // PREVENT JUDGE0 SUBMISSIONS FOR EMBEDDED ASSESSMENTS
-    if (milestone.type === 'embedded') {
-      return errorResponse(400, 'Embedded assessments must be submitted via /embedded-assessments/{assessmentId}/submit endpoint, not via /submissions/submit');
-    }
-
+    
+    // Fetch user profile (needed for submission record and admin check)
+    const user = await getUser(userId);
+    
     // Get all test cases for this milestone
     const allTestCases = await getTestCasesByMilestone(milestoneId);
     
@@ -129,6 +127,8 @@ exports.handler = async (event) => {
     const submissionRecord = {
       submissionId,
       userId,
+      studentEmail: user?.email || null,
+      studentName: user?.name || null,
       milestoneId,
       code,
       language,
@@ -243,7 +243,6 @@ exports.handler = async (event) => {
       
       // Only update credential count if 100% passed
       if (credentialAwarded) {
-        const user = await getUser(userId);
         if (user) {
           await updateUser(userId, {
             credentialsCount: (user.credentialsCount || 0) + 1,
@@ -259,7 +258,6 @@ exports.handler = async (event) => {
     }
     
     // Check if user is admin to determine what to show
-    const user = await getUser(userId);
     const isAdmin = user && user.role === 'admin';
     
     console.log('User role:', user?.role, 'Is admin:', isAdmin);
