@@ -31,30 +31,54 @@ export async function getUploadUrl(data: {
 }
 
 /**
- * Upload recording blob to S3 using presigned URL
- * Note: Metadata is already included in the presigned URL by the Lambda function
+ * Upload recording blob to S3 using presigned URL with retry logic.
+ * Retries up to 3 times with exponential backoff (1s, 2s, 4s) to handle
+ * transient network failures like ERR_CONNECTION_RESET on large uploads.
+ * Note: Metadata is already included in the presigned URL by the Lambda function.
  */
 export async function uploadRecordingToS3(
   uploadUrl: string,
   blob: Blob
 ): Promise<void> {
-  console.log('Uploading recording to S3, size:', blob.size);
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 1000;
+  const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
 
-  const response = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'video/webm',
-    },
-    body: blob,
-  });
+  console.log(`Uploading recording to S3, size: ${blob.size} bytes (${sizeMB} MB)`);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('S3 upload failed:', response.status, errorText);
-    throw new Error(`S3 upload failed! status: ${response.status}`);
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'video/webm',
+        },
+        body: blob,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`S3 upload failed! status: ${response.status} - ${errorText}`);
+      }
+
+      console.log(`Recording uploaded successfully on attempt ${attempt}`);
+      return;
+    } catch (err: any) {
+      console.warn(
+        `S3 upload attempt ${attempt}/${MAX_RETRIES} failed:`,
+        err.message
+      );
+
+      if (attempt === MAX_RETRIES) {
+        console.error('S3 upload failed after all retries');
+        throw err;
+      }
+
+      const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      console.log(`Retrying in ${delay}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
-
-  console.log('Recording uploaded successfully');
 }
 
 /**

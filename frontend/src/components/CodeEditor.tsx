@@ -275,7 +275,7 @@ const startRecording = () => {
       : 'video/webm';
     const webcamMR = new MediaRecorder(webcamStream, {
       mimeType: webcamMimeType,
-      videoBitsPerSecond: 2500000
+      videoBitsPerSecond: 500000
     });
 
     webcamMR.ondataavailable = (e) => {
@@ -309,7 +309,7 @@ const startRecording = () => {
       : 'video/webm';
     const screenMR = new MediaRecorder(screenStream, {
       mimeType: screenMimeType,
-      videoBitsPerSecond: 5000000
+      videoBitsPerSecond: 2000000
     });
 
     screenMR.ondataavailable = (e) => {
