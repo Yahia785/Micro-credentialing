@@ -133,9 +133,12 @@ export function CodeEditor({
             
             if (submission.type === 'embedded') {
               if (isReviewed) {
+                const originalScore = submission.originalScore ?? submission.score;
+                const wasAdjusted = submission.originalScore !== undefined && submission.originalScore !== submission.score;
                 setOutput(
                   `AI Grading Results\n\n` +
-                  `Score: ${submission.passedCriteria}/${submission.totalCriteria} criteria (${submission.score}%)\n` +
+                  `Score: ${submission.passedCriteria}/${submission.totalCriteria} criteria (${originalScore}%)\n` +
+                  (wasAdjusted ? `Note: Score adjusted by instructor to ${submission.score}%\n` : '') +
                   `Submitted: ${new Date(submission.submittedAt || submission.createdAt).toLocaleString()}`
                 );
               } else {
@@ -801,42 +804,105 @@ const stopRecording = () => {
 
         {isAlreadyCompleted && completedMilestone && (() => {
           const reviewStatus = submissionData?.proctoringData?.reviewStatus;
-          const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
           const isEmbeddedType = milestone.type === 'embedded';
-          const showScore = !isEmbeddedType || isReviewed;
-          
+
+          if (isEmbeddedType) {
+            if (!reviewStatus || reviewStatus === 'pending') {
+              return (
+                <div style={{
+                  padding: '15px 30px',
+                  backgroundColor: '#e7f3ff',
+                  borderBottom: '2px solid #007bff',
+                  color: '#004085'
+                }}>
+                  <strong>📋 Submission Under Review</strong>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
+                    Submitted on: {new Date(completedMilestone.completedAt).toLocaleDateString()}
+                  </p>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '13px', fontStyle: 'italic' }}>
+                    Your submission is being reviewed by the instructor. Results will be available after the review is complete.
+                  </p>
+                </div>
+              );
+            }
+
+            if (reviewStatus === 'approved') {
+              const effectiveScore = submissionData?.score;
+              const passed = effectiveScore >= 83;
+              const reviewNotes = submissionData?.proctoringData?.reviewNotes;
+              const isDefaultNote = !reviewNotes || reviewNotes === 'Approved' || reviewNotes === 'Approved by admin';
+              return (
+                <div style={{
+                  padding: '15px 30px',
+                  backgroundColor: passed ? '#d4edda' : '#fff3cd',
+                  borderBottom: `2px solid ${passed ? '#28a745' : '#ffc107'}`,
+                  color: passed ? '#155724' : '#856404'
+                }}>
+                  <strong>{passed ? '✅ Passed' : '📝 Reviewed & Approved'}</strong>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
+                    Score: {effectiveScore}% | Submitted on: {new Date(completedMilestone.completedAt).toLocaleDateString()}
+                  </p>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '13px', fontStyle: 'italic' }}>
+                    {passed
+                      ? 'You have successfully passed this assessment. Viewing your solution in read-only mode.'
+                      : 'Your submission was reviewed and approved but did not meet the passing threshold. Viewing your submission in read-only mode.'}
+                  </p>
+                  {!isDefaultNote && (
+                    <p style={{ margin: '5px 0 0 0', fontSize: '13px' }}>
+                      Instructor notes: {reviewNotes}
+                    </p>
+                  )}
+                </div>
+              );
+            }
+
+            if (reviewStatus === 'rejected') {
+              return (
+                <div style={{
+                  padding: '15px 30px',
+                  backgroundColor: '#f8d7da',
+                  borderBottom: '2px solid #dc3545',
+                  color: '#721c24'
+                }}>
+                  <strong>❌ Submission Rejected</strong>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
+                    Submitted on: {new Date(completedMilestone.completedAt).toLocaleDateString()}
+                  </p>
+                  {submissionData?.proctoringData?.rejectionReason && (
+                    <p style={{ margin: '5px 0 0 0', fontSize: '13px', fontWeight: 'bold' }}>
+                      Rejection reason: {submissionData.proctoringData.rejectionReason}
+                    </p>
+                  )}
+                  {submissionData?.proctoringData?.reviewNotes && submissionData.proctoringData.reviewNotes !== 'Rejected' && (
+                    <p style={{ margin: '5px 0 0 0', fontSize: '13px' }}>
+                      Notes: {submissionData.proctoringData.reviewNotes}
+                    </p>
+                  )}
+                </div>
+              );
+            }
+          }
+
           return (
             <div style={{
               padding: '15px 30px',
-              backgroundColor: !showScore ? '#e7f3ff' : completedMilestone.score === 100 ? '#d4edda' : '#f8d7da',
-              borderBottom: `2px solid ${!showScore ? '#007bff' : completedMilestone.score === 100 ? '#28a745' : '#dc3545'}`,
-              color: !showScore ? '#004085' : completedMilestone.score === 100 ? '#155724' : '#721c24'
+              backgroundColor: completedMilestone.score === 100 ? '#d4edda' : '#f8d7da',
+              borderBottom: `2px solid ${completedMilestone.score === 100 ? '#28a745' : '#dc3545'}`,
+              color: completedMilestone.score === 100 ? '#155724' : '#721c24'
             }}>
               <strong>
-                {!showScore
-                  ? '📋 Submission Under Review'
-                  : completedMilestone.score === 100 
-                    ? '🏆 Problem Completed Successfully!' 
-                    : '📝 Submission Recorded'}
+                {completedMilestone.score === 100
+                  ? '🏆 Problem Completed Successfully!'
+                  : '📝 Submission Recorded'}
               </strong>
               <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
-                {showScore
-                  ? `Score: ${completedMilestone.passedTests}/${completedMilestone.totalTests} (${completedMilestone.score}%) | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
-                  : `Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
-                }
+                Score: {completedMilestone.passedTests}/{completedMilestone.totalTests} ({completedMilestone.score}%) | Submitted on: {new Date(completedMilestone.completedAt).toLocaleDateString()}
               </p>
               <p style={{ margin: '5px 0 0 0', fontSize: '13px', fontStyle: 'italic' }}>
-                {!showScore
-                  ? 'Your submission is being reviewed by the instructor. Results will be available after the review is complete.'
-                  : completedMilestone.score === 100 
-                    ? 'You have successfully completed this problem. Viewing your solution in read-only mode.'
-                    : 'You have submitted this problem. Only one submission is allowed per problem. Viewing your submission in read-only mode.'}
+                {completedMilestone.score === 100
+                  ? 'You have successfully completed this problem. Viewing your solution in read-only mode.'
+                  : 'You have submitted this problem. Only one submission is allowed per problem. Viewing your submission in read-only mode.'}
               </p>
-              {isEmbeddedType && reviewStatus === 'rejected' && submissionData?.proctoringData?.rejectionReason && (
-                <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#721c24', fontWeight: 'bold' }}>
-                  Rejection reason: {submissionData.proctoringData.rejectionReason}
-                </p>
-              )}
             </div>
           );
         })()}
@@ -1187,38 +1253,78 @@ const stopRecording = () => {
                                 Score adjusted by instructor: {submissionData.originalScore}% → {submissionData.score}%
                               </p>
                             )}
+                            {(() => {
+                              const notes = submissionData.proctoringData?.reviewNotes;
+                              const isDefault = !notes || notes === 'Approved' || notes === 'Approved by admin';
+                              return !isDefault ? (
+                                <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>
+                                  Instructor notes: {notes}
+                                </p>
+                              ) : null;
+                            })()}
                           </div>
                         )}
 
+                        <div style={{
+                          padding: '12px 15px',
+                          backgroundColor: '#f8f9fa',
+                          borderRadius: '6px',
+                          border: '1px solid #e0e0e0',
+                          marginBottom: '12px'
+                        }}>
+                          <strong style={{ color: '#333', fontSize: '14px' }}>AI Grading Results</strong>
+                          <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#555' }}>
+                            Score: {submissionData.passedCriteria}/{submissionData.totalCriteria} criteria ({submissionData.originalScore ?? submissionData.score}%)
+                          </p>
+                        </div>
+
                         <h3 style={{ color: '#333' }}>Grading Breakdown</h3>
-                        {submissionData.rubricResults.map((result: any, index: number) => (
-                          <div
-                            key={index}
-                            style={{
-                              display: 'flex', alignItems: 'flex-start', gap: '10px',
-                              padding: '10px', marginBottom: '8px',
-                              background: result.passed ? '#d4edda' : '#f8d7da',
-                              borderRadius: '6px',
-                              border: `1px solid ${result.passed ? '#c3e6cb' : '#f5c6cb'}`
-                            }}
-                          >
-                            <span style={{
-                              background: result.passed ? '#28a745' : '#dc3545',
-                              color: 'white', padding: '2px 8px', borderRadius: '4px',
-                              fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0
-                            }}>
-                              {result.passed ? '✓' : '✗'}
-                            </span>
-                            <div>
-                              <p style={{ margin: '0 0 4px 0', color: '#333', fontSize: '13px', fontWeight: 'bold' }}>
-                                {result.criterion}
-                              </p>
-                              <p style={{ margin: 0, color: '#555', fontSize: '13px' }}>
-                                {result.feedback}
-                              </p>
+                        {submissionData.rubricResults.map((result: any, index: number) => {
+                          const instructorOverride = submissionData.criteriaModifications?.[index];
+                          const effectivePassed = instructorOverride !== undefined ? instructorOverride : result.passed;
+                          const wasOverridden = instructorOverride !== undefined && instructorOverride !== result.passed;
+                          return (
+                            <div
+                              key={index}
+                              style={{
+                                display: 'flex', alignItems: 'flex-start', gap: '10px',
+                                padding: '10px', marginBottom: '8px',
+                                background: effectivePassed ? '#d4edda' : '#f8d7da',
+                                borderRadius: '6px',
+                                border: `1px solid ${effectivePassed ? '#c3e6cb' : '#f5c6cb'}`
+                              }}
+                            >
+                              <span style={{
+                                background: effectivePassed ? '#28a745' : '#dc3545',
+                                color: 'white', padding: '2px 8px', borderRadius: '4px',
+                                fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0
+                              }}>
+                                {effectivePassed ? '✓' : '✗'}
+                              </span>
+                              <div>
+                                <p style={{ margin: '0 0 4px 0', color: '#333', fontSize: '13px', fontWeight: 'bold' }}>
+                                  {result.criterion}
+                                  {wasOverridden && (
+                                    <span style={{
+                                      marginLeft: '8px',
+                                      fontSize: '11px',
+                                      fontWeight: 'normal',
+                                      backgroundColor: '#6c757d',
+                                      color: 'white',
+                                      padding: '1px 6px',
+                                      borderRadius: '3px'
+                                    }}>
+                                      Updated by Instructor
+                                    </span>
+                                  )}
+                                </p>
+                                <p style={{ margin: 0, color: '#555', fontSize: '13px' }}>
+                                  {result.feedback}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     );
                   })()}
