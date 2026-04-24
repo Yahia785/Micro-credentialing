@@ -171,8 +171,12 @@ export function AdminReviewsTab() {
       alert(willIssueCredential 
         ? 'Review approved! Credential will be issued.' 
         : 'Review approved. No credential issued.');
+      if (activeSubTab === 'passed') {
+        setPassedReviews(prev => prev.filter(s => s.submissionId !== selectedSubmission.submissionId));
+      } else {
+        setFailedReviews(prev => prev.filter(s => s.submissionId !== selectedSubmission.submissionId));
+      }
       setSelectedSubmission(null);
-      await loadPendingReviews();
     } catch (err: any) {
       console.error('Error approving review:', err);
       alert(`Failed to approve: ${err.message}`);
@@ -214,8 +218,12 @@ export function AdminReviewsTab() {
       }
 
       alert('Review rejected.');
+      if (activeSubTab === 'passed') {
+        setPassedReviews(prev => prev.filter(s => s.submissionId !== selectedSubmission.submissionId));
+      } else {
+        setFailedReviews(prev => prev.filter(s => s.submissionId !== selectedSubmission.submissionId));
+      }
       setSelectedSubmission(null);
-      await loadPendingReviews();
     } catch (err: any) {
       console.error('Error rejecting review:', err);
       alert(`Failed to reject: ${err.message}`);

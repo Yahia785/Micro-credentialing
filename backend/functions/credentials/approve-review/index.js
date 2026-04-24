@@ -184,7 +184,6 @@ exports.handler = async (event) => {
     const effectiveScore = (adjustedScore !== undefined && adjustedScore !== null)
       ? Number(adjustedScore)
       : submission.score;
-    const shouldIssueCredential = effectiveScore >= PASSING_THRESHOLD;
     
     // If admin provided an adjusted score, update the submission
     if (adjustedScore !== undefined && adjustedScore !== null) {
@@ -237,7 +236,7 @@ if (criteriaModifications && Object.keys(criteriaModifications).length > 0) {
           user.completedMilestones[completedMilestoneIndex] = {
             ...user.completedMilestones[completedMilestoneIndex],
             proctoringData: {
-              reviewStatus: shouldIssueCredential ? 'approved' : 'rejected',
+              reviewStatus: 'approved',
               reviewedBy: authenticatedUserId,
               reviewedAt: new Date().toISOString()
             },
@@ -256,23 +255,10 @@ if (criteriaModifications && Object.keys(criteriaModifications).length > 0) {
       console.error('Failed to update completedMilestones with review status:', userUpdateErr.message);
       // Don't fail the whole operation if this fails
     }  
-    // Only issue credential if effective score meets passing threshold
-    if (!shouldIssueCredential) {
-      console.log(`Submission approved without credential issuance (score: ${effectiveScore}%, threshold: ${PASSING_THRESHOLD}%)`);
-      
-      return successResponse(200, {
-        message: adjustedScore !== undefined
-          ? `Review approved with adjusted score (${effectiveScore}%). No credential issued.`
-          : `Review approved. Grading confirmed (${effectiveScore}%). No credential issued.`,
-        submission: updatedSubmission,
-        status: 'approved_no_credential'
-      });
-    }
+    // --- Always issue credential for approved submissions (research deployment) ---
     
-    // --- Credential issuance flow (score >= threshold) ---
-    
-    console.log(`Score ${effectiveScore}% meets threshold ${PASSING_THRESHOLD}%. Proceeding with credential issuance...`);
-    
+    console.log(`Proceeding with credential issuance for approved submission (score: ${effectiveScore}%)...`);
+   
     // Get student details
     const student = await getUser(submission.userId);
     if (!student) {
