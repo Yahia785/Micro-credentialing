@@ -829,8 +829,6 @@ const stopRecording = () => {
             if (reviewStatus === 'approved') {
               const effectiveScore = submissionData?.score;
               const passed = effectiveScore >= 83;
-              const reviewNotes = submissionData?.proctoringData?.reviewNotes;
-              const isDefaultNote = !reviewNotes || reviewNotes === 'Approved' || reviewNotes === 'Approved by admin';
               return (
                 <div style={{
                   padding: '15px 30px',
@@ -847,11 +845,6 @@ const stopRecording = () => {
                       ? 'You have successfully passed this assessment. Viewing your solution in read-only mode.'
                       : 'Your submission was reviewed and approved but did not meet the passing threshold. Viewing your submission in read-only mode.'}
                   </p>
-                  {!isDefaultNote && (
-                    <p style={{ margin: '5px 0 0 0', fontSize: '13px' }}>
-                      Instructor notes: {reviewNotes}
-                    </p>
-                  )}
                 </div>
               );
             }

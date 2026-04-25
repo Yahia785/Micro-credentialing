@@ -530,16 +530,43 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
                 }}>
                   📋 {assessment.rubric.length} criteria
                 </span>
-                {isCompleted && completedData && (
-                  <span style={{
-                    background: '#007bff',
-                    color: 'white',
-                    padding: '4px 8px', borderRadius: '4px',
-                    fontSize: '12px', fontWeight: 'bold'
-                  }}>
-                    ✅ Submitted — Under Review
-                  </span>
-                )}
+                {isCompleted && completedData && (() => {
+                  const reviewStatus = completedData.reviewStatus;
+                  if (reviewStatus === 'approved') {
+                    return (
+                      <span style={{
+                        background: '#28a745',
+                        color: 'white',
+                        padding: '4px 8px', borderRadius: '4px',
+                        fontSize: '12px', fontWeight: 'bold'
+                      }}>
+                        ✅ Approved ({completedData.score}%)
+                      </span>
+                    );
+                  }
+                  if (reviewStatus === 'rejected') {
+                    return (
+                      <span style={{
+                        background: '#dc3545',
+                        color: 'white',
+                        padding: '4px 8px', borderRadius: '4px',
+                        fontSize: '12px', fontWeight: 'bold'
+                      }}>
+                        ❌ Rejected
+                      </span>
+                    );
+                  }
+                  return (
+                    <span style={{
+                      background: '#007bff',
+                      color: 'white',
+                      padding: '4px 8px', borderRadius: '4px',
+                      fontSize: '12px', fontWeight: 'bold'
+                    }}>
+                      📋 Under Review
+                    </span>
+                  );
+                })()}
               </div>
 
               {/* Footer */}

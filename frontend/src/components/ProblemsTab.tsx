@@ -15,6 +15,7 @@ interface Problem {
   timeLimit?: number;
   memoryLimit?: number;
   testCaseCount?: number;
+  type?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -1175,8 +1176,51 @@ const handleSubmitSuccess = async () => {
                 const completedData = userProfile?.completedMilestones?.find(
                   (m: any) => m.milestoneId === problem.milestoneId
                 );
-                
+
                 if (isCompleted && completedData) {
+                  if (problem.type === 'embedded') {
+                    const reviewStatus = completedData.reviewStatus;
+                    if (reviewStatus === 'approved') {
+                      return (
+                        <span style={{
+                          background: '#28a745',
+                          color: 'white',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}>
+                          ✅ Approved ({completedData.score}%)
+                        </span>
+                      );
+                    }
+                    if (reviewStatus === 'rejected') {
+                      return (
+                        <span style={{
+                          background: '#dc3545',
+                          color: 'white',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: 'bold'
+                        }}>
+                          ❌ Rejected
+                        </span>
+                      );
+                    }
+                    return (
+                      <span style={{
+                        background: '#007bff',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: 'bold'
+                      }}>
+                        📋 Under Review
+                      </span>
+                    );
+                  }
                   const passed = completedData.score === 100;
                   return (
                     <span style={{
