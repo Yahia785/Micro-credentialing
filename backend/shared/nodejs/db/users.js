@@ -60,6 +60,21 @@ async function updateUser(userId, updates) {
     expressionAttributeValues[':email'] = updates.email;
   }
   
+  if (updates.completedMilestones !== undefined) {
+    updateExpressions.push('completedMilestones = :completedMilestones');
+    expressionAttributeValues[':completedMilestones'] = updates.completedMilestones;
+  }
+
+  if (updates.credentialsCount !== undefined) {
+    updateExpressions.push('credentialsCount = :credentialsCount');
+    expressionAttributeValues[':credentialsCount'] = updates.credentialsCount;
+  }
+
+  if (updates.milestonesCompleted !== undefined) {
+    updateExpressions.push('milestonesCompleted = :milestonesCompleted');
+    expressionAttributeValues[':milestonesCompleted'] = updates.milestonesCompleted;
+  }
+  
   // Always update the updatedAt timestamp
   updateExpressions.push('updatedAt = :updatedAt');
   expressionAttributeValues[':updatedAt'] = new Date().toISOString();
