@@ -1,5 +1,5 @@
 const { approveReview } = require('/opt/nodejs/db/proctoring-reviews');
-const { getUser } = require('/opt/nodejs/db/users');
+const { getUser, updateUser } = require('/opt/nodejs/db/users');
 const { getSubmission, updateSubmission } = require('/opt/nodejs/db/submissions');
 const { getMilestone } = require('/opt/nodejs/db/milestones');
 const { pushCertificate, pullCertificate } = require('/opt/nodejs/utils/bcdiploma');
@@ -204,7 +204,23 @@ exports.handler = async (event) => {
     );
     
     console.log('Review approved in database.');
-    
+
+    // Update the user's completedMilestones entry with reviewStatus and effective score
+    try {
+      const student = await getUser(submission.userId);
+      if (student && Array.isArray(student.completedMilestones)) {
+        const updatedMilestones = student.completedMilestones.map(m =>
+          m.milestoneId === submission.milestoneId
+            ? { ...m, reviewStatus: 'approved', score: effectiveScore }
+            : m
+        );
+        await updateUser(submission.userId, { completedMilestones: updatedMilestones });
+        console.log('Updated completedMilestones with reviewStatus: approved');
+      }
+    } catch (updateError) {
+      console.error('Failed to update completedMilestones reviewStatus:', updateError);
+    }
+
     // Only issue credential if effective score meets passing threshold
     if (!shouldIssueCredential) {
       console.log(`Submission approved without credential issuance (score: ${effectiveScore}%, threshold: ${PASSING_THRESHOLD}%)`);

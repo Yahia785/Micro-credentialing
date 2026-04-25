@@ -1,5 +1,5 @@
 const { rejectReview } = require('/opt/nodejs/db/proctoring-reviews');
-const { getUser } = require('/opt/nodejs/db/users');
+const { getUser, updateUser } = require('/opt/nodejs/db/users');
 const { getSubmission } = require('/opt/nodejs/db/submissions');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
@@ -66,7 +66,23 @@ exports.handler = async (event) => {
     );
     
     console.log('Review rejected successfully');
-    
+
+    // Update the user's completedMilestones entry with reviewStatus: rejected
+    try {
+      const student = await getUser(submission.userId);
+      if (student && Array.isArray(student.completedMilestones)) {
+        const updatedMilestones = student.completedMilestones.map(m =>
+          m.milestoneId === submission.milestoneId
+            ? { ...m, reviewStatus: 'rejected' }
+            : m
+        );
+        await updateUser(submission.userId, { completedMilestones: updatedMilestones });
+        console.log('Updated completedMilestones with reviewStatus: rejected');
+      }
+    } catch (updateError) {
+      console.error('Failed to update completedMilestones reviewStatus:', updateError);
+    }
+
     return successResponse(200, {
       message: 'Review rejected successfully',
       submission: updatedSubmission
