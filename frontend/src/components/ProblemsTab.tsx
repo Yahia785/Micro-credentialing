@@ -3,6 +3,7 @@ import { getAllMilestones, createMilestone, deleteMilestone } from '../api/miles
 import { createTestCasesBatch } from '../api/testcases';
 import { CodeEditor } from './CodeEditor';
 import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
+import { getAuthToken, API_BASE } from '../api/config';
 
 interface Problem {
   milestoneId: string;
@@ -59,13 +60,54 @@ export function ProblemsTab({ userProfile, onRefreshNeeded }: ProblemsTabProps) 
     bcdiplomaTemplateId: ''
   });
 
-  const [testCases, setTestCases] = useState<TestCaseInput[]>([
+ const [testCases, setTestCases] = useState<TestCaseInput[]>([
     { inputs: ['', ''], expectedOutput: '', isHidden: false }
   ]);
+
+  // Submission review statuses fetched from the Submissions table (source of truth)
+  const [submissionStatus, setSubmissionStatus] = useState<{[key: string]: string}>({});
 
   useEffect(() => {
     loadProblems();
   }, []);
+
+  // Fetch actual review statuses from the Submissions table
+  // This is the source of truth — completedMilestones on the Users table
+  // does not reliably have reviewStatus written to it
+  useEffect(() => {
+    const loadSubmissionStatuses = async () => {
+      try {
+        const token = await getAuthToken();
+        const statuses: {[key: string]: string} = {};
+        
+        for (const problem of problems) {
+          // Only fetch for embedded-type problems that have been completed
+          if (problem.type !== 'embedded') continue;
+          
+          const completedData = userProfile?.completedMilestones?.find(
+            (m: any) => m.milestoneId === problem.milestoneId
+          );
+          
+          if (completedData?.submissionId) {
+            const response = await fetch(`${API_BASE}/submissions/${completedData.submissionId}`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              statuses[problem.milestoneId] = data.submission?.proctoringData?.reviewStatus || 'pending';
+            }
+          }
+        }
+        
+        setSubmissionStatus(statuses);
+      } catch (err) {
+        console.error('Failed to load submission statuses:', err);
+      }
+    };
+    
+    loadSubmissionStatuses();
+  }, [problems, userProfile]);
 
   async function loadProblems() {
     try {
@@ -1179,7 +1221,7 @@ const handleSubmitSuccess = async () => {
 
                 if (isCompleted && completedData) {
                   if (problem.type === 'embedded') {
-                    const reviewStatus = completedData.reviewStatus;
+                   const reviewStatus = submissionStatus[problem.milestoneId];
                     if (reviewStatus === 'approved') {
                       return (
                         <span style={{

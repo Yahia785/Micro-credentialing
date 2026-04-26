@@ -8,6 +8,8 @@ import type { EmbeddedAssessment } from '../api/embedded-assessments';
 import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
 //import { EmbeddedEnvironment } from './EmbeddedEnvironment';
 import { CodeEditor } from './CodeEditor';
+import { getAuthToken, API_BASE } from '../api/config';
+
 
 interface EmbeddedAssessmentsTabProps {
   userProfile: any;
@@ -40,6 +42,9 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
   // Step 2 rubric state
   const [rubric, setRubric] = useState<string[]>(['']);
 
+  // Submission review statuses fetched from the Submissions table (source of truth)
+  const [submissionStatus, setSubmissionStatus] = useState<{[key: string]: string}>({});
+
   useEffect(() => {
     loadAssessments();
   }, []);
@@ -57,6 +62,47 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
       setLoading(false);
     }
   }
+
+  // Fetch actual review statuses from the Submissions table
+  // This is the source of truth — completedMilestones on the Users table
+  // does not reliably have reviewStatus written to it
+  useEffect(() => {
+    const loadSubmissionStatuses = async () => {
+      try {
+        const token = await getAuthToken();
+        const statuses: {[key: string]: string} = {};
+        
+        for (const assessment of assessments) {
+          const isCompleted = userProfile?.completedMilestones?.some(
+            (m: any) => m.milestoneId === assessment.milestoneId
+          );
+          
+          if (isCompleted) {
+            const completedData = userProfile?.completedMilestones?.find(
+              (m: any) => m.milestoneId === assessment.milestoneId
+            );
+            
+            if (completedData?.submissionId) {
+              const response = await fetch(`${API_BASE}/submissions/${completedData.submissionId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              
+              if (response.ok) {
+                const data = await response.json();
+                statuses[assessment.milestoneId] = data.submission?.proctoringData?.reviewStatus || 'pending';
+              }
+            }
+          }
+        }
+        
+        setSubmissionStatus(statuses);
+      } catch (err) {
+        console.error('Failed to load submission statuses:', err);
+      }
+    };
+    
+    loadSubmissionStatuses();
+  }, [assessments, userProfile]);
 
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty) {
@@ -531,7 +577,9 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
                   📋 {assessment.rubric.length} criteria
                 </span>
                 {isCompleted && completedData && (() => {
-                  const reviewStatus = completedData.reviewStatus;
+                  // Read review status from the Submissions table (source of truth)
+                  // instead of completedMilestones which doesn't reliably have this field
+                  const reviewStatus = submissionStatus[assessment.milestoneId];
                   if (reviewStatus === 'approved') {
                     return (
                       <span style={{
@@ -540,7 +588,7 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
                         padding: '4px 8px', borderRadius: '4px',
                         fontSize: '12px', fontWeight: 'bold'
                       }}>
-                        ✅ Approved ({completedData.score}%)
+                        ✅ Approved
                       </span>
                     );
                   }
