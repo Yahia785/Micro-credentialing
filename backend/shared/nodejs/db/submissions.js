@@ -163,7 +163,12 @@ async function updateSubmission(submissionId, updates) {
     updateExpressions.push('originalScore = :originalScore');
     expressionAttributeValues[':originalScore'] = updates.originalScore;
   }
-  
+
+  if (updates.criteriaModifications !== undefined) {
+    updateExpressions.push('criteriaModifications = :criteriaModifications');
+    expressionAttributeValues[':criteriaModifications'] = updates.criteriaModifications;
+  }
+
   if (updates.testResults !== undefined) {
     updateExpressions.push('testResults = :testResults');
     expressionAttributeValues[':testResults'] = updates.testResults;

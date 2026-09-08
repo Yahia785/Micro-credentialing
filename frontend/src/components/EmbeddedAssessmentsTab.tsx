@@ -6,7 +6,6 @@ import {
 } from '../api/embedded-assessments';
 import type { EmbeddedAssessment } from '../api/embedded-assessments';
 import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
-//import { EmbeddedEnvironment } from './EmbeddedEnvironment';
 import { CodeEditor } from './CodeEditor';
 import { getAuthToken, API_BASE } from '../api/config';
 
@@ -41,8 +40,6 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
 
   // Step 2 rubric state
   const [rubric, setRubric] = useState<string[]>(['']);
-
-  // Submission review statuses fetched from the Submissions table (source of truth)
   const [submissionStatus, setSubmissionStatus] = useState<{[key: string]: string}>({});
 
   useEffect(() => {
@@ -63,9 +60,6 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
     }
   }
 
-  // Fetch actual review statuses from the Submissions table
-  // This is the source of truth — completedMilestones on the Users table
-  // does not reliably have reviewStatus written to it
   useEffect(() => {
     const loadSubmissionStatuses = async () => {
       try {
@@ -576,42 +570,50 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
                 }}>
                   📋 {assessment.rubric.length} criteria
                 </span>
+                
                 {isCompleted && completedData && (() => {
-                  // Read review status from the Submissions table (source of truth)
-                  // instead of completedMilestones which doesn't reliably have this field
                   const reviewStatus = submissionStatus[assessment.milestoneId];
                   if (reviewStatus === 'approved') {
                     return (
                       <span style={{
                         background: '#28a745',
                         color: 'white',
-                        padding: '4px 8px', borderRadius: '4px',
-                        fontSize: '12px', fontWeight: 'bold'
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: 'bold'
                       }}>
                         ✅ Approved
                       </span>
                     );
                   }
+
                   if (reviewStatus === 'rejected') {
                     return (
                       <span style={{
                         background: '#dc3545',
                         color: 'white',
-                        padding: '4px 8px', borderRadius: '4px',
-                        fontSize: '12px', fontWeight: 'bold'
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: 'bold'
                       }}>
                         ❌ Rejected
                       </span>
                     );
                   }
+
+                  // Default to pending/under review
                   return (
                     <span style={{
                       background: '#007bff',
                       color: 'white',
-                      padding: '4px 8px', borderRadius: '4px',
-                      fontSize: '12px', fontWeight: 'bold'
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: 'bold'
                     }}>
-                      📋 Under Review
+                      ⏳ Under Review
                     </span>
                   );
                 })()}

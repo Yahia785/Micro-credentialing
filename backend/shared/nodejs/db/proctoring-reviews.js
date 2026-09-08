@@ -126,14 +126,16 @@ async function approveReview(submissionId, reviewedBy, reviewNotes = '') {
  * Reject a submission's proctoring review
  * @param {string} submissionId - The submission ID
  * @param {string} reviewedBy - The admin's user ID
- * @param {string} rejectionReason - Reason for rejection
+ * @param {string} rejectionReason - The specific policy that was violated
+ * @param {string} [reviewNotes] - Additional context/explanation from the instructor
+ * @param {string} [policyViolated] - Structured policy tag, if provided
  * @returns {object} The updated submission
  */
-async function rejectReview(submissionId, reviewedBy, rejectionReason) {
+async function rejectReview(submissionId, reviewedBy, rejectionReason, reviewNotes = '', policyViolated = null) {
   const params = {
     TableName: process.env.SUBMISSIONS_TABLE,
     Key: { submissionId },
-    UpdateExpression: 'SET proctoringData.reviewStatus = :rejected, proctoringData.reviewedBy = :reviewedBy, proctoringData.reviewedAt = :reviewedAt, proctoringData.reviewNotes = :rejectionReason, #status = :failed, updatedAt = :updatedAt',
+    UpdateExpression: 'SET proctoringData.reviewStatus = :rejected, proctoringData.reviewedBy = :reviewedBy, proctoringData.reviewedAt = :reviewedAt, proctoringData.rejectionReason = :rejectionReason, proctoringData.reviewNotes = :reviewNotes, proctoringData.policyViolated = :policyViolated, #status = :failed, updatedAt = :updatedAt',
     ExpressionAttributeNames: {
       '#status': 'status'
     },
@@ -142,12 +144,14 @@ async function rejectReview(submissionId, reviewedBy, rejectionReason) {
       ':reviewedBy': reviewedBy,
       ':reviewedAt': new Date().toISOString(),
       ':rejectionReason': rejectionReason,
+      ':reviewNotes': reviewNotes,
+      ':policyViolated': policyViolated,
       ':failed': 'failed',
       ':updatedAt': new Date().toISOString()
     },
     ReturnValues: 'ALL_NEW'
   };
-  
+
   const result = await dynamodb.send(new UpdateCommand(params));
   return result.Attributes;
 }
