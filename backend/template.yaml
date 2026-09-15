@@ -32,7 +32,14 @@ Parameters:
   AnthropicApiKeySecretName:
     Type: String
     Description: Name of the Anthropic API Key secret in Secrets Manager
-    Default: "micro-credentialing/anthropic-api-key"    
+    Default: "micro-credentialing/anthropic-api-key"
+
+  # NOTE: Create this secret before deploying:
+  # aws secretsmanager create-secret --name micro-credentialing/judge0-api-key --secret-string "YOUR_JUDGE0_KEY"
+  Judge0ApiKeySecretName:
+    Type: String
+    Description: Name of the Judge0 API Key secret in Secrets Manager
+    Default: "micro-credentialing/judge0-api-key"
 
 # ==========================================
 # CONDITIONS
@@ -59,7 +66,7 @@ Globals:
         TESTCASES_TABLE: TestCases
         SUBMISSIONS_TABLE: Submissions
         COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
-        JUDGE0_API_KEY: "{{resolve:ssm:/micro-credentialing/judge0-api-key:1}}"
+        JUDGE0_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${Judge0ApiKeySecretName}"
         JUDGE0_API_HOST: "judge0-ce.p.rapidapi.com"
         PROCTORING_BUCKET_NAME: "micro-credentialing-recordings"
         BCDIPLOMA_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${BCDiplomaApiKeySecretName}"
@@ -68,6 +75,8 @@ Globals:
         ALLOWED_DOMAINS: "canvas.instructure.com,ti.com,dev.ti.com,onlinegdb.com,virginia.edu"
         FORBIDDEN_DOMAINS: "chatgpt.com,openai.com,claude.ai,anthropic.com,google.com/search,stackoverflow.com,discord.com,whatsapp.com,github.com/copilot"
         ANTHROPIC_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AnthropicApiKeySecretName}"
+        ALLOWED_ORIGIN: "https://main.dn9on5ji0olal.amplifyapp.com"
+        ADMIN_EMAILS: "yahiatawfeek20@gmail.com"
 
 # ==========================================
 # RESOURCES
@@ -94,7 +103,7 @@ Resources:
     Properties:
       StageName: !Ref Environment
       Cors:
-        AllowOrigin: "'*'"
+        AllowOrigin: "'https://main.dn9on5ji0olal.amplifyapp.com'"
         AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
       Auth:
@@ -856,6 +865,12 @@ Resources:
             TableName: Milestones
         - DynamoDBCrudPolicy:
             TableName: Users
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource:
+                - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${Judge0ApiKeySecretName}*"
 
   # ------------------------------------------
   # LAMBDA: Get Submission
