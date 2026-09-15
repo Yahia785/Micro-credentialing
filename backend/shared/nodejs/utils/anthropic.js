@@ -1,15 +1,8 @@
-const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
+const { getSecret } = require('./secrets');
+const log = require('./logger');
 
 async function getAnthropicApiKey() {
-  const secretsClient = new SecretsManagerClient({});
-
-  const response = await secretsClient.send(
-    new GetSecretValueCommand({
-      SecretId: process.env.ANTHROPIC_API_KEY_SECRET_ARN
-    })
-  );
-
-  return response.SecretString;
+  return await getSecret(process.env.ANTHROPIC_API_KEY_SECRET_ARN);
 }
 
 async function gradeEmbeddedCode(code, rubric) {
@@ -17,7 +10,7 @@ async function gradeEmbeddedCode(code, rubric) {
   try {
     apiKey = await getAnthropicApiKey();
   } catch (secretError) {
-    console.warn('Could not retrieve Anthropic API key from Secrets Manager — returning mock grading results:', secretError.message);
+    log.warn('Could not retrieve Anthropic API key from Secrets Manager, returning mock grading results', { error: secretError.message });
     return {
       rubricResults: rubric.map(criterion => ({
         criterion,
@@ -57,14 +50,14 @@ async function gradeEmbeddedCode(code, rubric) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Anthropic API error:', response.status, errorText);
+    log.error('Anthropic API error', { status: response.status });
     throw new Error(`Anthropic API error: ${response.status} - ${errorText}`);
   }
 
   const data = await response.json();
   const rawText = data.content[0].text;
 
-  console.log('Anthropic raw response:', rawText);
+  log.info('Anthropic response received', { responseLength: rawText.length });
 
   const rubricResults = parseGradingResponse(rawText, rubric);
   const passedCriteria = rubricResults.filter(r => r.passed).length;
@@ -127,8 +120,7 @@ function parseGradingResponse(rawText, rubric) {
     }));
 
   } catch (error) {
-    console.error('Failed to parse Anthropic grading response:', error);
-    console.error('Raw text was:', rawText);
+    log.error('Failed to parse Anthropic grading response', { error: error.message, responseLength: rawText.length });
 
     return rubric.map(criterion => ({
       criterion,

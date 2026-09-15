@@ -1,5 +1,7 @@
+const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, DeleteCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const { buildUpdateExpression } = require('./dynamo-utils');
 
 const client = new DynamoDBClient({});
 const dynamodb = DynamoDBDocumentClient.from(client);
@@ -10,7 +12,7 @@ const dynamodb = DynamoDBDocumentClient.from(client);
  * @returns {Promise<object>} Created assessment
  */
 async function createEmbeddedAssessment(data) {
-  const milestoneId = data.milestoneId || `embedded_${Date.now()}`;
+  const milestoneId = data.milestoneId || `embedded_${crypto.randomUUID()}`;
 
   const params = {
     TableName: process.env.MILESTONES_TABLE,
@@ -56,15 +58,26 @@ async function getEmbeddedAssessment(milestoneId) {
  * @returns {Promise<Array>} Array of embedded assessments
  */
 async function getAllEmbeddedAssessments() {
-  const params = {
-    TableName: process.env.MILESTONES_TABLE,
-    FilterExpression: '#type = :embedded',
-    ExpressionAttributeNames: { '#type': 'type' },
-    ExpressionAttributeValues: { ':embedded': 'embedded' }
-  };
+  const allItems = [];
+  let lastEvaluatedKey;
 
-  const result = await dynamodb.send(new ScanCommand(params));
-  return result.Items || [];
+  do {
+    const params = {
+      TableName: process.env.MILESTONES_TABLE,
+      FilterExpression: '#type = :embedded',
+      ExpressionAttributeNames: { '#type': 'type' },
+      ExpressionAttributeValues: { ':embedded': 'embedded' },
+      ...(lastEvaluatedKey && { ExclusiveStartKey: lastEvaluatedKey }),
+    };
+
+    const result = await dynamodb.send(new ScanCommand(params));
+    if (result.Items) {
+      allItems.push(...result.Items);
+    }
+    lastEvaluatedKey = result.LastEvaluatedKey;
+  } while (lastEvaluatedKey);
+
+  return allItems;
 }
 
 /**
@@ -74,54 +87,12 @@ async function getAllEmbeddedAssessments() {
  * @returns {Promise<object>} Updated assessment
  */
 async function updateEmbeddedAssessment(milestoneId, updates) {
-  const updateExpressions = [];
-  const expressionAttributeNames = {};
-  const expressionAttributeValues = {};
-
-  if (updates.title !== undefined) {
-    updateExpressions.push('#title = :title');
-    expressionAttributeNames['#title'] = 'title';
-    expressionAttributeValues[':title'] = updates.title;
-  }
-
-  if (updates.description !== undefined) {
-    updateExpressions.push('description = :description');
-    expressionAttributeValues[':description'] = updates.description;
-  }
-
-  if (updates.difficulty !== undefined) {
-    updateExpressions.push('difficulty = :difficulty');
-    expressionAttributeValues[':difficulty'] = updates.difficulty;
-  }
-
-  if (updates.rubric !== undefined) {
-    updateExpressions.push('rubric = :rubric');
-    expressionAttributeValues[':rubric'] = updates.rubric;
-  }
-
-  if (updates.bcdiplomaTemplateId !== undefined) {
-    updateExpressions.push('bcdiplomaTemplateId = :bcdiplomaTemplateId');
-    expressionAttributeValues[':bcdiplomaTemplateId'] = updates.bcdiplomaTemplateId;
-  }
-
-  if (updateExpressions.length === 0) {
-    throw new Error('No fields to update');
-  }
-
-  updateExpressions.push('updatedAt = :updatedAt');
-  expressionAttributeValues[':updatedAt'] = new Date().toISOString();
-
   const params = {
     TableName: process.env.MILESTONES_TABLE,
     Key: { milestoneId },
-    UpdateExpression: `SET ${updateExpressions.join(', ')}`,
-    ExpressionAttributeNames: Object.keys(expressionAttributeNames).length > 0
-      ? expressionAttributeNames
-      : undefined,
-    ExpressionAttributeValues: expressionAttributeValues,
+    ...buildUpdateExpression(updates),
     ReturnValues: 'ALL_NEW'
   };
-
   const result = await dynamodb.send(new UpdateCommand(params));
   return result.Attributes;
 }

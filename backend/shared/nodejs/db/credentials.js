@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 
@@ -13,7 +14,7 @@ async function createCredential(credentialData) {
   const params = {
     TableName: process.env.CREDENTIALS_TABLE,
     Item: {
-      credentialId: credentialData.credentialId || `cred_${Date.now()}_${credentialData.userId}`,
+      credentialId: credentialData.credentialId || `cred_${crypto.randomUUID()}`,
       userId: credentialData.userId,
       milestoneId: credentialData.milestoneId,
       submissionId: credentialData.submissionId,

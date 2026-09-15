@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
 
@@ -10,7 +11,7 @@ const dynamodb = DynamoDBDocumentClient.from(client);
  * @returns {Promise<object>} Created submission
  */
 async function createEmbeddedSubmission(data) {
-  const submissionId = data.submissionId || `esub_${Date.now()}_${data.userId}`;
+  const submissionId = data.submissionId || `esub_${crypto.randomUUID()}`;
 
   const params = {
     TableName: process.env.SUBMISSIONS_TABLE,

@@ -1,5 +1,6 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
+const { buildUpdateExpression } = require('./dynamo-utils');
 
 const client = new DynamoDBClient({});
 const dynamodb = DynamoDBDocumentClient.from(client);
@@ -44,104 +45,103 @@ async function getUser(userId) {
  * Update user profile
  */
 async function updateUser(userId, updates) {
-  // Build update expression dynamically based on what fields are provided
-  const updateExpressions = [];
-  const expressionAttributeNames = {};
-  const expressionAttributeValues = {};
-  
-  if (updates.name !== undefined) {
-    updateExpressions.push('#name = :name');
-    expressionAttributeNames['#name'] = 'name';
-    expressionAttributeValues[':name'] = updates.name;
-  }
-  
-  if (updates.email !== undefined) {
-    updateExpressions.push('email = :email');
-    expressionAttributeValues[':email'] = updates.email;
-  }
-  
-  if (updates.completedMilestones !== undefined) {
-    updateExpressions.push('completedMilestones = :completedMilestones');
-    expressionAttributeValues[':completedMilestones'] = updates.completedMilestones;
-  }
-
-  if (updates.credentialsCount !== undefined) {
-    updateExpressions.push('credentialsCount = :credentialsCount');
-    expressionAttributeValues[':credentialsCount'] = updates.credentialsCount;
-  }
-
-  if (updates.milestonesCompleted !== undefined) {
-    updateExpressions.push('milestonesCompleted = :milestonesCompleted');
-    expressionAttributeValues[':milestonesCompleted'] = updates.milestonesCompleted;
-  }
-  
-  // Always update the updatedAt timestamp
-  updateExpressions.push('updatedAt = :updatedAt');
-  expressionAttributeValues[':updatedAt'] = new Date().toISOString();
-  
   const params = {
     TableName: process.env.USERS_TABLE,
     Key: { userId },
-    UpdateExpression: `SET ${updateExpressions.join(', ')}`,
-    ExpressionAttributeNames: Object.keys(expressionAttributeNames).length > 0 
-      ? expressionAttributeNames 
-      : undefined,
-    ExpressionAttributeValues: expressionAttributeValues,
+    ...buildUpdateExpression(updates),
     ReturnValues: 'ALL_NEW'
   };
-  
   const result = await dynamodb.send(new UpdateCommand(params));
   return result.Attributes;
 }
 
 /**
- * Add completed milestone to user's profile
+ * Add completed milestone to user's profile.
+ *
+ * Uses an atomic list_append (rather than read-modify-write) guarded by an
+ * optimistic lock on updatedAt, since two concurrent submissions completing
+ * at the same time would otherwise race and the second write would clobber
+ * the first one's read-modify-write of the array.
  */
 async function addCompletedMilestone(userId, milestoneData) {
-  // First, get the user to check if milestone already completed
-  const user = await getUser(userId);
-  
-  if (!user) {
-    throw new Error('User not found');
-  }
-  
-  // Initialize completedMilestones if it doesn't exist
-  const completedMilestones = user.completedMilestones || [];
-  
-  // Check if milestone already completed
-  const existingIndex = completedMilestones.findIndex(
-    m => m.milestoneId === milestoneData.milestoneId
-  );
-  
-  if (existingIndex >= 0) {
-    // Milestone already completed, don't add again
-    return user;
-  }
-  
-  // Add new milestone to the array
-  completedMilestones.push({
+  const newMilestone = {
     milestoneId: milestoneData.milestoneId,
     score: milestoneData.score,
     passedTests: milestoneData.passedTests,
     totalTests: milestoneData.totalTests,
     completedAt: new Date().toISOString(),
-    submissionId: milestoneData.submissionId
-  });
-  
-  // Update user with new completedMilestones array
-  const params = {
-    TableName: process.env.USERS_TABLE,
-    Key: { userId },
-    UpdateExpression: 'SET completedMilestones = :completedMilestones, updatedAt = :updatedAt',
-    ExpressionAttributeValues: {
-      ':completedMilestones': completedMilestones,
-      ':updatedAt': new Date().toISOString()
-    },
-    ReturnValues: 'ALL_NEW'
+    submissionId: milestoneData.submissionId,
   };
-  
-  const result = await dynamodb.send(new UpdateCommand(params));
-  return result.Attributes;
+
+  // First, try to atomically append to the existing array.
+  // The condition ensures we don't add a duplicate — it checks that
+  // no existing entry in completedMilestones has the same milestoneId.
+  // DynamoDB doesn't support "array doesn't contain value" natively,
+  // so we use a two-step approach:
+
+  // Step 1: Check if milestone already completed
+  const user = await getUser(userId);
+  if (!user) {
+    throw new Error('User not found');
+  }
+
+  const alreadyCompleted = (user.completedMilestones || []).some(
+    m => m.milestoneId === milestoneData.milestoneId
+  );
+
+  if (alreadyCompleted) {
+    return user; // Already completed, no-op
+  }
+
+  // Step 2: Atomic append using list_append + condition on updatedAt
+  // to detect concurrent writes
+  try {
+    const params = {
+      TableName: process.env.USERS_TABLE,
+      Key: { userId },
+      UpdateExpression: 'SET completedMilestones = list_append(if_not_exists(completedMilestones, :empty), :newMilestone), updatedAt = :now',
+      ConditionExpression: 'updatedAt = :expectedUpdatedAt',
+      ExpressionAttributeValues: {
+        ':newMilestone': [newMilestone],
+        ':empty': [],
+        ':now': new Date().toISOString(),
+        ':expectedUpdatedAt': user.updatedAt,
+      },
+      ReturnValues: 'ALL_NEW',
+    };
+
+    const result = await dynamodb.send(new UpdateCommand(params));
+    return result.Attributes;
+  } catch (error) {
+    if (error.name === 'ConditionalCheckFailedException') {
+      // Concurrent update detected — re-read and retry once
+      const freshUser = await getUser(userId);
+      const stillNotCompleted = !(freshUser.completedMilestones || []).some(
+        m => m.milestoneId === milestoneData.milestoneId
+      );
+
+      if (!stillNotCompleted) {
+        return freshUser; // Someone else added it concurrently
+      }
+
+      // Retry with fresh updatedAt
+      const retryParams = {
+        TableName: process.env.USERS_TABLE,
+        Key: { userId },
+        UpdateExpression: 'SET completedMilestones = list_append(if_not_exists(completedMilestones, :empty), :newMilestone), updatedAt = :now',
+        ExpressionAttributeValues: {
+          ':newMilestone': [newMilestone],
+          ':empty': [],
+          ':now': new Date().toISOString(),
+        },
+        ReturnValues: 'ALL_NEW',
+      };
+
+      const retryResult = await dynamodb.send(new UpdateCommand(retryParams));
+      return retryResult.Attributes;
+    }
+    throw error;
+  }
 }
 
 module.exports = {

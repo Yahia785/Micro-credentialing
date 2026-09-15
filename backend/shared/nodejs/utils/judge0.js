@@ -3,6 +3,9 @@
  * This handles all programming languages reliably by using Base64 encoding
  */
 
+const log = require('../utils/logger');
+const { getSecret } = require('./secrets');
+
 /**
  * Base64 encode a string (Node.js compatible)
  * @param {string} str - String to encode
@@ -22,7 +25,7 @@ function base64Decode(str) {
   try {
     return Buffer.from(str, 'base64').toString('utf-8');
   } catch (error) {
-    console.error('Error decoding base64:', error);
+    log.error('Error decoding base64', { error: error.message });
     return str; // Return original if decode fails
   }
 }
@@ -45,13 +48,23 @@ function getLanguageId(language) {
     'rust': 73,        // Rust (1.40.0)
     'php': 68          // PHP (7.4.1)
   };
-  
+
   const languageId = languageMap[language.toLowerCase()];
   if (!languageId) {
     throw new Error(`Unsupported language: ${language}`);
   }
-  
+
   return languageId;
+}
+
+/**
+ * Get Judge0 API credentials from Secrets Manager
+ * @returns {Object} { apiKey, apiHost }
+ */
+async function getJudge0Credentials() {
+  const apiKey = await getSecret(process.env.JUDGE0_API_KEY_SECRET_ARN);
+  const apiHost = process.env.JUDGE0_API_HOST || 'judge0-ce.p.rapidapi.com';
+  return { apiKey, apiHost };
 }
 
 /**
@@ -65,10 +78,9 @@ async function submitBatch(submissions, apiKey, apiHost) {
   // IMPORTANT: Use base64_encoded=true to handle all character encodings
   // This is required for C++, C, and other languages that may produce non-UTF-8 output
   const url = `https://${apiHost}/submissions/batch?base64_encoded=true&wait=false`;
-  
-  console.log('Submitting batch to Judge0:', url);
-  console.log('Number of submissions:', submissions.length);
-  
+
+  log.info('Submitting batch to Judge0', { url, count: submissions.length });
+
   // Encode all text fields to Base64
   const encodedSubmissions = submissions.map(sub => ({
     ...sub,
@@ -76,7 +88,7 @@ async function submitBatch(submissions, apiKey, apiHost) {
     stdin: sub.stdin ? base64Encode(sub.stdin) : undefined,
     expected_output: sub.expected_output ? base64Encode(sub.expected_output) : undefined
   }));
-  
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -86,16 +98,16 @@ async function submitBatch(submissions, apiKey, apiHost) {
     },
     body: JSON.stringify({ submissions: encodedSubmissions })
   });
-  
+
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Judge0 batch submission error:', response.status, errorText);
+    log.error('Judge0 batch submission error', { status: response.status });
     throw new Error(`Judge0 API error: ${response.status} - ${errorText}`);
   }
-  
+
   const result = await response.json();
-  console.log('Judge0 batch submission result:', result);
-  
+  log.info('Judge0 batch submission result', { tokens: result.map(r => r.token) });
+
   return result;
 }
 
@@ -108,19 +120,33 @@ async function submitBatch(submissions, apiKey, apiHost) {
  * @param {number} pollInterval - Polling interval in ms (default: 1000)
  * @returns {Array} Array of submission results (Base64 decoded)
  */
-async function pollResults(tokens, apiKey, apiHost, maxAttempts = 30, pollInterval = 1000) {
+async function pollResults(tokens, apiKey, apiHost, maxAttempts = 30, pollInterval = 1000, deadlineMs = null) {
   const tokensString = tokens.join(',');
   // Use base64_encoded=true to receive Base64 encoded results
   const url = `https://${apiHost}/submissions/batch?tokens=${tokensString}&base64_encoded=true`;
-  
-  console.log('Polling Judge0 for results. Tokens:', tokensString);
-  
+
+  log.info('Polling Judge0 for results', { tokens: tokensString });
+
+  const startTime = Date.now();
   let attempts = 0;
-  
+
   while (attempts < maxAttempts) {
+    // Check deadline — leave 5 seconds for post-poll cleanup
+    if (deadlineMs !== null) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed + pollInterval + 5000 > deadlineMs) {
+        log.warn('Judge0 polling stopped: approaching deadline', {
+          elapsed,
+          deadline: deadlineMs,
+          attempts,
+        });
+        throw new Error('Judge0 polling stopped: approaching Lambda timeout. Submission will remain in pending state.');
+      }
+    }
+
     attempts++;
-    console.log(`Polling attempt ${attempts}/${maxAttempts}`);
-    
+    log.info('Polling attempt', { attempt: attempts, maxAttempts });
+
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -128,21 +154,21 @@ async function pollResults(tokens, apiKey, apiHost, maxAttempts = 30, pollInterv
         'X-RapidAPI-Host': apiHost
       }
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Judge0 polling error:', response.status, errorText);
+      log.error('Judge0 polling error', { status: response.status });
       throw new Error(`Judge0 API error: ${response.status} - ${errorText}`);
     }
-    
+
     const result = await response.json();
     const submissions = result.submissions;
-    
+
     const allDone = submissions.every(s => s.status.id >= 3);
-    
+
     if (allDone) {
-      console.log('All submissions completed');
-      
+      log.info('All submissions completed', { tokens: tokensString, attempts, allDone });
+
       // Decode Base64 fields in the results
       const decodedSubmissions = submissions.map(sub => ({
         ...sub,
@@ -151,15 +177,15 @@ async function pollResults(tokens, apiKey, apiHost, maxAttempts = 30, pollInterv
         compile_output: sub.compile_output ? base64Decode(sub.compile_output) : null,
         message: sub.message ? base64Decode(sub.message) : null
       }));
-      
+
       return decodedSubmissions;
     }
-    
-    console.log(`Still processing... Waiting ${pollInterval}ms before next attempt`);
+
+    log.info('Still processing, waiting before next attempt', { pollInterval });
     await sleep(pollInterval);
   }
-  
-  console.warn('Polling timeout reached');
+
+  log.warn('Polling timeout reached');
   throw new Error('Judge0 polling timeout: submissions did not complete in time');
 }
 
@@ -169,7 +195,7 @@ async function pollResults(tokens, apiKey, apiHost, maxAttempts = 30, pollInterv
 function parseJudge0Result(judge0Result, testCase) {
   const statusId = judge0Result.status.id;
   const statusDescription = judge0Result.status.description;
-  
+
   return {
     testCaseId: testCase.testCaseId,
     judge0TokenId: judge0Result.token,
@@ -192,13 +218,13 @@ function calculateMetrics(testResults) {
   const passedTests = testResults.filter(r => r.passed).length;
   const totalTests = testResults.length;
   const score = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
-  
+
   const totalExecutionTime = testResults.reduce((sum, r) => sum + r.executionTime, 0);
   const totalMemory = testResults.reduce((sum, r) => sum + r.memory, 0);
-  
+
   const executionTimes = testResults.map(r => r.executionTime);
   const memoryValues = testResults.map(r => r.memory);
-  
+
   return {
     passedTests,
     totalTests,
@@ -222,6 +248,7 @@ function sleep(ms) {
 
 module.exports = {
   getLanguageId,
+  getJudge0Credentials,
   submitBatch,
   pollResults,
   parseJudge0Result,

@@ -1,5 +1,7 @@
+const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, DeleteCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, DeleteCommand, ScanCommand, BatchWriteCommand } = require('@aws-sdk/lib-dynamodb');
+const { buildUpdateExpression } = require('./dynamo-utils');
 
 const client = new DynamoDBClient({});
 const dynamodb = DynamoDBDocumentClient.from(client);
@@ -13,7 +15,7 @@ async function createMilestone(milestoneData) {
   const params = {
     TableName: process.env.MILESTONES_TABLE,
     Item: {
-      milestoneId: milestoneData.milestoneId || `milestone_${Date.now()}`,
+      milestoneId: milestoneData.milestoneId || `milestone_${crypto.randomUUID()}`,
       title: milestoneData.title,
       description: milestoneData.description,
       difficulty: milestoneData.difficulty || 'medium',
@@ -55,12 +57,23 @@ async function getMilestone(milestoneId) {
  * @returns {Array} Array of all milestones
  */
 async function getAllMilestones() {
-  const params = {
-    TableName: process.env.MILESTONES_TABLE
-  };
-  
-  const result = await dynamodb.send(new ScanCommand(params));
-  return result.Items || [];
+  const allItems = [];
+  let lastEvaluatedKey;
+
+  do {
+    const params = {
+      TableName: process.env.MILESTONES_TABLE,
+      ...(lastEvaluatedKey && { ExclusiveStartKey: lastEvaluatedKey }),
+    };
+
+    const result = await dynamodb.send(new ScanCommand(params));
+    if (result.Items) {
+      allItems.push(...result.Items);
+    }
+    lastEvaluatedKey = result.LastEvaluatedKey;
+  } while (lastEvaluatedKey);
+
+  return allItems;
 }
 
 /**
@@ -70,79 +83,12 @@ async function getAllMilestones() {
  * @returns {object} The updated milestone
  */
 async function updateMilestone(milestoneId, updates) {
-  // Build update expression dynamically based on what fields are provided
-  const updateExpressions = [];
-  const expressionAttributeNames = {};
-  const expressionAttributeValues = {};
-  
-  if (updates.title !== undefined) {
-    updateExpressions.push('#title = :title');
-    expressionAttributeNames['#title'] = 'title';
-    expressionAttributeValues[':title'] = updates.title;
-  }
-  
-  if (updates.description !== undefined) {
-    updateExpressions.push('description = :description');
-    expressionAttributeValues[':description'] = updates.description;
-  }
-  
-  if (updates.difficulty !== undefined) {
-    updateExpressions.push('difficulty = :difficulty');
-    expressionAttributeValues[':difficulty'] = updates.difficulty;
-  }
-  
-  if (updates.language !== undefined) {
-    updateExpressions.push('#language = :language');
-    expressionAttributeNames['#language'] = 'language';
-    expressionAttributeValues[':language'] = updates.language;
-  }
-  
-  if (updates.starterCode !== undefined) {
-    updateExpressions.push('starterCode = :starterCode');
-    expressionAttributeValues[':starterCode'] = updates.starterCode;
-  }
-  
-  if (updates.timeLimit !== undefined) {
-    updateExpressions.push('timeLimit = :timeLimit');
-    expressionAttributeValues[':timeLimit'] = updates.timeLimit;
-  }
-  
-  if (updates.memoryLimit !== undefined) {
-    updateExpressions.push('memoryLimit = :memoryLimit');
-    expressionAttributeValues[':memoryLimit'] = updates.memoryLimit;
-  }
-  
-  if (updates.sampleTestCases !== undefined) {
-    updateExpressions.push('sampleTestCases = :sampleTestCases');
-    expressionAttributeValues[':sampleTestCases'] = updates.sampleTestCases;
-  }
-  
-  if (updates.testCaseCount !== undefined) {
-    updateExpressions.push('testCaseCount = :testCaseCount');
-    expressionAttributeValues[':testCaseCount'] = updates.testCaseCount;
-  }
-  
-  // NEW: Allow updating BCdiploma template ID
-  if (updates.bcdiplomaTemplateId !== undefined) {
-    updateExpressions.push('bcdiplomaTemplateId = :bcdiplomaTemplateId');
-    expressionAttributeValues[':bcdiplomaTemplateId'] = updates.bcdiplomaTemplateId;
-  }
-  
-  // Always update the updatedAt timestamp
-  updateExpressions.push('updatedAt = :updatedAt');
-  expressionAttributeValues[':updatedAt'] = new Date().toISOString();
-  
   const params = {
     TableName: process.env.MILESTONES_TABLE,
     Key: { milestoneId },
-    UpdateExpression: `SET ${updateExpressions.join(', ')}`,
-    ExpressionAttributeNames: Object.keys(expressionAttributeNames).length > 0 
-      ? expressionAttributeNames 
-      : undefined,
-    ExpressionAttributeValues: expressionAttributeValues,
+    ...buildUpdateExpression(updates),
     ReturnValues: 'ALL_NEW'
   };
-  
   const result = await dynamodb.send(new UpdateCommand(params));
   return result.Attributes;
 }
@@ -162,10 +108,76 @@ async function deleteMilestone(milestoneId) {
   return true;
 }
 
+/**
+ * Delete a milestone and all associated records (test cases, submissions, credentials).
+ * Uses batch operations for efficiency.
+ *
+ * Note: credentials are intentionally NOT deleted here. Credentials are
+ * permanent records — if a student earned one, it should survive even if the
+ * instructor removes the milestone from the course. The orphaned credential
+ * remains valid and viewable.
+ */
+async function deleteMilestoneWithCleanup(milestoneId) {
+  const log = require('../utils/logger');
+
+  // 1. Delete all test cases for this milestone
+  const { getTestCasesByMilestone } = require('./testcases');
+  const testCases = await getTestCasesByMilestone(milestoneId);
+  if (testCases.length > 0) {
+    const { BatchWriteCommand } = require('@aws-sdk/lib-dynamodb');
+    // DynamoDB batch write accepts max 25 items per call
+    const chunks = [];
+    for (let i = 0; i < testCases.length; i += 25) {
+      chunks.push(testCases.slice(i, i + 25));
+    }
+    for (const chunk of chunks) {
+      await dynamodb.send(new BatchWriteCommand({
+        RequestItems: {
+          [process.env.TESTCASES_TABLE]: chunk.map(tc => ({
+            DeleteRequest: { Key: { testCaseId: tc.testCaseId } }
+          }))
+        }
+      }));
+    }
+    log.info('Deleted test cases for milestone', { milestoneId, count: testCases.length });
+  }
+
+  // 2. Delete all submissions for this milestone
+  const { getSubmissionsByMilestone } = require('./submissions');
+  const submissions = await getSubmissionsByMilestone(milestoneId);
+  if (submissions.length > 0) {
+    const { BatchWriteCommand } = require('@aws-sdk/lib-dynamodb');
+    const chunks = [];
+    for (let i = 0; i < submissions.length; i += 25) {
+      chunks.push(submissions.slice(i, i + 25));
+    }
+    for (const chunk of chunks) {
+      await dynamodb.send(new BatchWriteCommand({
+        RequestItems: {
+          [process.env.SUBMISSIONS_TABLE]: chunk.map(s => ({
+            DeleteRequest: { Key: { submissionId: s.submissionId } }
+          }))
+        }
+      }));
+    }
+    log.info('Deleted submissions for milestone', { milestoneId, count: submissions.length });
+  }
+
+  // 3. Delete the milestone itself
+  await deleteMilestone(milestoneId);
+  log.info('Deleted milestone', { milestoneId });
+
+  return {
+    deletedTestCases: testCases.length,
+    deletedSubmissions: submissions.length,
+  };
+}
+
 module.exports = {
   createMilestone,
   getMilestone,
   getAllMilestones,
   updateMilestone,
-  deleteMilestone
+  deleteMilestone,
+  deleteMilestoneWithCleanup
 };

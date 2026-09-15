@@ -1,36 +1,19 @@
-const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
+const { getSecret } = require('./secrets');
+const log = require('./logger');
 
 /**
  * Get BCdiploma API credentials from AWS Secrets Manager
  * @returns {Object} { apiKey, issuerId, apiUrl }
  */
 async function getBCdiplomaCredentials() {
-  const secretsClient = new SecretsManagerClient({});
-  
-  try {
-    // Get API Key
-    const apiKeyResponse = await secretsClient.send(
-      new GetSecretValueCommand({
-        SecretId: process.env.BCDIPLOMA_API_KEY_SECRET_ARN,
-      })
-    );
-    
-    // Get Issuer ID
-    const issuerIdResponse = await secretsClient.send(
-      new GetSecretValueCommand({
-        SecretId: process.env.BCDIPLOMA_ISSUER_ID_SECRET_ARN,
-      })
-    );
-    
-    return {
-      apiKey: apiKeyResponse.SecretString,
-      issuerId: issuerIdResponse.SecretString,
-      apiUrl: process.env.BCDIPLOMA_API_URL || 'https://api-staging.bcdiploma.com'
-    };
-  } catch (error) {
-    console.error('Error fetching BCdiploma credentials:', error);
-    throw new Error('Failed to retrieve BCdiploma credentials from Secrets Manager');
-  }
+  const apiKey = await getSecret(process.env.BCDIPLOMA_API_KEY_SECRET_ARN);
+  const issuerId = await getSecret(process.env.BCDIPLOMA_ISSUER_ID_SECRET_ARN);
+
+  return {
+    apiKey,
+    issuerId,
+    apiUrl: process.env.BCDIPLOMA_API_URL || 'https://api-staging.bcdiploma.com',
+  };
 }
 
 /**
@@ -42,12 +25,12 @@ async function getBCdiplomaCredentials() {
  */
 async function configureWebhook(webhookUrl, method = 'POST', postContent = null) {
   const { apiKey, issuerId, apiUrl } = await getBCdiplomaCredentials();
-  
+
   const requestBody = {
     url: webhookUrl,
     method: method.toUpperCase()
   };
-  
+
   // For POST, add content
   if (method.toUpperCase() === 'POST') {
     requestBody.content = postContent || {
@@ -56,9 +39,9 @@ async function configureWebhook(webhookUrl, method = 'POST', postContent = null)
       operation: 'CAMPAIGN-NOTIFICATION'
     };
   }
-  
-  console.log('Configuring BCdiploma webhook:', requestBody);
-  
+
+  log.info('Configuring BCdiploma webhook', { requestBody });
+
   try {
     const response = await fetch(`${apiUrl}/issuer/${issuerId}/notif`, {
       method: 'POST',
@@ -68,19 +51,19 @@ async function configureWebhook(webhookUrl, method = 'POST', postContent = null)
       },
       body: JSON.stringify(requestBody)
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Webhook configuration error:', response.status, errorText);
+      log.error('Webhook configuration error', { status: response.status });
       throw new Error(`Failed to configure webhook: ${response.status} - ${errorText}`);
     }
-    
+
     const result = await response.json();
-    console.log('✓ Webhook configured successfully:', result);
-    
+    log.info('Webhook configured successfully');
+
     return result;
   } catch (error) {
-    console.error('Error configuring webhook:', error);
+    log.error('Error configuring webhook', { error: error.message });
     throw error;
   }
 }
@@ -91,7 +74,7 @@ async function configureWebhook(webhookUrl, method = 'POST', postContent = null)
  */
 async function getWebhookConfig() {
   const { apiKey, issuerId, apiUrl } = await getBCdiplomaCredentials();
-  
+
   try {
     const response = await fetch(`${apiUrl}/issuer/${issuerId}/notif`, {
       method: 'GET',
@@ -99,18 +82,18 @@ async function getWebhookConfig() {
         'Authorization': `Bearer ${apiKey}`
       }
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to get webhook config: ${response.status} - ${errorText}`);
     }
-    
+
     const result = await response.json();
-    console.log('Current webhook configuration:', result);
-    
+    log.info('Current webhook configuration retrieved');
+
     return result;
   } catch (error) {
-    console.error('Error getting webhook config:', error);
+    log.error('Error getting webhook config', { error: error.message });
     throw error;
   }
 }
@@ -121,7 +104,7 @@ async function getWebhookConfig() {
  */
 async function testWebhook() {
   const { apiKey, issuerId, apiUrl } = await getBCdiplomaCredentials();
-  
+
   try {
     const response = await fetch(`${apiUrl}/issuer/${issuerId}/testnotif`, {
       method: 'GET',
@@ -129,16 +112,16 @@ async function testWebhook() {
         'Authorization': `Bearer ${apiKey}`
       }
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Webhook test failed: ${response.status} - ${errorText}`);
     }
-    
-    console.log('✓ Webhook test successful');
+
+    log.info('Webhook test successful');
     return true;
   } catch (error) {
-    console.error('Error testing webhook:', error);
+    log.error('Error testing webhook', { error: error.message });
     throw error;
   }
 }
@@ -149,19 +132,19 @@ async function testWebhook() {
  * @param {Array} certificateData - Array of certificate data objects (already formatted)
  * @param {Object} options - Optional settings (notification email, notes)
  * @returns {Object} Response with campaignId
- * 
+ *
  * IMPORTANT: certificateData must be pre-formatted with these exact fields:
  * - ID, Email, language, firstName, lastName, obtentionDate, expirationDate,
  *   assessment, linkLabel, linkURL
  */
 async function pushCertificate(templateId, certificateData, options = {}) {
   const { apiKey, apiUrl } = await getBCdiplomaCredentials();
-  
+
   // Validate template ID format - BCdiploma uses 0x or 1x prefix
   if (!templateId || !(templateId.startsWith('0x') || templateId.startsWith('1x'))) {
     throw new Error(`Invalid BCdiploma template ID format: ${templateId}. Must start with "0x" or "1x" (e.g., "0x13" or "1x02")`);
   }
-  
+
   // BCdiploma API requires these fields to be present, even if empty
   const requestBody = {
     templateId: templateId,
@@ -170,9 +153,9 @@ async function pushCertificate(templateId, certificateData, options = {}) {
     notification: 'yahiatawfeek20@gmail.com', // Required field - can be empty string
     data: certificateData // Must already be formatted with correct fields
   };
-  
-  console.log('BCdiploma Push Request:', JSON.stringify(requestBody, null, 2));
-  
+
+  log.info('BCdiploma push request', { templateId, recipientCount: certificateData.length });
+
   try {
     const response = await fetch(`${apiUrl}/admin/data`, {
       method: 'POST',
@@ -182,14 +165,13 @@ async function pushCertificate(templateId, certificateData, options = {}) {
       },
       body: JSON.stringify(requestBody)
     });
-    
+
     const responseText = await response.text();
-    console.log('BCdiploma Raw Response:', response.status, responseText);
-    
+    log.info('BCdiploma raw response received', { status: response.status });
+
     if (!response.ok) {
-      console.error('BCdiploma Push Error:', response.status);
-      console.error('Response Body:', responseText);
-      
+      log.error('BCdiploma push error', { status: response.status });
+
       // Try to parse error response as JSON for better error messages
       let errorMessage = responseText;
       let errorDetails = null;
@@ -199,12 +181,12 @@ async function pushCertificate(templateId, certificateData, options = {}) {
           errorMessage = errorJson.message;
         }
         errorDetails = errorJson;
-        console.error('BCdiploma Error Details (JSON):', JSON.stringify(errorJson, null, 2));
+        log.error('BCdiploma error details', { message: errorJson.message });
       } catch (e) {
         // Response is not JSON, use raw text
-        console.error('BCdiploma Error (Raw):', responseText);
+        log.error('BCdiploma error response was not valid JSON', { status: response.status });
       }
-      
+
       // Specific error handling
       if (response.status === 429) {
         throw new Error('BCdiploma rate limit exceeded. Publishing endpoint allows 20 requests per 5 seconds.');
@@ -231,32 +213,32 @@ async function pushCertificate(templateId, certificateData, options = {}) {
       } else if (response.status === 404) {
         throw new Error(`BCdiploma endpoint not found (404): ${errorMessage}. Check API URL: ${apiUrl}/admin/data`);
       }
-      
+
       // Generic error with details
       throw new Error(`BCdiploma Push failed (${response.status}): ${errorMessage}`);
     }
-    
+
     // Success - parse response
     let result;
     try {
       result = JSON.parse(responseText);
     } catch (parseError) {
-      console.error('Failed to parse BCdiploma success response:', responseText);
+      log.error('Failed to parse BCdiploma success response');
       throw new Error('Invalid JSON response from BCdiploma (should contain campaignId)');
     }
-    
-    console.log('BCdiploma Push Response (Parsed):', JSON.stringify(result, null, 2));
-    
+
+    log.info('BCdiploma push response parsed', { campaignId: result.campaignId });
+
     if (!result.campaignId) {
-      console.error('Response missing campaignId:', result);
+      log.error('BCdiploma response missing campaignId field');
       throw new Error('BCdiploma response missing campaignId field');
     }
-    
-    console.log('✓ BCdiploma Push successful. Campaign ID:', result.campaignId);
+
+    log.info('BCdiploma push successful', { campaignId: result.campaignId });
     return result;
-    
+
   } catch (error) {
-    console.error('Error calling BCdiploma Push API:', error);
+    log.error('Error calling BCdiploma Push API', { error: error.message });
     throw error;
   }
 }
@@ -268,9 +250,9 @@ async function pushCertificate(templateId, certificateData, options = {}) {
  */
 async function pullCertificate(campaignId) {
   const { apiKey, apiUrl } = await getBCdiplomaCredentials();
-  
-  console.log('BCdiploma Pull Request for campaign:', campaignId);
-  
+
+  log.info('BCdiploma pull request', { campaignId });
+
   try {
     const response = await fetch(`${apiUrl}/admin/data?campaignId=${campaignId}`, {
       method: 'GET',
@@ -278,34 +260,34 @@ async function pullCertificate(campaignId) {
         'Authorization': `Bearer ${apiKey}`
       }
     });
-    
+
     const responseText = await response.text();
-    
+
     if (!response.ok) {
-      console.error('BCdiploma Pull Error:', response.status, responseText);
-      
+      log.error('BCdiploma pull error', { status: response.status });
+
       if (response.status === 429) {
         throw new Error('BCdiploma rate limit exceeded.');
       } else if (response.status === 404) {
         throw new Error(`Campaign ${campaignId} not found or still processing.`);
       }
-      
+
       throw new Error(`BCdiploma Pull failed: ${response.status} - ${responseText}`);
     }
-    
+
     let result;
     try {
       result = JSON.parse(responseText);
     } catch (parseError) {
-      console.error('Failed to parse BCdiploma Pull response:', responseText);
+      log.error('Failed to parse BCdiploma pull response');
       throw new Error('Invalid JSON response from BCdiploma Pull');
     }
-    
-    console.log('BCdiploma Pull Response:', JSON.stringify(result, null, 2));
-    
+
+    log.info('BCdiploma pull response received', { campaignId, certificateCount: result.data?.length || 0 });
+
     return result;
   } catch (error) {
-    console.error('Error calling BCdiploma Pull API:', error);
+    log.error('Error calling BCdiploma Pull API', { error: error.message });
     throw error;
   }
 }
@@ -318,7 +300,7 @@ async function pullCertificate(campaignId) {
  */
 async function sendCertificateEmail(campaignId, ids, emailOptions = {}) {
   const { apiKey, apiUrl } = await getBCdiplomaCredentials();
-  
+
   const requestBody = {
     campaignId: campaignId,
     ids: ids,
@@ -327,9 +309,9 @@ async function sendCertificateEmail(campaignId, ids, emailOptions = {}) {
     from_name: emailOptions.fromName || 'Micro-Credentialing Platform',
     ...(emailOptions.notification && { notification: emailOptions.notification })
   };
-  
-  console.log('BCdiploma Send Email Request:', requestBody);
-  
+
+  log.info('BCdiploma send email request', { campaignId, ids });
+
   try {
     const response = await fetch(`${apiUrl}/admin/mailing`, {
       method: 'POST',
@@ -339,17 +321,17 @@ async function sendCertificateEmail(campaignId, ids, emailOptions = {}) {
       },
       body: JSON.stringify(requestBody)
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('BCdiploma Send Email Error:', response.status, errorText);
+      log.error('BCdiploma send email error', { status: response.status });
       throw new Error(`BCdiploma Email failed: ${response.status} - ${errorText}`);
     }
-    
-    console.log('✓ Certificate email sent successfully');
+
+    log.info('Certificate email sent successfully');
     return true;
   } catch (error) {
-    console.error('Error sending certificate email:', error);
+    log.error('Error sending certificate email', { error: error.message });
     throw error;
   }
 }

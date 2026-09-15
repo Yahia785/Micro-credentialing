@@ -1,5 +1,7 @@
+const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, QueryCommand } = require('@aws-sdk/lib-dynamodb');
+const { buildUpdateExpression } = require('./dynamo-utils');
 
 const client = new DynamoDBClient({});
 const dynamodb = DynamoDBDocumentClient.from(client);
@@ -13,7 +15,7 @@ async function createSubmission(submissionData) {
   const params = {
     TableName: process.env.SUBMISSIONS_TABLE,
     Item: {
-      submissionId: submissionData.submissionId || `sub_${Date.now()}_${submissionData.userId}`,
+      submissionId: submissionData.submissionId || `sub_${crypto.randomUUID()}`,
       userId: submissionData.userId,
       studentEmail: submissionData.studentEmail || null,
       studentName: submissionData.studentName || null,
@@ -134,106 +136,12 @@ async function getUserSubmissionsForMilestone(userId, milestoneId, limit = 10) {
  * @returns {object} The updated submission
  */
 async function updateSubmission(submissionId, updates) {
-  const updateExpressions = [];
-  const expressionAttributeNames = {};
-  const expressionAttributeValues = {};
-  
-  if (updates.status !== undefined) {
-    updateExpressions.push('#status = :status');
-    expressionAttributeNames['#status'] = 'status';
-    expressionAttributeValues[':status'] = updates.status;
-  }
-  
-  if (updates.passedTests !== undefined) {
-    updateExpressions.push('passedTests = :passedTests');
-    expressionAttributeValues[':passedTests'] = updates.passedTests;
-  }
-  
-  if (updates.totalTests !== undefined) {
-    updateExpressions.push('totalTests = :totalTests');
-    expressionAttributeValues[':totalTests'] = updates.totalTests;
-  }
-  
-  if (updates.score !== undefined) {
-    updateExpressions.push('score = :score');
-    expressionAttributeValues[':score'] = updates.score;
-  }
-
-  if (updates.originalScore !== undefined) {
-    updateExpressions.push('originalScore = :originalScore');
-    expressionAttributeValues[':originalScore'] = updates.originalScore;
-  }
-
-  if (updates.criteriaModifications !== undefined) {
-    updateExpressions.push('criteriaModifications = :criteriaModifications');
-    expressionAttributeValues[':criteriaModifications'] = updates.criteriaModifications;
-  }
-
-  if (updates.testResults !== undefined) {
-    updateExpressions.push('testResults = :testResults');
-    expressionAttributeValues[':testResults'] = updates.testResults;
-  }
-  
-  if (updates.completedAt !== undefined) {
-    updateExpressions.push('completedAt = :completedAt');
-    expressionAttributeValues[':completedAt'] = updates.completedAt;
-  }
-  
-  if (updates.credentialAwarded !== undefined) {
-    updateExpressions.push('credentialAwarded = :credentialAwarded');
-    expressionAttributeValues[':credentialAwarded'] = updates.credentialAwarded;
-  }
-  
-  if (updates.totalExecutionTime !== undefined) {
-    updateExpressions.push('totalExecutionTime = :totalExecutionTime');
-    expressionAttributeValues[':totalExecutionTime'] = updates.totalExecutionTime;
-  }
-  
-  if (updates.averageExecutionTime !== undefined) {
-    updateExpressions.push('averageExecutionTime = :averageExecutionTime');
-    expressionAttributeValues[':averageExecutionTime'] = updates.averageExecutionTime;
-  }
-  
-  if (updates.maxExecutionTime !== undefined) {
-    updateExpressions.push('maxExecutionTime = :maxExecutionTime');
-    expressionAttributeValues[':maxExecutionTime'] = updates.maxExecutionTime;
-  }
-  
-  if (updates.totalMemory !== undefined) {
-    updateExpressions.push('totalMemory = :totalMemory');
-    expressionAttributeValues[':totalMemory'] = updates.totalMemory;
-  }
-  
-  if (updates.averageMemory !== undefined) {
-    updateExpressions.push('averageMemory = :averageMemory');
-    expressionAttributeValues[':averageMemory'] = updates.averageMemory;
-  }
-  
-  if (updates.maxMemory !== undefined) {
-    updateExpressions.push('maxMemory = :maxMemory');
-    expressionAttributeValues[':maxMemory'] = updates.maxMemory;
-  }
-  
-  if (updates.judge0BatchId !== undefined) {
-    updateExpressions.push('judge0BatchId = :judge0BatchId');
-    expressionAttributeValues[':judge0BatchId'] = updates.judge0BatchId;
-  }
-  
-  if (updateExpressions.length === 0) {
-    throw new Error('No fields to update');
-  }
-  
   const params = {
     TableName: process.env.SUBMISSIONS_TABLE,
     Key: { submissionId },
-    UpdateExpression: `SET ${updateExpressions.join(', ')}`,
-    ExpressionAttributeNames: Object.keys(expressionAttributeNames).length > 0 
-      ? expressionAttributeNames 
-      : undefined,
-    ExpressionAttributeValues: expressionAttributeValues,
+    ...buildUpdateExpression(updates),
     ReturnValues: 'ALL_NEW'
   };
-  
   const result = await dynamodb.send(new UpdateCommand(params));
   return result.Attributes;
 }

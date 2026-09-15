@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, DeleteCommand, QueryCommand, BatchWriteCommand } = require('@aws-sdk/lib-dynamodb');
 
@@ -13,7 +14,7 @@ async function createTestCase(testCaseData) {
   const params = {
     TableName: process.env.TESTCASES_TABLE,
     Item: {
-      testCaseId: testCaseData.testCaseId || `test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      testCaseId: testCaseData.testCaseId || `test_${crypto.randomUUID()}`,
       milestoneId: testCaseData.milestoneId,
       input: testCaseData.input,
       expectedOutput: testCaseData.expectedOutput,
@@ -47,7 +48,7 @@ async function createTestCasesBatch(testCasesArray) {
     
     const putRequests = batch.map(tc => {
       const item = {
-        testCaseId: tc.testCaseId || `test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        testCaseId: tc.testCaseId || `test_${crypto.randomUUID()}`,
         milestoneId: tc.milestoneId,
         input: tc.input,
         expectedOutput: tc.expectedOutput,
