@@ -1,12 +1,14 @@
 const { createUser } = require('/opt/nodejs/db/users');
+const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
-const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
+const log = require('/opt/nodejs/utils/logger');
 
 // List of admin emails
-const ADMIN_EMAILS = [
-  'yahiatawfeek20@gmail.com' // Add your admin email here
-];
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
 
 /**
  * Determine if user should be admin based on email
@@ -18,17 +20,8 @@ function getUserRole(email) {
 /**
  * Lambda Handler: Create User Profile
  */
-exports.handler = async (event) => {
-  console.log('Event:', JSON.stringify(event, null, 2));
-  
-    // Handle OPTIONS preflight request
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: CORS_HEADERS,
-      body: ''
-    };
-  }
+exports.handler = withHandler(async (ctx) => {
+  const event = ctx.event;
 
   try {
     // Check if triggered by Cognito (Post Confirmation)
@@ -37,43 +30,43 @@ exports.handler = async (event) => {
       const email = event.request.userAttributes.email;
       const name = event.request.userAttributes.name || '';
       const role = getUserRole(email);
-      
-      console.log(`Creating user: ${email} with role: ${role}`);
+
+      log.info('Creating user from Cognito trigger', { email, role });
       await createUser({ userId, email, name, role });
-      
-      console.log(`User profile created for: ${email} with role: ${role}`);
+
+      log.info('User profile created', { email, role });
       return event;
     }
-    
+
     // Or API Gateway format
     const userId = event.requestContext?.authorizer?.claims?.sub;
-    
+
     if (!userId) {
       return errorResponse(401, 'Unauthorized');
     }
-    
-    const body = JSON.parse(event.body || '{}');
+
+    const body = ctx.body;
     const role = getUserRole(body.email);
-    
-    console.log('Creating user:', { userId, email: body.email, role });
+
+    log.info('Creating user', { userId, email: body.email, role });
     const user = await createUser({
       userId: userId,
       email: body.email,
       name: body.name || '',
       role: role
     });
-    
-    console.log('User created:', user);
+
+    log.info('User created', { user });
     return successResponse(201, { message: 'User profile created', user });
-    
+
   } catch (error) {
-    console.error('Error creating user:', error);
-    
+    log.error('Error creating user', { error: error.message });
+
     if (event.triggerSource) {
-      console.error('Failed to create user profile, but allowing auth to continue');
+      log.error('Failed to create user profile, but allowing auth to continue');
       return event;
     }
-    
+
     return errorResponse(500, 'Failed to create user profile', error.message);
   }
-};
+}, { public: true });

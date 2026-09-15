@@ -1,44 +1,28 @@
 const { getUser } = require('/opt/nodejs/db/users');
+const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
-const { errorResponse, CORS_HEADERS } = require('/opt/nodejs/utils/errors');
+const { errorResponse } = require('/opt/nodejs/utils/errors');
+const log = require('/opt/nodejs/utils/logger');
 
 /**
  * Lambda Handler: Get User Profile
  */
-exports.handler = async (event) => {
-  console.log('Event:', JSON.stringify(event, null, 2));
-  
-  // Handle OPTIONS preflight request
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: CORS_HEADERS,
-      body: ''
-    };
+exports.handler = withHandler(async (ctx) => {
+  // Get userId from path parameter or from JWT token
+  const userId = ctx.pathParams.userId || ctx.userId;
+
+  if (!userId) {
+    return errorResponse(400, 'User ID is required');
   }
-  
-  try {
-    // Get userId from path parameter or from JWT token
-    const userId = event.pathParameters?.userId || 
-                   event.requestContext?.authorizer?.claims?.sub;
-    
-    if (!userId) {
-      return errorResponse(400, 'User ID is required');
-    }
-    
-    console.log('Getting user:', userId);
-    const user = await getUser(userId);
-    
-    if (!user) {
-      console.log('User not found');
-      return errorResponse(404, 'User not found');
-    }
-    
-    console.log('User found:', user);
-    return successResponse(200, { user });
-    
-  } catch (error) {
-    console.error('Error getting user:', error);
-    return errorResponse(500, 'Failed to get user profile', error.message);
+
+  log.info('Getting user', { userId });
+  const user = await getUser(userId);
+
+  if (!user) {
+    log.info('User not found', { userId });
+    return errorResponse(404, 'User not found');
   }
-};
+
+  log.info('User found', { userId });
+  return successResponse(200, { user });
+});

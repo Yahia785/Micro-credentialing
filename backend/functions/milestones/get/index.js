@@ -1,7 +1,8 @@
 const { getMilestone, getAllMilestones } = require('/opt/nodejs/db/milestones');
+const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
-const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
+const log = require('/opt/nodejs/utils/logger');
 
 /**
  * Lambda Handler: Get Milestone(s)
@@ -9,57 +10,33 @@ const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
  * Endpoint: GET /milestones/{milestoneId} (get one)
  * Authorization: Any authenticated user
  */
-exports.handler = async (event) => {
-  console.log('Event:', JSON.stringify(event, null, 2));
-  
-  // Handle OPTIONS preflight request
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: CORS_HEADERS,
-      body: ''
-    };
-  }
+exports.handler = withHandler(async (ctx) => {
+  // Check if getting a specific milestone or all milestones
+  const milestoneId = ctx.pathParams.milestoneId;
 
-  try {
-    // Get userId from JWT token (logged in user)
-    const authenticatedUserId = event.requestContext?.authorizer?.claims?.sub;
-    
-    if (!authenticatedUserId) {
-      return errorResponse(401, 'Unauthorized');
-    }
-    
-    // Check if getting a specific milestone or all milestones
-    const milestoneId = event.pathParameters?.milestoneId;
-    
-    if (milestoneId) {
-      // Get specific milestone
-      console.log('Getting milestone:', milestoneId);
-      const milestone = await getMilestone(milestoneId);
-      
-      if (!milestone) {
-        return errorResponse(404, 'Milestone not found');
-      }
-      
-      console.log('Milestone found:', milestone);
-      return successResponse(200, { milestone });
-    } else {
-      // Get all milestones
-      console.log('Getting all milestones');
-      const milestones = await getAllMilestones();
+  if (milestoneId) {
+    // Get specific milestone
+    log.info('Getting milestone', { milestoneId });
+    const milestone = await getMilestone(milestoneId);
 
-      // Filter out hidden items (used to hide dev/test problems from production)
-      const visibleMilestones = milestones.filter(m => !m.isHidden);
-
-      console.log(`Found ${visibleMilestones.length} milestones (${milestones.length - visibleMilestones.length} hidden)`);
-      return successResponse(200, {
-        milestones: visibleMilestones,
-        count: visibleMilestones.length
-      });
+    if (!milestone) {
+      return errorResponse(404, 'Milestone not found');
     }
 
-  } catch (error) {
-    console.error('Error getting milestone(s):', error);
-    return errorResponse(500, 'Failed to get milestone(s)', error.message);
+    log.info('Milestone found', { milestone });
+    return successResponse(200, { milestone });
+  } else {
+    // Get all milestones
+    log.info('Getting all milestones');
+    const milestones = await getAllMilestones();
+
+    // Filter out hidden items (used to hide dev/test problems from production)
+    const visibleMilestones = milestones.filter(m => !m.isHidden);
+
+    log.info('Milestones found', { count: visibleMilestones.length, hiddenCount: milestones.length - visibleMilestones.length });
+    return successResponse(200, {
+      milestones: visibleMilestones,
+      count: visibleMilestones.length
+    });
   }
-};
+});

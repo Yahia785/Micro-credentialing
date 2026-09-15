@@ -2,8 +2,9 @@ const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { TextractClient, DetectDocumentTextCommand } = require('@aws-sdk/client-textract');
-const { CORS_HEADERS } = require('/opt/nodejs/middleware/cors-middleware');
+const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
+const log = require('/opt/nodejs/utils/logger');
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
@@ -21,7 +22,7 @@ const RETRY_DELAY_MS = 1000; // Start with 1 second, then exponential backoff
 
 /**
  * Lambda handler for OCR screenshot analysis
- * 
+ *
  * Expected input:
  * {
  *   "submissionId": "string",
@@ -29,92 +30,70 @@ const RETRY_DELAY_MS = 1000; // Start with 1 second, then exponential backoff
  *   "timestamp": "string"  // ISO timestamp when screenshot was captured
  * }
  */
-exports.handler = async (event) => {
-  console.log('OCR Screenshot Analysis Event:', JSON.stringify(event, null, 2));
+exports.handler = withHandler(async (ctx) => {
+  // Parse request body
+  const body = ctx.body;
+  const { submissionId, s3Key, timestamp } = body;
 
-  // Handle OPTIONS preflight request
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: CORS_HEADERS,
-      body: ''
-    };
+  // Validation
+  if (!submissionId || !s3Key || !timestamp) {
+    return errorResponse(400, 'Missing required fields: submissionId, s3Key, timestamp');
   }
 
+  log.info('Analyzing screenshot', { submissionId, s3Key });
+
+  // STEP 1: Fetch screenshot from S3
+  let imageBytes;
   try {
-    // Parse request body
-    const body = JSON.parse(event.body || '{}');
-    const { submissionId, s3Key, timestamp } = body;
-
-    // Validation
-    if (!submissionId || !s3Key || !timestamp) {
-      return errorResponse(400, 'Missing required fields: submissionId, s3Key, timestamp');
-    }
-
-    console.log(`Analyzing screenshot for submission ${submissionId}, key: ${s3Key}`);
-
-    // STEP 1: Fetch screenshot from S3
-    let imageBytes;
-    try {
-      imageBytes = await fetchScreenshotFromS3(s3Key);
-      console.log(`✅ Fetched screenshot from S3, size: ${imageBytes.length} bytes`);
-    } catch (error) {
-      console.error('❌ Failed to fetch screenshot from S3:', error);
-      
-      // Save error status to DynamoDB
-      await saveAnalysisError(submissionId, timestamp, s3Key, 'S3_FETCH_FAILED', error.message);
-      
-      return errorResponse(500, `Failed to fetch screenshot from S3: ${error.message}`);
-    }
-
-    // STEP 2: Run Textract OCR with retry logic
-    let extractedText;
-    try {
-      extractedText = await runTextractOcrWithRetry(imageBytes);
-      console.log(`✅ Textract extracted ${extractedText.length} characters`);
-      console.log('Extracted text preview:', extractedText.substring(0, 200));
-    } catch (error) {
-      console.error('❌ Textract OCR failed after retries:', error);
-      
-      // Save error status to DynamoDB
-      await saveAnalysisError(submissionId, timestamp, s3Key, 'TEXTRACT_FAILED', error.message);
-      
-      // Don't fail the entire request - mark as unknown and continue
-      extractedText = '';
-      console.warn('⚠️ Continuing with empty text due to Textract failure');
-    }
-
-    // STEP 3: Analyze text for violations
-    const analysisResult = analyzeTextForViolations(extractedText);
-    console.log('Analysis result:', analysisResult);
-
-    // STEP 4: Save analysis to DynamoDB
-    try {
-      await saveAnalysisToDynamoDB(submissionId, timestamp, s3Key, analysisResult, extractedText);
-      console.log('✅ Saved analysis to DynamoDB');
-    } catch (error) {
-      console.error('❌ Failed to save to DynamoDB:', error);
-      return errorResponse(500, `Failed to save analysis: ${error.message}`);
-    }
-
-    return {
-      statusCode: 200,
-      headers: CORS_HEADERS,
-      body: JSON.stringify({
-        message: 'Screenshot analyzed successfully',
-        submissionId,
-        timestamp,
-        status: analysisResult.status,
-        violationsDetected: analysisResult.forbiddenDomains.length > 0,
-        extractedTextLength: extractedText.length
-      })
-    };
-
+    imageBytes = await fetchScreenshotFromS3(s3Key);
+    log.info('Fetched screenshot from S3', { size: imageBytes.length });
   } catch (error) {
-    console.error('❌ Unexpected error in OCR analysis:', error);
-    return errorResponse(500, `OCR analysis failed: ${error.message}`);
+    log.error('Failed to fetch screenshot from S3', { error: error.message });
+
+    // Save error status to DynamoDB
+    await saveAnalysisError(submissionId, timestamp, s3Key, 'S3_FETCH_FAILED', error.message);
+
+    return errorResponse(500, `Failed to fetch screenshot from S3: ${error.message}`);
   }
-};
+
+  // STEP 2: Run Textract OCR with retry logic
+  let extractedText;
+  try {
+    extractedText = await runTextractOcrWithRetry(imageBytes);
+    log.info('Textract extracted text', { length: extractedText.length, preview: extractedText.substring(0, 200) });
+  } catch (error) {
+    log.error('Textract OCR failed after retries', { error: error.message });
+
+    // Save error status to DynamoDB
+    await saveAnalysisError(submissionId, timestamp, s3Key, 'TEXTRACT_FAILED', error.message);
+
+    // Don't fail the entire request - mark as unknown and continue
+    extractedText = '';
+    log.warn('Continuing with empty text due to Textract failure', { submissionId });
+  }
+
+  // STEP 3: Analyze text for violations
+  const analysisResult = analyzeTextForViolations(extractedText);
+  log.info('Analysis result', { analysisResult });
+
+  // STEP 4: Save analysis to DynamoDB
+  try {
+    await saveAnalysisToDynamoDB(submissionId, timestamp, s3Key, analysisResult, extractedText);
+    log.info('Saved analysis to DynamoDB', { submissionId });
+  } catch (error) {
+    log.error('Failed to save to DynamoDB', { error: error.message });
+    return errorResponse(500, `Failed to save analysis: ${error.message}`);
+  }
+
+  return {
+    message: 'Screenshot analyzed successfully',
+    submissionId,
+    timestamp,
+    status: analysisResult.status,
+    violationsDetected: analysisResult.forbiddenDomains.length > 0,
+    extractedTextLength: extractedText.length
+  };
+});
 
 /**
  * Fetch screenshot from S3
@@ -126,7 +105,7 @@ async function fetchScreenshotFromS3(s3Key) {
   });
 
   const response = await s3Client.send(command);
-  
+
   // Convert stream to buffer
   const chunks = [];
   for await (const chunk of response.Body) {
@@ -144,23 +123,22 @@ async function runTextractOcrWithRetry(imageBytes, retryCount = 0) {
   } catch (error) {
     // Check if error is retryable
     const isRetryable = isRetryableError(error);
-    
+
     if (isRetryable && retryCount < MAX_RETRIES) {
       // Calculate exponential backoff delay
       const delayMs = RETRY_DELAY_MS * Math.pow(2, retryCount);
-      
-      console.warn(`⚠️ Textract error (attempt ${retryCount + 1}/${MAX_RETRIES + 1}): ${error.message}`);
-      console.log(`⏳ Retrying in ${delayMs}ms...`);
-      
+
+      log.warn('Textract error, retrying', { attempt: retryCount + 1, maxAttempts: MAX_RETRIES + 1, error: error.message, delayMs });
+
       // Wait before retrying
       await sleep(delayMs);
-      
+
       // Retry with incremented count
       return await runTextractOcrWithRetry(imageBytes, retryCount + 1);
     }
-    
+
     // If not retryable or max retries reached, throw error
-    console.error(`❌ Textract failed permanently: ${error.message}`);
+    log.error('Textract failed permanently', { error: error.message });
     throw error;
   }
 }
@@ -176,7 +154,7 @@ async function runTextractOcr(imageBytes) {
   });
 
   const response = await textractClient.send(command);
-  
+
   // Extract text from Textract response (only LINE blocks)
   const textLines = response.Blocks
     .filter(block => block.BlockType === 'LINE')
@@ -198,11 +176,11 @@ function isRetryableError(error) {
     'RequestTimeout',                           // Request timed out
     'TooManyRequestsException'                  // Too many requests
   ];
-  
+
   // Check if error code matches any retryable errors
   const errorCode = error.name || error.code || error.$metadata?.httpStatusCode;
-  
-  return retryableErrorCodes.some(code => 
+
+  return retryableErrorCodes.some(code =>
     errorCode && errorCode.includes(code)
   ) || (error.$metadata?.httpStatusCode >= 500); // Retry on 5xx errors
 }
@@ -219,11 +197,11 @@ function sleep(ms) {
  */
 function analyzeTextForViolations(text) {
   const lowerText = text.toLowerCase();
-  
+
   // Find detected domains
   const detectedAllowed = ALLOWED_DOMAINS.filter(domain => lowerText.includes(domain));
   const detectedForbidden = FORBIDDEN_DOMAINS.filter(domain => lowerText.includes(domain));
-  
+
   // Determine status
   let status = 'unknown';
   if (detectedForbidden.length > 0) {
@@ -231,7 +209,7 @@ function analyzeTextForViolations(text) {
   } else if (detectedAllowed.length > 0) {
     status = 'compliant';
   }
-  
+
   return {
     status,
     allowedDomains: detectedAllowed,
@@ -267,7 +245,7 @@ async function saveAnalysisToDynamoDB(submissionId, timestamp, s3Key, analysisRe
   });
 
   await docClient.send(command);
-  console.log(`✅ Saved analysis for ${submissionId} at ${timestamp}`);
+  log.info('Saved analysis', { submissionId, timestamp });
 }
 
 /**
@@ -297,9 +275,9 @@ async function saveAnalysisError(submissionId, timestamp, s3Key, errorType, erro
     });
 
     await docClient.send(command);
-    console.log(`⚠️ Saved error status for ${submissionId} at ${timestamp}`);
+    log.warn('Saved error status', { submissionId, timestamp, errorType });
   } catch (dbError) {
-    console.error('❌ Failed to save error to DynamoDB:', dbError);
+    log.error('Failed to save error to DynamoDB', { error: dbError.message });
     // Don't throw - this is a best-effort error logging
   }
 }

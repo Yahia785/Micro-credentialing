@@ -3,97 +3,89 @@ const { getUser } = require('/opt/nodejs/db/users');
 const { getMilestone } = require('/opt/nodejs/db/milestones');
 const { createCredential } = require('/opt/nodejs/db/credentials');
 const { pullCertificate } = require('/opt/nodejs/utils/bcdiploma');
+const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
-const { CORS_HEADERS } = require('/opt/nodejs/utils/errors');
+const log = require('/opt/nodejs/utils/logger');
 
 /**
  * Lambda Handler: BCdiploma Webhook Receiver
  * Endpoint: POST /webhooks/bcdiploma-notification
- * 
+ *
  * BCdiploma calls this endpoint when certificate processing is complete
- * 
+ *
  * Request formats:
  * - GET: ?campaignId=XXX
  * - POST: { "id": "XXX", "from": "BCdiploma", "operation": "CAMPAIGN-NOTIFICATION" }
  */
-exports.handler = async (event) => {
-  console.log('BCdiploma Webhook Event:', JSON.stringify(event, null, 2));
-   
-    // Handle OPTIONS preflight request
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: CORS_HEADERS,
-      body: ''
-    };
-  }
+exports.handler = withHandler(async (ctx) => {
+  const event = ctx.event;
 
   try {
     // Extract campaignId from either GET or POST request
     let campaignId;
-    
+
     if (event.httpMethod === 'GET') {
       // GET request: ?campaignId=XXX
-      campaignId = event.queryStringParameters?.campaignId;
+      campaignId = ctx.queryParams?.campaignId;
     } else if (event.httpMethod === 'POST') {
       // POST request: body contains { "id": "XXX", ... }
-      const body = JSON.parse(event.body || '{}');
+      const body = ctx.body;
       campaignId = body.id || body.campaignId;
     }
-    
-   if (!campaignId) {
-  return successResponse(200, {
-    message: 'Webhook received but no campaignId provided',
-    error: 'Missing campaignId parameter'
-  });
-}
-    
-    console.log('Processing webhook for campaign:', campaignId);
-    
+
+    if (!campaignId) {
+      return successResponse(200, {
+        message: 'Webhook received but no campaignId provided',
+        error: 'Missing campaignId parameter'
+      });
+    }
+
+    log.info('Processing webhook', { campaignId });
+
     // Pull certificate data from BCdiploma
     const pullResponse = await pullCertificate(campaignId);
-    
+
     if (!pullResponse.data || pullResponse.data.length === 0) {
-      console.error('No certificate data returned for campaign:', campaignId);
+      log.error('No certificate data returned for campaign', { campaignId });
       return errorResponse(404, 'No certificates found for this campaign');
     }
-    
+
     // Process each certificate in the campaign
     const results = [];
-    
+
     for (const certificate of pullResponse.data) {
       try {
         // The ID field contains our submissionId
         const submissionId = certificate.ID;
-        
-        console.log(`Processing certificate for submission: ${submissionId}`);
-        
+
+        log.info('Processing certificate', { submissionId });
+
         // Get submission details
         const submission = await getSubmission(submissionId);
         if (!submission) {
-          console.error(`Submission ${submissionId} not found`);
+          log.error('Submission not found', { submissionId });
           results.push({ submissionId, status: 'error', message: 'Submission not found' });
           continue;
         }
-        
+
         // Check if credential already exists
         if (submission.credentialIssued) {
-          console.log(`Credential already issued for submission ${submissionId}, skipping`);
+          log.info('Credential already issued, skipping', { submissionId });
           results.push({ submissionId, status: 'skipped', message: 'Credential already issued' });
           continue;
         }
-        
+
         // Get student and milestone details
         const student = await getUser(submission.userId);
         const milestone = await getMilestone(submission.milestoneId);
-        
+
         if (!student || !milestone) {
-          console.error(`Student or milestone not found for submission ${submissionId}`);
+          log.error('Student or milestone not found', { submissionId });
           results.push({ submissionId, status: 'error', message: 'Student or milestone not found' });
           continue;
         }
-        
+
         // Save credential to database
         const credentialData = {
           userId: submission.userId,
@@ -110,35 +102,35 @@ exports.handler = async (event) => {
           score: submission.score || 0,
           status: 'issued'
         };
-        
+
         const savedCredential = await createCredential(credentialData);
-        
+
         // Mark submission as having credential issued
         await updateSubmission(submissionId, {
           credentialIssued: true,
           credentialId: savedCredential.credentialId
         });
-        
-        console.log(`✓ Credential issued for submission ${submissionId}`);
-        results.push({ 
-          submissionId, 
-          status: 'success', 
+
+        log.info('Credential issued', { submissionId });
+        results.push({
+          submissionId,
+          status: 'success',
           credentialId: savedCredential.credentialId,
           certificateUrl: certificate.url
         });
-        
+
       } catch (error) {
-        console.error(`Error processing certificate for submission ${certificate.ID}:`, error);
-        results.push({ 
-          submissionId: certificate.ID, 
-          status: 'error', 
-          message: error.message 
+        log.error('Error processing certificate', { submissionId: certificate.ID, error: error.message });
+        results.push({
+          submissionId: certificate.ID,
+          status: 'error',
+          message: error.message
         });
       }
     }
-    
-    console.log('Webhook processing complete:', results);
-    
+
+    log.info('Webhook processing complete', { results });
+
     // Return 200 OK to BCdiploma
     return successResponse(200, {
       message: 'Webhook processed successfully',
@@ -146,10 +138,10 @@ exports.handler = async (event) => {
       processedCount: results.length,
       results: results
     });
-    
+
   } catch (error) {
-    console.error('Error processing BCdiploma webhook:', error);
-    
+    log.error('Error processing BCdiploma webhook', { error: error.message });
+
     // Still return 200 to prevent BCdiploma from retrying
     // Log the error for investigation
     return successResponse(200, {
@@ -157,4 +149,4 @@ exports.handler = async (event) => {
       error: error.message
     });
   }
-};
+}, { public: true });
