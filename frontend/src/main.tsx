@@ -5,6 +5,8 @@ import ReactDOM from 'react-dom/client';
 import { Amplify } from 'aws-amplify';
 // Removed amplify_outputs import - using environment variables instead
 import App from './App';
+import './styles/tokens.css';
+import './styles/base.css';
 import './index.css';
 
 //Configure Amplify with environment variables

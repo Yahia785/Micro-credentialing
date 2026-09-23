@@ -9,7 +9,6 @@ import { AdminReviewsTab } from './components/AdminReviewsTab';
 import { CredentialsTab } from './components/Credentialstab';
 //import { KnowledgeAssessmentsTab } from './components/KnowledgeAssessmentsTab';
 import { EmbeddedAssessmentsTab } from './components/EmbeddedAssessmentsTab';
-import './App.css';
 
 function UserProfileLoader({ user, signOut }: any) {
   const [userProfile, setUserProfile] = useState<any>(null);

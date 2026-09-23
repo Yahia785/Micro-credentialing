@@ -88,6 +88,8 @@ export async function saveRecordingMetadata(data: {
   submissionId: string;
   webcamKey?: string;
   screenKey?: string;
+  startedAt?: string;
+  completedAt?: string;
 }) {
   const token = await getAuthToken();
 
