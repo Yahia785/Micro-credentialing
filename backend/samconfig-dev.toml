@@ -12,7 +12,7 @@ region = "us-east-1"
 confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
 disable_rollback = true
-parameter_overrides = "CognitoUserPoolId=\"us-east-1_CkcMQmOst\" Environment=\"dev\""
+parameter_overrides = "CognitoUserPoolId=\"us-east-1_CkcMQmOst\" Environment=\"dev\" AllowedOrigins=\"https://develop.dn9on5ji0olal.amplifyapp.com,http://localhost:5173\" PrimaryOrigin=\"https://develop.dn9on5ji0olal.amplifyapp.com\""
 tags = "Environment=\"dev\" Project=\"micro-credentialing\""
 
 [dev.global.parameters]

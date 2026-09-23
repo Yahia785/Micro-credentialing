@@ -19,12 +19,18 @@ function baseEvent(overrides = {}) {
   };
 }
 
+const ORIGINAL_ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS;
+
 beforeEach(() => {
   jest.spyOn(console, 'log').mockImplementation();
   jest.spyOn(console, 'error').mockImplementation();
   getUser.mockReset();
+  process.env.ALLOWED_ORIGINS = 'https://develop.example.amplifyapp.com,http://localhost:5173';
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  process.env.ALLOWED_ORIGINS = ORIGINAL_ALLOWED_ORIGINS;
+});
 
 describe('withHandler', () => {
   it('returns the OPTIONS response for preflight requests', async () => {
@@ -114,15 +120,16 @@ describe('withHandler', () => {
     expect(JSON.parse(result.body)).toEqual({ foo: 'bar' });
   });
 
-  it('passes through full response objects (statusCode + body) untouched', async () => {
+  it('passes through full response objects (statusCode + body), keeping custom headers and adding CORS', async () => {
     const fullResponse = { statusCode: 201, headers: { 'X-Custom': '1' }, body: JSON.stringify({ created: true }) };
     const fn = jest.fn().mockResolvedValue(fullResponse);
     const handler = withHandler(fn);
 
     const result = await handler(baseEvent());
 
-    expect(result).toBe(fullResponse);
     expect(result.statusCode).toBe(201);
+    expect(result.body).toBe(fullResponse.body);
+    expect(result.headers['X-Custom']).toBe('1');
   });
 
   it('returns 403 for a non-admin user on a requireAdmin handler', async () => {
@@ -203,5 +210,94 @@ describe('withHandler', () => {
     const result = await handler(rawEvent);
 
     expect(result).toBe(rawEvent);
+  });
+
+  describe('CORS', () => {
+    it('echoes back an allowed origin on a successful response', async () => {
+      const fn = jest.fn().mockResolvedValue({ ok: true });
+      const handler = withHandler(fn, { public: true });
+
+      const result = await handler(baseEvent({
+        requestContext: {},
+        headers: { Origin: 'http://localhost:5173' },
+      }));
+
+      expect(result.headers['Access-Control-Allow-Origin']).toBe('http://localhost:5173');
+      expect(result.headers['Vary']).toBe('Origin');
+    });
+
+    it('is case-insensitive when reading the Origin header', async () => {
+      const fn = jest.fn().mockResolvedValue({ ok: true });
+      const handler = withHandler(fn, { public: true });
+
+      const result = await handler(baseEvent({
+        requestContext: {},
+        headers: { origin: 'https://develop.example.amplifyapp.com' },
+      }));
+
+      expect(result.headers['Access-Control-Allow-Origin']).toBe('https://develop.example.amplifyapp.com');
+    });
+
+    it('omits Access-Control-Allow-Origin for an unknown origin', async () => {
+      const fn = jest.fn().mockResolvedValue({ ok: true });
+      const handler = withHandler(fn, { public: true });
+
+      const result = await handler(baseEvent({
+        requestContext: {},
+        headers: { Origin: 'https://evil.example.com' },
+      }));
+
+      expect(result.headers['Access-Control-Allow-Origin']).toBeUndefined();
+      expect(result.headers['Vary']).toBeUndefined();
+    });
+
+    it('omits Access-Control-Allow-Origin when no Origin header is present', async () => {
+      const fn = jest.fn().mockResolvedValue({ ok: true });
+      const handler = withHandler(fn, { public: true });
+
+      const result = await handler(baseEvent({ requestContext: {} }));
+
+      expect(result.headers['Access-Control-Allow-Origin']).toBeUndefined();
+    });
+
+    it('echoes an allowed origin on an OPTIONS preflight request', async () => {
+      const fn = jest.fn();
+      const handler = withHandler(fn);
+
+      const result = await handler(baseEvent({
+        httpMethod: 'OPTIONS',
+        headers: { Origin: 'http://localhost:5173' },
+      }));
+
+      expect(result.statusCode).toBe(200);
+      expect(result.headers['Access-Control-Allow-Origin']).toBe('http://localhost:5173');
+      expect(fn).not.toHaveBeenCalled();
+    });
+
+    it('does not echo an unknown origin on an OPTIONS preflight request', async () => {
+      const fn = jest.fn();
+      const handler = withHandler(fn);
+
+      const result = await handler(baseEvent({
+        httpMethod: 'OPTIONS',
+        headers: { Origin: 'https://evil.example.com' },
+      }));
+
+      expect(result.statusCode).toBe(200);
+      expect(result.headers['Access-Control-Allow-Origin']).toBeUndefined();
+    });
+
+    it('echoes an allowed origin on error responses (e.g. 401)', async () => {
+      const fn = jest.fn();
+      const handler = withHandler(fn);
+
+      const result = await handler(baseEvent({
+        requestContext: {},
+        headers: { Origin: 'http://localhost:5173' },
+      }));
+
+      expect(result.statusCode).toBe(401);
+      expect(result.headers['Access-Control-Allow-Origin']).toBe('http://localhost:5173');
+    });
   });
 });

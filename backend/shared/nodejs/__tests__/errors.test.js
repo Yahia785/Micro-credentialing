@@ -67,6 +67,11 @@ describe('errorResponse', () => {
     expect(res.headers).toEqual(expect.objectContaining(CORS_HEADERS));
   });
 
+  it('does not set an Access-Control-Allow-Origin (origin is decided per-request by withHandler)', () => {
+    const res = errorResponse(400, 'Bad request');
+    expect(res.headers['Access-Control-Allow-Origin']).toBeUndefined();
+  });
+
   it('has a body that is valid JSON with the error message', () => {
     const res = errorResponse(500, 'Something broke');
     const parsed = JSON.parse(res.body);

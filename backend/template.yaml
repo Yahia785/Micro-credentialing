@@ -41,6 +41,23 @@ Parameters:
     Description: Name of the Judge0 API Key secret in Secrets Manager
     Default: "micro-credentialing/judge0-api-key"
 
+  AllowedOrigins:
+    Type: String
+    Description: >-
+      Comma-separated list of frontend origins allowed to call this API (CORS).
+      Must be set explicitly per environment in samconfig-<env>.toml — no default,
+      so a deploy with a missing value fails instead of silently reusing another
+      environment's origins.
+
+  PrimaryOrigin:
+    Type: String
+    Description: >-
+      Single origin used for API Gateway's static CORS config (the Api resource's
+      Cors.AllowOrigin) and for GatewayResponses (DEFAULT_4XX/5XX), which can only
+      echo one fixed value. Should be this environment's main frontend origin and
+      normally also be included in AllowedOrigins. Must be set explicitly per
+      environment in samconfig-<env>.toml.
+
 # ==========================================
 # CONDITIONS
 # ==========================================
@@ -75,7 +92,7 @@ Globals:
         ALLOWED_DOMAINS: "canvas.instructure.com,ti.com,dev.ti.com,onlinegdb.com,virginia.edu"
         FORBIDDEN_DOMAINS: "chatgpt.com,openai.com,claude.ai,anthropic.com,google.com/search,stackoverflow.com,discord.com,whatsapp.com,github.com/copilot"
         ANTHROPIC_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AnthropicApiKeySecretName}"
-        ALLOWED_ORIGIN: "https://main.dn9on5ji0olal.amplifyapp.com"
+        ALLOWED_ORIGINS: !Ref AllowedOrigins
         ADMIN_EMAILS: "yahiatawfeek20@gmail.com"
 
 # ==========================================
@@ -103,7 +120,7 @@ Resources:
     Properties:
       StageName: !Ref Environment
       Cors:
-        AllowOrigin: "'https://main.dn9on5ji0olal.amplifyapp.com'"
+        AllowOrigin: !Sub "'${PrimaryOrigin}'"
         AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
         AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
       Auth:
@@ -112,6 +129,33 @@ Resources:
           CognitoAuthorizer:
             Type: COGNITO_USER_POOLS
             UserPoolArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
+
+  # All active API paths have an explicit Lambda-backed OPTIONS event (see functions
+  # below), so this static Cors config is never used to answer real preflight requests.
+  # It only exists to give API Gateway a concrete value to validate against.
+  #
+  # A 401 from the Cognito authorizer never reaches a Lambda, so it can't get its CORS
+  # header from cors-middleware.js — it needs a GatewayResponse. GatewayResponses can
+  # only echo one static origin (not "whichever one the browser sent"), so this uses
+  # PrimaryOrigin. In dev, a request from the other allowed origin (e.g. localhost)
+  # would see a 401 blocked by CORS instead of a clean 401 — a narrow, low-severity gap.
+  ApiGatewayDefault4xx:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseType: DEFAULT_4XX
+      RestApiId: !Ref MicroCredentialingAPI
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: !Sub "'${PrimaryOrigin}'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+
+  ApiGatewayDefault5xx:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseType: DEFAULT_5XX
+      RestApiId: !Ref MicroCredentialingAPI
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: !Sub "'${PrimaryOrigin}'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
   # ==========================================
   # USER MANAGEMENT FUNCTIONS
   # ==========================================
