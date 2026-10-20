@@ -1,188 +1,52 @@
 import { Authenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
-import { useState } from 'react';
+import { RouterProvider } from 'react-router';
+import { APP_NAME } from './app/constants';
+import { router } from './app/routes';
+import { Alert, Button, Spinner } from './components/ui';
 import { UserProvider, useUser } from './context/UserContext';
-import type { UserProfile } from './types/user';
-import { EditProfile } from './components/EditProfile';
-import { Tabs } from './components/Tabs';
-import { ProblemsTab } from './components/ProblemsTab';
-import { AdminReviewsTab } from './components/AdminReviewsTab';
-import { CredentialsTab } from './components/Credentialstab';
-//import { KnowledgeAssessmentsTab } from './components/KnowledgeAssessmentsTab';
-import { EmbeddedAssessmentsTab } from './components/EmbeddedAssessmentsTab';
+import styles from './App.module.css';
 
-function AppContent() {
-  const { cognitoUser: user, userProfile, loading, error, setUserProfile, signOut } = useUser();
-  const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState('profile');
-
-  const handleEditClick = () => {
-    setIsEditing(true);
-  };
-
-  const handleCancelEdit = () => {
-    setIsEditing(false);
-  };
-
-  const handleUpdateSuccess = (updatedUser: UserProfile) => {
-    setUserProfile(updatedUser);
-    setIsEditing(false);
-  };
-
-  const tabs = userProfile?.role === 'admin'
-  ? [
-    { id: 'profile', label: 'Profile' },
-    { id: 'problems', label: 'Coding Problems' },
-    //{ id: 'knowledge', label: 'Knowledge Assessments' },
-    { id: 'embedded', label: 'Embedded Systems' },
-    { id: 'reviews', label: 'Reviews' },
-    { id: 'credentials', label: 'Credentials' }
-  ]
-: [
-    { id: 'profile', label: 'Profile' },
-    { id: 'problems', label: 'Coding Problems' },
-    //{ id: 'knowledge', label: 'Knowledge Assessments' },
-    { id: 'embedded', label: 'Embedded Systems' },
-    { id: 'credentials', label: 'Credentials' }
-  ];
+/** Full-screen states for the initial profile load. Routes render only once the profile is ready. */
+function AppGate() {
+  const { cognitoUser, loading, error, signOut } = useUser();
 
   if (loading) {
     return (
-      <main>
-        <h1>Micro-Credentialing Platform</h1>
-        <p style={{ color: '#666' }}>Loading your profile...</p>
+      <main className={styles.screen}>
+        <h1 className={styles.title}>{APP_NAME}</h1>
+        <Spinner decorative />
+        <p className={styles.message} role="status">
+          Loading your profile…
+        </p>
       </main>
     );
   }
 
   if (error) {
     return (
-      <main>
-        <h1>Micro-Credentialing Platform</h1>
-        <p style={{ color: 'red' }}>Error: {error}</p>
-        <button onClick={signOut}>Sign out</button>
-      </main>
-    );
-  }
-
-  if (!user) {
-    return (
-      <main>
-        <h1>Micro-Credentialing Platform</h1>
-        <p style={{ color: '#666' }}>No user data available</p>
-      </main>
-    );
-  }
-
-  return (
-    <main>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '30px'
-      }}>
-        <h1 style={{ margin: 0, color: '#333' }}>Micro-Credentialing Platform</h1>
-        <button 
-          onClick={signOut}
-          style={{
-            padding: '10px 20px',
-            background: '#dc3545',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: 'bold'
-          }}
-        >
+      <main className={styles.screen}>
+        <h1 className={styles.title}>{APP_NAME}</h1>
+        <Alert variant="danger" title="We couldn't load your profile" className={styles.alert}>
+          {error}. Try signing out and signing back in. If the problem continues, contact your instructor.
+        </Alert>
+        <Button variant="secondary" onClick={signOut}>
           Sign out
-        </button>
-      </div>
+        </Button>
+      </main>
+    );
+  }
 
-      <div style={{
-        background: '#fff',
-        borderRadius: '8px',
-        padding: '20px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-      }}>
-        <h2 style={{ color: '#333', marginTop: 0 }}>
-          Welcome, {userProfile?.name || user.username}!
-        </h2>
+  if (!cognitoUser) {
+    return (
+      <main className={styles.screen}>
+        <h1 className={styles.title}>{APP_NAME}</h1>
+        <p className={styles.message}>No user data available.</p>
+      </main>
+    );
+  }
 
-        <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
-
-        {activeTab === 'profile' && (
-          <>
-            {userProfile && !isEditing && (
-              <div style={{ marginTop: '20px' }}>
-                <h3 style={{ color: '#333', marginBottom: '15px', fontSize: '24px' }}>
-                  Profile
-                </h3>
-                <p style={{ color: '#333', marginBottom: '10px' }}>
-                  <strong>Email:</strong> {userProfile.email}
-                </p>
-                <p style={{ color: '#333', marginBottom: '10px' }}>
-                  <strong>Name:</strong> {userProfile.name}
-                </p>
-                <p style={{ color: '#333', marginBottom: '10px' }}>
-                  <strong>Member Since:</strong> {new Date(userProfile.createdAt).toLocaleDateString()}
-                </p>
-                
-                <button 
-                  onClick={handleEditClick}
-                  style={{ 
-                    marginTop: '15px',
-                    padding: '10px 20px',
-                    background: '#28a745',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  Edit Profile
-                </button>
-              </div>
-            )}
-
-            {userProfile && isEditing && (
-              <EditProfile
-                currentUser={userProfile}
-                onUpdateSuccess={handleUpdateSuccess}
-                onCancel={handleCancelEdit}
-              />
-            )}
-          </>
-        )}
-
-        {activeTab === 'problems' && (
-          <ProblemsTab />
-        )}
-        {/* NEW: Admin Reviews Tab */}
-        {activeTab === 'reviews' && userProfile?.role === 'admin' && (
-        <AdminReviewsTab />
-       )}
-
-        {activeTab === 'credentials' && (
-          <CredentialsTab />
-        )}
-         
-         {/* {activeTab === 'knowledge' && (
-          <KnowledgeAssessmentsTab 
-            userProfile={userProfile}
-            onRefreshNeeded={refreshProfile}
-          />
-        )} */}
-
-        {activeTab === 'embedded' && (
-          <EmbeddedAssessmentsTab />
-        )}
-      </div>
-    </main>
-  );
+  return <RouterProvider router={router} />;
 }
 
 function App() {
@@ -205,7 +69,7 @@ function App() {
     >
       {({ signOut, user }) => (
         <UserProvider cognitoUser={user} signOut={signOut}>
-          <AppContent />
+          <AppGate />
         </UserProvider>
       )}
     </Authenticator>

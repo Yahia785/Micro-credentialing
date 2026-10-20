@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-"scripts": {
+  "scripts": {
     "dev": "vite --mode dev",
     "build": "tsc -b && vite build",
     "build:dev": "tsc -b && vite build --mode dev",
@@ -17,7 +17,8 @@
     "aws-amplify": "^6.15.7",
     "axios": "^1.6.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-router": "^7.18.4"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.16.1",

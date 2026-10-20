@@ -10,7 +10,7 @@ export interface EmptyStateProps {
   /** Next step, usually a <Button>. */
   action?: ReactNode;
   /** Heading level for the title. */
-  headingLevel?: 2 | 3 | 4;
+  headingLevel?: 1 | 2 | 3 | 4;
   className?: string;
 }
 
