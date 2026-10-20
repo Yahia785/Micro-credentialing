@@ -1,0 +1,8 @@
+.select {
+  composes: field from './Input.module.css';
+  cursor: pointer;
+}
+
+.select:disabled {
+  cursor: not-allowed;
+}

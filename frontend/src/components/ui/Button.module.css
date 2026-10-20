@@ -1,0 +1,103 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms, color 150ms;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  background-color: var(--color-gray-200);
+  border-color: var(--color-gray-200);
+  color: var(--color-gray-600);
+}
+
+/* The spinner takes the button's text color so it stays visible on every variant. */
+.spinner {
+  color: inherit;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---- Sizes (same height across variants) ---- */
+.md {
+  min-height: var(--space-10);
+  padding: 0 var(--space-4);
+  font-size: var(--font-size-md);
+}
+
+.sm {
+  min-height: var(--space-8);
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+/* ---- Variants ---- */
+.primary {
+  background-color: var(--color-brand);
+  color: var(--color-text-inverse);
+}
+
+.primary:hover:not(:disabled) {
+  background-color: var(--color-brand-hover);
+}
+
+.primary:active:not(:disabled) {
+  background-color: var(--color-brand-active);
+}
+
+.secondary {
+  background-color: var(--color-bg-card);
+  border-color: var(--color-gray-500); /* meets 3:1 UI boundary */
+  color: var(--color-text-primary);
+}
+
+.secondary:hover:not(:disabled) {
+  background-color: var(--color-gray-100);
+  border-color: var(--color-gray-700);
+}
+
+.secondary:disabled {
+  background-color: var(--color-gray-100);
+  border-color: var(--color-gray-300);
+}
+
+.danger {
+  background-color: var(--color-danger);
+  color: var(--color-text-inverse);
+}
+
+.danger:hover:not(:disabled) {
+  background-color: var(--color-danger-text-on-subtle);
+}
+
+.ghost {
+  background-color: transparent;
+  color: var(--color-text-primary);
+}
+
+.ghost:hover:not(:disabled) {
+  background-color: var(--color-gray-100);
+}
+
+.ghost:disabled {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--color-gray-500);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
+}

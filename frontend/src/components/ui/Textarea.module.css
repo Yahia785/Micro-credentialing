@@ -1,0 +1,4 @@
+.textarea {
+  composes: field from './Input.module.css';
+  resize: vertical;
+}
