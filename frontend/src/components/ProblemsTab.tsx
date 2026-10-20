@@ -3,6 +3,7 @@ import { getAllMilestones, createMilestone, deleteMilestone } from '../api/miles
 import { createTestCasesBatch } from '../api/testcases';
 import { CodeEditor } from './CodeEditor';
 import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
+import { useUser } from '../context/UserContext';
 
 interface Problem {
   milestoneId: string;
@@ -25,12 +26,8 @@ interface TestCaseInput {
   isHidden: boolean;
 }
 
-interface ProblemsTabProps {
-  userProfile: any;
-  onRefreshNeeded?: () => void;
-}
-
-export function ProblemsTab({ userProfile, onRefreshNeeded }: ProblemsTabProps) {
+export function ProblemsTab() {
+  const { userProfile, refreshProfile } = useUser();
   const userRole = userProfile?.role || 'user';
   const isAdmin = userRole === 'admin';
 
@@ -275,7 +272,7 @@ export function ProblemsTab({ userProfile, onRefreshNeeded }: ProblemsTabProps) 
 const handleOpenEditor = (problem: Problem) => {
     // Check if problem is already completed
     const isCompleted = userProfile?.completedMilestones?.some(
-      (m: any) => m.milestoneId === problem.milestoneId
+      (m) => m.milestoneId === problem.milestoneId
     );
     
     if (isCompleted) {
@@ -327,10 +324,8 @@ const handleCloseEditor = async () => {
     await loadProblems();
     
     // Trigger user profile refresh in parent component
-    if (onRefreshNeeded) {
-      console.log('🔄 Triggering user profile refresh...');
-      onRefreshNeeded();
-    }
+    console.log('🔄 Triggering user profile refresh...');
+    await refreshProfile();
     
     setSelectedProblem(null);
     setPendingProblem(null);
@@ -341,9 +336,7 @@ const handleSubmitSuccess = async () => {
     await loadProblems();
     
     // Trigger user profile refresh in parent component
-    if (onRefreshNeeded) {
-      onRefreshNeeded();
-    }
+    await refreshProfile();
   };
   
   const getDifficultyColor = (difficulty: string) => {
@@ -1170,10 +1163,10 @@ const handleSubmitSuccess = async () => {
               )}
               {(() => {
                 const isCompleted = userProfile?.completedMilestones?.some(
-                  (m: any) => m.milestoneId === problem.milestoneId
+                  (m) => m.milestoneId === problem.milestoneId
                 );
                 const completedData = userProfile?.completedMilestones?.find(
-                  (m: any) => m.milestoneId === problem.milestoneId
+                  (m) => m.milestoneId === problem.milestoneId
                 );
                 
                 if (isCompleted && completedData) {
@@ -1211,7 +1204,7 @@ const handleSubmitSuccess = async () => {
               <div style={{ display: 'flex', gap: '10px' }}>
                 {(() => {
                   const isCompleted = userProfile?.completedMilestones?.some(
-                    (m: any) => m.milestoneId === problem.milestoneId
+                    (m) => m.milestoneId === problem.milestoneId
                   );
                   
                   return (

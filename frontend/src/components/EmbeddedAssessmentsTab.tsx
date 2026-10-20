@@ -8,14 +8,11 @@ import type { EmbeddedAssessment } from '../api/embedded-assessments';
 import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
 import { CodeEditor } from './CodeEditor';
 import { getAuthToken, API_BASE } from '../api/config';
+import { useUser } from '../context/UserContext';
 
 
-interface EmbeddedAssessmentsTabProps {
-  userProfile: any;
-  onRefreshNeeded?: () => void;
-}
-
-export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: EmbeddedAssessmentsTabProps) {
+export function EmbeddedAssessmentsTab() {
+  const { userProfile, refreshProfile } = useUser();
   const isAdmin = userProfile?.role === 'admin';
 
   const [assessments, setAssessments] = useState<EmbeddedAssessment[]>([]);
@@ -68,12 +65,12 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
         
         for (const assessment of assessments) {
           const isCompleted = userProfile?.completedMilestones?.some(
-            (m: any) => m.milestoneId === assessment.milestoneId
+            (m) => m.milestoneId === assessment.milestoneId
           );
           
           if (isCompleted) {
             const completedData = userProfile?.completedMilestones?.find(
-              (m: any) => m.milestoneId === assessment.milestoneId
+              (m) => m.milestoneId === assessment.milestoneId
             );
             
             if (completedData?.submissionId) {
@@ -113,7 +110,7 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
 
   const handleOpenEditor = (assessment: EmbeddedAssessment) => {
     const isCompleted = userProfile?.completedMilestones?.some(
-      (m: any) => m.milestoneId === assessment.milestoneId
+      (m) => m.milestoneId === assessment.milestoneId
     );
 
     if (isCompleted) {
@@ -151,14 +148,14 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
       setScreenStream(null);
     }
     await loadAssessments();
-    if (onRefreshNeeded) onRefreshNeeded();
+    await refreshProfile();
     setSelectedAssessment(null);
     setPendingAssessment(null);
   };
 
   const handleSubmitSuccess = async () => {
     await loadAssessments();
-    if (onRefreshNeeded) onRefreshNeeded();
+    await refreshProfile();
   };
 
   // ==========================================
@@ -509,10 +506,10 @@ export function EmbeddedAssessmentsTab({ userProfile, onRefreshNeeded }: Embedde
       }}>
         {assessments.map(assessment => {
           const isCompleted = userProfile?.completedMilestones?.some(
-            (m: any) => m.milestoneId === assessment.milestoneId
+            (m) => m.milestoneId === assessment.milestoneId
           );
           const completedData = userProfile?.completedMilestones?.find(
-            (m: any) => m.milestoneId === assessment.milestoneId
+            (m) => m.milestoneId === assessment.milestoneId
           );
 
           return (

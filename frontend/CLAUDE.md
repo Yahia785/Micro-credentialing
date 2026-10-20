@@ -43,7 +43,7 @@ npm run lint
 
 - `npm run build` must pass fully (both `tsc -b` and `vite build`). It passed cleanly as of
   Sep 2026, so any build failure is new and must be fixed.
-- Lint baseline (Sep 2026): 63 problems (60 errors, 3 warnings), all pre-existing. A task must
+- Lint baseline (Oct 2026, after M3): 47 problems (44 errors, 3 warnings), all pre-existing. A task must
   not increase this count. Fixing existing lint errors is out of scope unless asked. If your
   change touches a file with pre-existing lint errors, leave them and mention them in your summary.
   

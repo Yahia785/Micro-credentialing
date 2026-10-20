@@ -1,7 +1,8 @@
 import { Authenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
-import { useEffect, useState } from 'react';
-import { createUserProfile, getUserProfile } from "./api/users";
+import { useState } from 'react';
+import { UserProvider, useUser } from './context/UserContext';
+import type { UserProfile } from './types/user';
 import { EditProfile } from './components/EditProfile';
 import { Tabs } from './components/Tabs';
 import { ProblemsTab } from './components/ProblemsTab';
@@ -10,61 +11,10 @@ import { CredentialsTab } from './components/Credentialstab';
 //import { KnowledgeAssessmentsTab } from './components/KnowledgeAssessmentsTab';
 import { EmbeddedAssessmentsTab } from './components/EmbeddedAssessmentsTab';
 
-function UserProfileLoader({ user, signOut }: any) {
-  const [userProfile, setUserProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+function AppContent() {
+  const { cognitoUser: user, userProfile, loading, error, setUserProfile, signOut } = useUser();
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
-   const [refreshKey, setRefreshKey] = useState(0);
-
-  useEffect(() => {
-    async function initializeUser() {
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        console.log('Checking for existing user profile...');
-        
-        const profile = await getUserProfile();
-        
-        if (profile.user) {
-          console.log('User profile found:', profile.user);
-          setUserProfile(profile.user);
-        } else {
-          console.log('No user profile found, creating...');
-          const newProfile = await createUserProfile();
-          setUserProfile(newProfile.user);
-        }
-        
-        setLoading(false);
-      } catch (err: any) {
-        console.error('Error initializing user:', err);
-        
-        if (err.message.includes('404')) {
-          try {
-            console.log('User not found in DB, creating profile...');
-            const newProfile = await createUserProfile();
-            console.log('Profile created:', newProfile);
-            setUserProfile(newProfile.user);
-            setLoading(false);
-          } catch (createErr) {
-            console.error('Error creating profile:', createErr);
-            setError('Failed to create user profile');
-            setLoading(false);
-          }
-        } else {
-          setError('Failed to load user profile');
-          setLoading(false);
-        }
-      }
-    }
-    
-    initializeUser();
-  }, [user, refreshKey]);
 
   const handleEditClick = () => {
     setIsEditing(true);
@@ -74,7 +24,7 @@ function UserProfileLoader({ user, signOut }: any) {
     setIsEditing(false);
   };
 
-  const handleUpdateSuccess = (updatedUser: any) => {
+  const handleUpdateSuccess = (updatedUser: UserProfile) => {
     setUserProfile(updatedUser);
     setIsEditing(false);
   };
@@ -209,9 +159,7 @@ function UserProfileLoader({ user, signOut }: any) {
         )}
 
         {activeTab === 'problems' && (
-          <ProblemsTab 
-            userProfile={userProfile} 
-            onRefreshNeeded={() => setRefreshKey(prev => prev + 1)} />
+          <ProblemsTab />
         )}
         {/* NEW: Admin Reviews Tab */}
         {activeTab === 'reviews' && userProfile?.role === 'admin' && (
@@ -225,15 +173,12 @@ function UserProfileLoader({ user, signOut }: any) {
          {/* {activeTab === 'knowledge' && (
           <KnowledgeAssessmentsTab 
             userProfile={userProfile}
-            onRefreshNeeded={() => setRefreshKey(prev => prev + 1)}
+            onRefreshNeeded={refreshProfile}
           />
         )} */}
 
         {activeTab === 'embedded' && (
-          <EmbeddedAssessmentsTab
-            userProfile={userProfile}
-            onRefreshNeeded={() => setRefreshKey(prev => prev + 1)}
-          />
+          <EmbeddedAssessmentsTab />
         )}
       </div>
     </main>
@@ -259,7 +204,9 @@ function App() {
       }}
     >
       {({ signOut, user }) => (
-        <UserProfileLoader user={user} signOut={signOut} />
+        <UserProvider cognitoUser={user} signOut={signOut}>
+          <AppContent />
+        </UserProvider>
       )}
     </Authenticator>
   );

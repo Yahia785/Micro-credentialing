@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { updateUserProfile } from '../api/users';
 import { updateUserAttributes, confirmUserAttribute } from 'aws-amplify/auth';
+import type { UserProfile } from '../types/user';
 
 interface EditProfileProps {
   currentUser: {
     name: string;
     email: string;
   };
-  onUpdateSuccess: (updatedUser: any) => void;
+  onUpdateSuccess: (updatedUser: UserProfile) => void;
   onCancel: () => void;
 }
 
