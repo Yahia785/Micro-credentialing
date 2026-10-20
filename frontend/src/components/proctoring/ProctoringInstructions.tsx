@@ -22,6 +22,17 @@ export function ProctoringInstructions({
   const screenStreamRef = useRef<MediaStream | null>(null);
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
+  // Set once the streams are handed to the parent, which then owns stopping them.
+  const handedOffRef = useRef(false);
+
+  // If this screen unmounts without Cancel or Start (e.g. browser Back), release any granted streams.
+  useEffect(() => {
+    return () => {
+      if (handedOffRef.current) return;
+      webcamStreamRef.current?.getTracks().forEach(track => track.stop());
+      screenStreamRef.current?.getTracks().forEach(track => track.stop());
+    };
+  }, []);
 
   // Video elements are always in the DOM (hidden via CSS) so their refs are
   // guaranteed to be populated. We assign srcObject here after state updates,
@@ -136,6 +147,7 @@ export function ProctoringInstructions({
 
   const handleProceed = () => {
     if (webcamStreamRef.current && screenStreamRef.current && isEntireScreen) {
+      handedOffRef.current = true;
       onProceed(webcamStreamRef.current, screenStreamRef.current);
     }
   };

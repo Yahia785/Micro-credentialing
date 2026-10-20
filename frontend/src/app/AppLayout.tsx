@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useMatches } from 'react-router';
 import { Badge, Button } from '../components/ui';
+import { AssessmentSessionContext } from '../context/AssessmentSessionContext';
 import { useUser } from '../context/UserContext';
+import { LEAVE_ASSESSMENT_MESSAGE } from '../hooks/useAssessmentNavigationGuard';
 import { classNames } from '../utils/classNames';
 import { APP_NAME } from './constants';
 import type { RouteHandle } from './routes';
@@ -56,7 +58,14 @@ function useDocumentTitle() {
 export function AppLayout() {
   const { userProfile, cognitoUser, isAdmin, signOut } = useUser();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [assessmentActive, setAssessmentActive] = useState(false);
+  const assessmentSession = useMemo(() => ({ setActive: setAssessmentActive }), []);
   useDocumentTitle();
+
+  const handleSignOut = () => {
+    if (assessmentActive && !window.confirm(LEAVE_ASSESSMENT_MESSAGE)) return;
+    signOut();
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -95,7 +104,7 @@ export function AppLayout() {
             {userProfile?.email && <span className={styles.userEmail}>{userProfile.email}</span>}
           </div>
           {isAdmin && <Badge variant="info">Admin</Badge>}
-          <Button variant="secondary" size="sm" onClick={signOut}>
+          <Button variant="secondary" size="sm" onClick={handleSignOut}>
             Sign out
           </Button>
         </div>
@@ -136,7 +145,9 @@ export function AppLayout() {
 
         <main id="main-content" tabIndex={-1} className={styles.main}>
           <div className={styles.content}>
-            <Outlet />
+            <AssessmentSessionContext.Provider value={assessmentSession}>
+              <Outlet />
+            </AssessmentSessionContext.Provider>
           </div>
         </main>
       </div>

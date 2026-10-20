@@ -9,6 +9,8 @@ import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
 import { CodeEditor } from './CodeEditor';
 import { getAuthToken, API_BASE } from '../api/config';
 import { useUser } from '../context/UserContext';
+import { useAssessmentNavigationGuard } from '../hooks/useAssessmentNavigationGuard';
+import { useStopStreamsOnUnmount } from '../hooks/useStopStreamsOnUnmount';
 
 
 export function EmbeddedAssessmentsTab() {
@@ -26,6 +28,15 @@ export function EmbeddedAssessmentsTab() {
   const [showProctoringInstructions, setShowProctoringInstructions] = useState(false);
   const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+
+  // A proctored session is live while the editor is open with streams and nothing has been submitted yet.
+  const isProctoredSessionActive = Boolean(
+    selectedAssessment &&
+      (webcamStream || screenStream) &&
+      !userProfile?.completedMilestones?.some((m) => m.milestoneId === selectedAssessment.milestoneId)
+  );
+  useAssessmentNavigationGuard(isProctoredSessionActive);
+  useStopStreamsOnUnmount(webcamStream, screenStream);
 
   // Step 1 form state
   const [newAssessment, setNewAssessment] = useState({

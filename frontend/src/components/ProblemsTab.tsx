@@ -4,6 +4,8 @@ import { createTestCasesBatch } from '../api/testcases';
 import { CodeEditor } from './CodeEditor';
 import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
 import { useUser } from '../context/UserContext';
+import { useAssessmentNavigationGuard } from '../hooks/useAssessmentNavigationGuard';
+import { useStopStreamsOnUnmount } from '../hooks/useStopStreamsOnUnmount';
 
 interface Problem {
   milestoneId: string;
@@ -42,6 +44,15 @@ export function ProblemsTab() {
   const [pendingProblem, setPendingProblem] = useState<Problem | null>(null);
   const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+
+  // A proctored session is live while the editor is open with streams and nothing has been submitted yet.
+  const isProctoredSessionActive = Boolean(
+    selectedProblem &&
+      (webcamStream || screenStream) &&
+      !userProfile?.completedMilestones?.some((m) => m.milestoneId === selectedProblem.milestoneId)
+  );
+  useAssessmentNavigationGuard(isProctoredSessionActive);
+  useStopStreamsOnUnmount(webcamStream, screenStream);
 
   const [newProblem, setNewProblem] = useState({
     title: '',
