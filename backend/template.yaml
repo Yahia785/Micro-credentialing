@@ -361,7 +361,10 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuthorizer
+      # Users read: withHandler({ requireAdmin: true }) looks up the caller's role.
       Policies:
+        - DynamoDBReadPolicy:
+            TableName: Users
         - DynamoDBCrudPolicy:
             TableName: Milestones
 
@@ -430,7 +433,10 @@ Resources:
             Method: PUT
             Auth:
               Authorizer: CognitoAuthorizer
+      # Users read: withHandler({ requireAdmin: true }) looks up the caller's role.
       Policies:
+        - DynamoDBReadPolicy:
+            TableName: Users
         - DynamoDBCrudPolicy:
             TableName: Milestones
 
@@ -452,7 +458,15 @@ Resources:
             Method: DELETE
             Auth:
               Authorizer: CognitoAuthorizer
+      # Users read: withHandler({ requireAdmin: true }) looks up the caller's role.
+      # TestCases + Submissions: deleteMilestoneWithCleanup() queries and batch-deletes both tables.
       Policies:
+        - DynamoDBReadPolicy:
+            TableName: Users
+        - DynamoDBCrudPolicy:
+            TableName: TestCases
+        - DynamoDBCrudPolicy:
+            TableName: Submissions
         - DynamoDBCrudPolicy:
             TableName: Milestones
 
@@ -841,7 +855,10 @@ Resources:
             Method: OPTIONS
             Auth:
               Authorizer: NONE
+      # Users read: withHandler({ requireAdmin: true }) looks up the caller's role.
       Policies:
+        - DynamoDBReadPolicy:
+            TableName: Users
         - DynamoDBCrudPolicy:
             TableName: TestCases
         - DynamoDBCrudPolicy:
@@ -1162,7 +1179,10 @@ Resources:
             Method: OPTIONS
             Auth:
               Authorizer: NONE
+      # Users read: the handler calls getUser() to check the caller's role.
       Policies:
+        - DynamoDBReadPolicy:
+            TableName: Users
         - DynamoDBReadPolicy:
             TableName: Credentials
 
@@ -1229,10 +1249,12 @@ Resources:
             Method: OPTIONS
             Auth:
               Authorizer: NONE
+      # Users read+write: updateUser() stores the review status on the student's completedMilestones entry.
+      # (Was read-only, so that update was denied and silently skipped.)
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Submissions
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: Users
         - DynamoDBReadPolicy:
             TableName: Milestones
@@ -1273,10 +1295,12 @@ Resources:
             Method: OPTIONS
             Auth:
               Authorizer: NONE
+      # Users read+write: updateUser() stores the review status on the student's completedMilestones entry.
+      # (Was read-only, so that update was denied and silently skipped.)
       Policies:
         - DynamoDBCrudPolicy:
             TableName: Submissions
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: Users
 
   # ------------------------------------------
@@ -1398,7 +1422,10 @@ Resources:
             Method: OPTIONS
             Auth:
               Authorizer: NONE
+      # Users read: withHandler({ requireAdmin: true }) looks up the caller's role.
       Policies:
+        - DynamoDBReadPolicy:
+            TableName: Users
         - Statement:
             - Effect: Allow
               Action:
