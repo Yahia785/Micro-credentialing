@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { updateUserProfile } from '../api/users';
 import { updateUserAttributes, confirmUserAttribute } from 'aws-amplify/auth';
 import type { UserProfile } from '../types/user';
+import { Alert, Button, Card, FormField, Input } from './ui';
+import styles from './EditProfile.module.css';
 
 interface EditProfileProps {
   currentUser: {
@@ -18,7 +20,7 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  
+
   // Email verification state
   const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
@@ -32,11 +34,11 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
 
     try {
       const updates: { name?: string; email?: string } = {};
-      
+
       if (name !== currentUser.name) {
         updates.name = name;
       }
-      
+
       if (email !== currentUser.email) {
         updates.email = email;
       }
@@ -50,15 +52,15 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
       // If email changed, update in Cognito (sends code to NEW email)
       if (updates.email) {
         console.log('Initiating email change, code will be sent to new email');
-        
+
         await updateUserAttributes({
           userAttributes: {
             email: updates.email
           }
         });
-        
+
         console.log('Email updated in Cognito, verification code sent to new email:', updates.email);
-        
+
         setPendingEmail(updates.email);
         setIsVerifyingEmail(true);
         setSuccessMessage(`Verification code sent to ${updates.email}. Please check your inbox.`);
@@ -74,7 +76,7 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
           onUpdateSuccess(result.user);
         }, 2000);
       }
-      
+
     } catch (err: any) {
       console.error('Error updating profile:', err);
       setError(err.message || 'Failed to update profile');
@@ -106,9 +108,9 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
         userAttributeKey: 'email',
         confirmationCode: verificationCode
       });
-      
+
       console.log('Email verified successfully with Cognito');
-      
+
       // Update DynamoDB with new email
       const token = await getAuthToken();
       const verifyResponse = await fetch('/api/users/verify-email-change', {
@@ -127,17 +129,17 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
       }
 
       const result = await verifyResponse.json();
-      
+
       setSuccessMessage('Email successfully changed!');
       setIsVerifyingEmail(false);
       setVerificationCode('');
       setPendingEmail(null);
       setLoading(false);
-      
+
       setTimeout(() => {
         onUpdateSuccess(result.user);
       }, 2000);
-      
+
     } catch (err: any) {
       console.error('Error verifying email:', err);
       setError(err.message || 'Failed to verify email. Please check the code and try again.');
@@ -145,74 +147,41 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
     }
   };
 
+  const messages = (
+    <>
+      {error && <Alert variant="danger">{error}</Alert>}
+      {successMessage && <Alert variant="success">{successMessage}</Alert>}
+    </>
+  );
+
   if (isVerifyingEmail) {
     return (
-      <div style={{
-        background: '#f9f9f9',
-        padding: '20px',
-        borderRadius: '8px',
-        marginTop: '20px',
-        border: '1px solid #ddd'
-      }}>
-        <h3>Verify Email Change</h3>
-        
-        <p style={{ color: '#666', marginBottom: '15px' }}>
+      <Card title="Verify email change" headingLevel={2}>
+        <p className={styles.intro}>
           We sent a verification code to your new email address ({pendingEmail}).
           Please enter the code below to confirm your email change.
         </p>
-        
-        <form onSubmit={handleVerifyEmail}>
-          <div style={{ marginBottom: '15px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-              Verification Code:
-            </label>
-            <input
+
+        <form onSubmit={handleVerifyEmail} className={styles.form}>
+          <FormField label="Verification code" required>
+            <Input
               type="text"
               value={verificationCode}
               onChange={(e) => setVerificationCode(e.target.value)}
               placeholder="Enter 6-digit code"
-              style={{
-                width: '100%',
-                padding: '8px',
-                fontSize: '14px',
-                border: '1px solid #ccc',
-                borderRadius: '4px'
-              }}
               required
             />
-          </div>
+          </FormField>
 
-          {error && (
-            <p style={{ color: 'red', marginBottom: '10px', padding: '10px', backgroundColor: '#ffe6e6', borderRadius: '4px' }}>
-              {error}
-            </p>
-          )}
+          {messages}
 
-          {successMessage && (
-            <p style={{ color: 'green', marginBottom: '10px', padding: '10px', backgroundColor: '#e6ffe6', borderRadius: '4px' }}>
-              {successMessage}
-            </p>
-          )}
+          <div className={styles.actions}>
+            <Button type="submit" loading={loading}>
+              {loading ? 'Verifying...' : 'Verify email'}
+            </Button>
 
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button
-              type="submit"
-              disabled={loading}
-              style={{
-                padding: '10px 20px',
-                background: '#007bff',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.6 : 1
-              }}
-            >
-              {loading ? 'Verifying...' : 'Verify Email'}
-            </button>
-            
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               onClick={() => {
                 setIsVerifyingEmail(false);
                 setVerificationCode('');
@@ -220,126 +189,53 @@ export function EditProfile({ currentUser, onUpdateSuccess, onCancel }: EditProf
                 setError(null);
               }}
               disabled={loading}
-              style={{
-                padding: '10px 20px',
-                background: '#6c757d',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: loading ? 'not-allowed' : 'pointer'
-              }}
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </form>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div style={{
-      background: '#f9f9f9',
-      padding: '20px',
-      borderRadius: '8px',
-      marginTop: '20px',
-      border: '1px solid #ddd'
-    }}>
-      <h3>Edit Profile</h3>
-      
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#333' }}>
-            Name:
-          </label>
-          <input
+    <Card title="Edit profile" headingLevel={2}>
+      <form onSubmit={handleSubmit} className={styles.form}>
+        <FormField label="Name" required>
+          <Input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px',
-              fontSize: '14px',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-              color: '#333',
-              backgroundColor: '#fff'
-            }}
             required
           />
-        </div>
+        </FormField>
 
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', color: '#333' }}>
-            Email:
-          </label>
-          <input
+        <FormField
+          label="Email"
+          required
+          hint="Changing your email requires a verification code sent to the new address."
+        >
+          <Input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '8px',
-              fontSize: '14px',
-              border: '1px solid #ccc',
-              borderRadius: '4px',
-              color: '#333',
-              backgroundColor: '#fff'
-            }}
             required
           />
-          <small style={{ color: '#666', marginTop: '5px', display: 'block' }}>
-            Changing email will require verification via a code sent to your new email
-          </small>
-        </div>
+        </FormField>
 
-        {error && (
-          <p style={{ color: 'red', marginBottom: '10px', padding: '10px', backgroundColor: '#ffe6e6', borderRadius: '4px' }}>
-            {error}
-          </p>
-        )}
+        {messages}
 
-        {successMessage && (
-          <p style={{ color: 'green', marginBottom: '10px', padding: '10px', backgroundColor: '#e6ffe6', borderRadius: '4px' }}>
-            {successMessage}
-          </p>
-        )}
+        <div className={styles.actions}>
+          <Button type="submit" loading={loading}>
+            {loading ? 'Saving...' : 'Save changes'}
+          </Button>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              padding: '10px 20px',
-              background: '#007bff',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.6 : 1
-            }}
-          >
-            {loading ? 'Saving...' : 'Save Changes'}
-          </button>
-          
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={loading}
-            style={{
-              padding: '10px 20px',
-              background: '#6c757d',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: loading ? 'not-allowed' : 'pointer'
-            }}
-          >
+          <Button variant="secondary" onClick={onCancel} disabled={loading}>
             Cancel
-          </button>
+          </Button>
         </div>
       </form>
-    </div>
+    </Card>
   );
 }
 
