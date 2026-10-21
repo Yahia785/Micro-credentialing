@@ -8,7 +8,7 @@ const dynamodb = DynamoDBDocumentClient.from(client);
  * Get submissions pending review (passed tests but not yet reviewed)
  * Uses paginated scan to ensure ALL matching items are found.
  * @param {number} limit - Maximum number of results to return
- * @param {string} filter - 'passed', 'failed' (also ungraded), or 'all'
+ * @param {string} filter - 'passed', 'failed' (also includes ungraded, for older admin screens), 'ungraded', or 'all'
  * @returns {Array} Array of submissions pending review
  */
 async function getPendingReviews(limit = 50, filter = 'all') {
@@ -22,6 +22,12 @@ async function getPendingReviews(limit = 50, filter = 'all') {
     filterExpression += ' AND #status = :status';
     expressionAttributeNames['#status'] = 'status';
     expressionAttributeValues[':status'] = 'passed';
+  } else if (filter === 'ungraded') {
+    // Submissions the system never graded; the instructor grades them by hand.
+    filterExpression += ' AND #status IN (:gradingFailed, :manualReview)';
+    expressionAttributeNames['#status'] = 'status';
+    expressionAttributeValues[':gradingFailed'] = 'grading_failed';
+    expressionAttributeValues[':manualReview'] = 'manual_review';
   } else if (filter === 'failed') {
     // The admin UI has no tab for ungraded work, so submissions that were never graded
     // ('grading_failed': grading errored; 'manual_review': manual grading mode) are listed

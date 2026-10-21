@@ -50,7 +50,8 @@ async function saveGradingFailure({ submissionRecord, alreadyCreated, reason, er
       score: 0,
       passedTests: 0,
       totalTests,
-      submissionId
+      submissionId,
+      gradingFailed: true
     });
   } catch (error) {
     // Don't fail the response if this fails: the submission itself is saved.
@@ -103,6 +104,12 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
 
   // Fetch user profile (needed for submission record and admin check)
   const user = await getUser(userId);
+
+  // One attempt per problem (same rule as embedded assessments).
+  const alreadySubmitted = (user?.completedMilestones || []).some(m => m.milestoneId === milestoneId);
+  if (alreadySubmitted) {
+    throw new ValidationError('You have already submitted this problem. Only one submission is allowed.');
+  }
 
   // Get all test cases for this milestone
   const allTestCases = await getTestCasesByMilestone(milestoneId);

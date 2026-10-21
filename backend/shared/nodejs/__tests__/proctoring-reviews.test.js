@@ -26,6 +26,18 @@ describe('getPendingReviews filters', () => {
     });
   });
 
+  it('ungraded filter lists only never-graded submissions', async () => {
+    await getPendingReviews(10, 'ungraded');
+    const params = lastScanParams();
+    expect(params.FilterExpression).toContain('#status IN (:gradingFailed, :manualReview)');
+    expect(params.ExpressionAttributeValues).toEqual({
+      ':pending': 'pending',
+      ':gradingFailed': 'grading_failed',
+      ':manualReview': 'manual_review'
+    });
+    expect(params.ExpressionAttributeValues[':status']).toBeUndefined();
+  });
+
   it('passed filter is unchanged', async () => {
     await getPendingReviews(10, 'passed');
     expect(lastScanParams().ExpressionAttributeValues[':status']).toBe('passed');

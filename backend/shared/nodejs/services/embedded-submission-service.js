@@ -151,7 +151,8 @@ async function processEmbeddedSubmission({ userId, assessmentId, body, gradingMo
       score: saveFields.score,
       passedTests: saveFields.passedCriteria,
       totalTests: saveFields.totalCriteria,
-      submissionId: submission.submissionId
+      submissionId: submission.submissionId,
+      ...(responseExtras.gradingFailed && { gradingFailed: true })
     });
 
     log.info('Added to completedMilestones', { userId, assessmentId });

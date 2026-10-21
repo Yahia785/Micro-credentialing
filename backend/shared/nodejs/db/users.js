@@ -71,6 +71,8 @@ async function addCompletedMilestone(userId, milestoneData) {
     totalTests: milestoneData.totalTests,
     completedAt: new Date().toISOString(),
     submissionId: milestoneData.submissionId,
+    // Additive: set when automatic grading failed, so the student's list can show "under review".
+    ...(milestoneData.gradingFailed && { gradingFailed: true }),
   };
 
   // First, try to atomically append to the existing array.

@@ -960,6 +960,8 @@ Resources:
       Policies:
         - DynamoDBReadPolicy:
             TableName: Submissions
+        - DynamoDBReadPolicy:
+            TableName: Users
 
   # ==========================================
   # PROCTORING FUNCTIONS

@@ -66,6 +66,24 @@ describe('processSubmission endedBy', () => {
     expect(addCompletedMilestone.mock.calls[0][1]).not.toHaveProperty('endedBy');
   });
 
+  it('rejects a second submission for a milestone already in completedMilestones', async () => {
+    getUser.mockResolvedValue({ userId: 'u1', completedMilestones: [{ milestoneId: 'm1' }] });
+
+    await expect(processSubmission(base)).rejects.toMatchObject({
+      statusCode: 400,
+      message: 'You have already submitted this problem. Only one submission is allowed.'
+    });
+    expect(createSubmission).not.toHaveBeenCalled();
+    expect(judge0.submitBatch).not.toHaveBeenCalled();
+    expect(addCompletedMilestone).not.toHaveBeenCalled();
+  });
+
+  it('still accepts a first submission when other milestones are completed', async () => {
+    getUser.mockResolvedValue({ userId: 'u1', completedMilestones: [{ milestoneId: 'other' }] });
+    const result = await processSubmission(base);
+    expect(result.status).toBe('passed');
+  });
+
   it('rejects an unknown endedBy value before touching the database', async () => {
     await expect(processSubmission({ ...base, endedBy: 'cheated' })).rejects.toThrow(/endedBy/);
     expect(createSubmission).not.toHaveBeenCalled();
@@ -96,7 +114,7 @@ describe('processSubmission when grading fails', () => {
     );
     // One attempt only, and no counters
     expect(addCompletedMilestone).toHaveBeenCalledWith('u1', expect.objectContaining({
-      milestoneId: 'm1', score: 0, submissionId: result.submissionId
+      milestoneId: 'm1', score: 0, submissionId: result.submissionId, gradingFailed: true
     }));
     expect(updateUser).not.toHaveBeenCalled();
   };

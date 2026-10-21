@@ -70,6 +70,7 @@ describe('manual grading mode', () => {
   it('records the attempt, with no credential counters', async () => {
     await processEmbeddedSubmission({ ...base, gradingMode: 'manual' });
     expect(addCompletedMilestone).toHaveBeenCalledWith('u1', expect.objectContaining({ milestoneId: 'a1', submissionId: 'esub_1' }));
+    expect(addCompletedMilestone.mock.calls[0][1].gradingFailed).toBeUndefined();
     expect(updateUser).not.toHaveBeenCalled();
   });
 
@@ -93,7 +94,11 @@ describe('manual grading mode', () => {
       .rejects.toMatchObject({ statusCode: 400 });
     getUser.mockResolvedValueOnce({ userId: 'u1', completedMilestones: [{ milestoneId: 'a1' }] });
     await expect(processEmbeddedSubmission({ ...base, gradingMode: 'manual' }))
-      .rejects.toMatchObject({ statusCode: 400 });
+      .rejects.toMatchObject({
+        statusCode: 400,
+        message: 'You have already submitted this assessment. Only one submission is allowed.'
+      });
+    expect(createEmbeddedSubmission).not.toHaveBeenCalled();
     getEmbeddedAssessment.mockResolvedValueOnce(null);
     await expect(processEmbeddedSubmission({ ...base, gradingMode: 'manual' }))
       .rejects.toMatchObject({ statusCode: 404, message: 'Embedded assessment not found' });
@@ -145,6 +150,7 @@ describe('llm grading mode (original behaviour)', () => {
       gradingMode: 'llm'
     });
     expect(addCompletedMilestone).toHaveBeenCalledTimes(1);
+    expect(addCompletedMilestone.mock.calls[0][1]).toMatchObject({ gradingFailed: true });
     expect(updateUser).not.toHaveBeenCalled();
   });
 });
