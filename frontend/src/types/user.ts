@@ -10,6 +10,8 @@ export interface CompletedMilestone {
   totalTests: number;
   submissionId: string;
   completedAt: string;
+  /** True when automatic grading failed; the instructor will review it. */
+  gradingFailed?: boolean;
   /** Present once an admin has reviewed the submission. */
   proctoringData?: {
     reviewStatus?: ReviewStatus;

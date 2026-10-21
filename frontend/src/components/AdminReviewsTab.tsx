@@ -26,6 +26,8 @@ interface PendingSubmission {
   totalCriteria?: number;
   rubricResults?: RubricResult[];
   submittedAt: string;
+  /** 'manual_review' / 'grading_failed' = never graded automatically; the instructor grades it. */
+  status?: string;
   /** 'left_page' = the student left mid-session and the code was auto-submitted. */
   endedBy?: 'submit_button' | 'left_page';
   code?: string;
@@ -39,10 +41,14 @@ interface PendingSubmission {
   };
 }
 
+// Submissions the system never graded (manual grading mode, or automatic grading failed).
+const isUngraded = (s: PendingSubmission) => s.status === 'manual_review' || s.status === 'grading_failed';
+
 export function AdminReviewsTab() {
-  const [activeSubTab, setActiveSubTab] = useState<'passed' | 'failed'>('passed');
+  const [activeSubTab, setActiveSubTab] = useState<'passed' | 'failed' | 'ungraded'>('passed');
   const [passedReviews, setPassedReviews] = useState<PendingSubmission[]>([]);
   const [failedReviews, setFailedReviews] = useState<PendingSubmission[]>([]);
+  const [ungradedReviews, setUngradedReviews] = useState<PendingSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedSubmission, setSelectedSubmission] = useState<PendingSubmission | null>(null);
@@ -66,24 +72,30 @@ export function AdminReviewsTab() {
       
       const token = await getAuthToken();
       
-      const [passedRes, failedRes] = await Promise.all([
+      const [passedRes, failedRes, ungradedRes] = await Promise.all([
         fetch(`${API_BASE}/credentials/get-pending-reviews?filter=passed`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
         fetch(`${API_BASE}/credentials/get-pending-reviews?filter=failed`, {
           headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`${API_BASE}/credentials/get-pending-reviews?filter=ungraded`, {
+          headers: { 'Authorization': `Bearer ${token}` }
         })
       ]);
 
-      if (!passedRes.ok || !failedRes.ok) {
+      if (!passedRes.ok || !failedRes.ok || !ungradedRes.ok) {
         throw new Error('Failed to load pending reviews');
       }
 
       const passedData = await passedRes.json();
       const failedData = await failedRes.json();
+      const ungradedData = await ungradedRes.json();
       
       setPassedReviews(passedData.submissions || []);
-      setFailedReviews(failedData.submissions || []);
+      // The server's 'failed' list also includes ungraded work (older admin screens rely on that); keep it out of Failed here.
+      setFailedReviews((failedData.submissions || []).filter((s: PendingSubmission) => !isUngraded(s)));
+      setUngradedReviews(ungradedData.submissions || []);
     } catch (err: any) {
       console.error('Error loading pending reviews:', err);
       setError(err.message);
@@ -174,10 +186,14 @@ export function AdminReviewsTab() {
       alert(willIssueCredential 
         ? 'Review approved! Credential will be issued.' 
         : 'Review approved. No credential issued.');
+      const reviewedId = selectedSubmission.submissionId;
+      const withoutReviewed = (prev: PendingSubmission[]) => prev.filter(s => s.submissionId !== reviewedId);
       if (activeSubTab === 'passed') {
-        setPassedReviews(prev => prev.filter(s => s.submissionId !== selectedSubmission.submissionId));
+        setPassedReviews(withoutReviewed);
+      } else if (activeSubTab === 'ungraded') {
+        setUngradedReviews(withoutReviewed);
       } else {
-        setFailedReviews(prev => prev.filter(s => s.submissionId !== selectedSubmission.submissionId));
+        setFailedReviews(withoutReviewed);
       }
       setSelectedSubmission(null);
     } catch (err: any) {
@@ -222,10 +238,14 @@ export function AdminReviewsTab() {
       }
 
       alert('Review rejected.');
+      const reviewedId = selectedSubmission.submissionId;
+      const withoutReviewed = (prev: PendingSubmission[]) => prev.filter(s => s.submissionId !== reviewedId);
       if (activeSubTab === 'passed') {
-        setPassedReviews(prev => prev.filter(s => s.submissionId !== selectedSubmission.submissionId));
+        setPassedReviews(withoutReviewed);
+      } else if (activeSubTab === 'ungraded') {
+        setUngradedReviews(withoutReviewed);
       } else {
-        setFailedReviews(prev => prev.filter(s => s.submissionId !== selectedSubmission.submissionId));
+        setFailedReviews(withoutReviewed);
       }
       setSelectedSubmission(null);
     } catch (err: any) {
@@ -237,7 +257,9 @@ export function AdminReviewsTab() {
   };
 
   // Derive the displayed list from active sub-tab
-  const displayedReviews = activeSubTab === 'passed' ? passedReviews : failedReviews;
+  const displayedReviews =
+    activeSubTab === 'passed' ? passedReviews : activeSubTab === 'ungraded' ? ungradedReviews : failedReviews;
+  const activeTabLabel = activeSubTab === 'passed' ? 'Passed' : activeSubTab === 'ungraded' ? 'Ungraded' : 'Failed';
 
   if (loading) {
     return (
@@ -291,13 +313,29 @@ export function AdminReviewsTab() {
             color: activeSubTab === 'failed' ? 'white' : '#333',
             border: '1px solid #dee2e6',
             borderLeft: 'none',
-            borderRadius: '0 6px 6px 0',
+            borderRadius: '0',
             cursor: 'pointer',
             fontSize: '14px',
             fontWeight: 'bold'
           }}
         >
           ❌ Failed ({failedReviews.length})
+        </button>
+        <button
+          onClick={() => { setActiveSubTab('ungraded'); setSelectedSubmission(null); }}
+          style={{
+            padding: '10px 20px',
+            backgroundColor: activeSubTab === 'ungraded' ? '#0066cc' : '#f8f9fa',
+            color: activeSubTab === 'ungraded' ? 'white' : '#333',
+            border: '1px solid #dee2e6',
+            borderLeft: 'none',
+            borderRadius: '0 6px 6px 0',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}
+        >
+          Ungraded ({ungradedReviews.length})
         </button>
       </div>
       
@@ -310,9 +348,9 @@ export function AdminReviewsTab() {
           color: '#0066cc'
         }}>
           <p style={{ fontSize: '18px', margin: 0 }}>
-            {activeSubTab === 'passed' ? '✅ No passed submissions pending review!' : '✅ No failed submissions pending review!'}
+            {`✅ No ${activeTabLabel.toLowerCase()} submissions pending review!`}
           </p>
-          <p style={{ fontSize: '14px', margin: '10px 0 0 0' }}>All {activeSubTab} submissions have been reviewed.</p>
+          <p style={{ fontSize: '14px', margin: '10px 0 0 0' }}>All {activeTabLabel.toLowerCase()} submissions have been reviewed.</p>
         </div>
       ) : (
         <div style={{
@@ -323,7 +361,7 @@ export function AdminReviewsTab() {
           {/* Left: List of pending reviews */}
           <div>
             <h3 style={{ color: '#333', marginBottom: '15px' }}>
-              {activeSubTab === 'passed' ? 'Passed' : 'Failed'} ({displayedReviews.length})
+              {activeTabLabel} ({displayedReviews.length})
             </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {displayedReviews.map((submission) => (
@@ -368,7 +406,7 @@ export function AdminReviewsTab() {
                     margin: '4px 0', fontSize: '13px', fontWeight: 'bold',
                     color: submission.score >= PASSING_THRESHOLD ? '#28a745' : '#dc3545'
                   }}>
-                    Score: {submission.milestoneType === 'embedded'
+                    Score: {isUngraded(submission) ? 'Not graded yet' : submission.milestoneType === 'embedded'
                       ? `${submission.passedCriteria ?? 0}/${submission.totalCriteria ?? 0} criteria (${submission.score}%)`
                       : `${submission.passedTests}/${submission.totalTests} (${submission.score}%)`
                     }
@@ -403,7 +441,9 @@ export function AdminReviewsTab() {
                 <p style={{ margin: '5px 0', color: '#000' }}><strong>Problem:</strong> {selectedSubmission.problemTitle}</p>
                 <p style={{ margin: '5px 0', color: '#000' }}>
                   <strong>Score:</strong>{' '}
-                  {selectedSubmission.milestoneType === 'embedded'
+                  {isUngraded(selectedSubmission)
+                    ? 'Not graded yet. Enter an adjusted score below to grade it.'
+                    : selectedSubmission.milestoneType === 'embedded'
                     ? `${selectedSubmission.passedCriteria ?? 0} / ${selectedSubmission.totalCriteria ?? 0} criteria (${selectedSubmission.score}%)`
                     : `${selectedSubmission.passedTests}/${selectedSubmission.totalTests} (${selectedSubmission.score}%)`
                   }

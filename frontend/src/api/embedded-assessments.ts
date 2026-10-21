@@ -31,6 +31,10 @@ export interface EmbeddedSubmissionResult {
   totalCriteria: number;
   rubricResults: RubricResult[];
   message: string;
+  /** 'manual': saved for instructor grading, not graded automatically. */
+  gradingMode?: 'llm' | 'manual';
+  /** True when automatic grading failed and the submission was saved for instructor review. */
+  gradingFailed?: boolean;
 }
 
 // ============================================

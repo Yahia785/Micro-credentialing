@@ -44,6 +44,10 @@ interface Milestone {
   type?: string;
 }
 
+const UNGRADED_GRADING_FAILED_MESSAGE =
+  'Your work has been saved. Automatic grading is unavailable right now, so your instructor will review your submission.';
+const UNGRADED_MANUAL_MESSAGE = 'Your work has been submitted. Your instructor will review and grade it.';
+
 interface CodeEditorProps {
   milestone: Milestone;
   userProfile: any;
@@ -52,6 +56,8 @@ interface CodeEditorProps {
   onClose: () => void;
   onSubmitSuccess?: () => void;
   isViewMode?: boolean;
+  /** Called when a submission attempt has fully finished (grading, uploads, metadata), success or not. */
+  onSubmitSettled?: (outcome: SubmitOutcome) => void;
   ref?: Ref<CodeEditorHandle>;
 }
 
@@ -68,6 +74,7 @@ export function CodeEditor({
   onClose,
   onSubmitSuccess,
   isViewMode = false,
+  onSubmitSettled,
   ref
 }: CodeEditorProps) {
   // Default language and starter code if not provided
@@ -150,6 +157,9 @@ export function CodeEditor({
                   `Results will be available after the review is complete.`
                 );
               }
+              setActiveTab('output');
+            } else if (submission.status === 'grading_failed' && !isReviewed) {
+              setOutput(`${UNGRADED_GRADING_FAILED_MESSAGE}\n\nSubmitted: ${new Date(submission.submittedAt || submission.createdAt).toLocaleString()}`);
               setActiveTab('output');
             } else if (submission.testResults) {
               setTestResults(submission.testResults);
@@ -500,6 +510,8 @@ const stopRecording = () => {
         result = {
           submission: {
             submissionId: embeddedResult.submissionId,
+            gradingFailed: embeddedResult.gradingFailed,
+            gradingMode: embeddedResult.gradingMode,
             status: embeddedResult.passed ? 'passed' : 'failed',
             passedTests: embeddedResult.passedCriteria,
             totalTests: embeddedResult.totalCriteria,
@@ -524,7 +536,11 @@ const stopRecording = () => {
         setSubmissionStatus('failed');
         setHasSubmitted(true);
       } else if (result.submission) {
-        const { status, passedTests, totalTests, testResults: submissionResults, submissionId } = result.submission;
+        const { status, passedTests, totalTests, testResults: submissionResults, submissionId, gradingFailed, gradingMode } = result.submission;
+        // Never graded automatically: the instructor will review it, so don't show a score or a failure.
+        const ungradedMessage = gradingFailed === true
+          ? UNGRADED_GRADING_FAILED_MESSAGE
+          : gradingMode === 'manual' ? UNGRADED_MANUAL_MESSAGE : null;
         
         setTestResults(submissionResults || []);
         setHasSubmitted(true);
@@ -653,7 +669,13 @@ const stopRecording = () => {
         
          const isEmbeddedSubmission = milestone.type === 'embedded';
         
-        if (isEmbeddedSubmission) {
+        if (ungradedMessage) {
+          setOutput(`${ungradedMessage}\n\nYou can now close the editor.`);
+          setSubmissionStatus('idle');
+          if (isEmbeddedSubmission) {
+            setCode('// Your submitted code is hidden while your submission is under review.\n// It will become visible after the instructor completes the review.');
+          }
+        } else if (isEmbeddedSubmission) {
           // For embedded assessments, don't reveal score — it's under instructor review
           setOutput(
             `✅ Submission Received\n\n` +
@@ -701,6 +723,7 @@ const stopRecording = () => {
       setIsSubmitting(false);
     }
 
+    onSubmitSettled?.(outcome);
     return outcome;
   };
 
@@ -849,11 +872,13 @@ const stopRecording = () => {
           const isRejected = reviewStatus === 'rejected';
           const effectiveScore = submissionData?.score;
           const isPassed = isApproved && effectiveScore >= 83;
+          // Embedded work is always held for review; coding work only when it was never graded.
+          const isUnderReview = !isReviewed && (isEmbeddedType || completedMilestone.gradingFailed === true);
 
           // Determine colors and message based on type and status
           let bgColor, borderColor, textColor, message;
 
-          if (isEmbeddedType && !isReviewed) {
+          if (isUnderReview) {
             // Still under review
             bgColor = '#e7f3ff';
             borderColor = '#007bff';
@@ -896,7 +921,7 @@ const stopRecording = () => {
             }}>
               <strong>{message}</strong>
               <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
-                {isEmbeddedType && !isReviewed
+                {isUnderReview
                   ? `Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
                   : isEmbeddedType
                     ? `Score: ${submissionData?.score}% | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
@@ -904,7 +929,7 @@ const stopRecording = () => {
                 }
               </p>
               <p style={{ margin: '5px 0 0 0', fontSize: '13px', fontStyle: 'italic' }}>
-                {isEmbeddedType && !isReviewed
+                {isUnderReview
                   ? 'Your submission is being reviewed by the instructor. Results will be available after the review is complete.'
                   : isEmbeddedType && isPassed
                     ? 'You have successfully passed this assessment. Viewing your solution in read-only mode.'

@@ -30,18 +30,23 @@ export function EmbeddedAssessmentsTab() {
   const [showProctoringInstructions, setShowProctoringInstructions] = useState(false);
   const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  // True once the editor's own submission has fully finished; nothing is left to lose by leaving.
+  const [submissionSettled, setSubmissionSettled] = useState(false);
 
   // A proctored session is live while the editor is open with streams and nothing has been submitted yet.
   const isProctoredSessionActive = Boolean(
     selectedAssessment &&
       (webcamStream || screenStream) &&
+      !submissionSettled &&
       !userProfile?.completedMilestones?.some((m) => m.milestoneId === selectedAssessment.milestoneId)
   );
   const editorRef = useRef<CodeEditorHandle>(null);
   // Leaving mid-session counts as submitting the current code.
   const { isSubmitting: isSubmittingOnLeave } = useAssessmentNavigationGuard(
     isProctoredSessionActive,
-    async () => (await editorRef.current?.submitAndEnd('left_page')) ?? { ok: true }
+    async () => (await editorRef.current?.submitAndEnd('left_page')) ?? { ok: true },
+    // Otherwise the list still shows the problem as not attempted after leaving.
+    refreshProfile
   );
   useStopStreamsOnUnmount(webcamStream, screenStream);
 
@@ -145,6 +150,7 @@ export function EmbeddedAssessmentsTab() {
   const handleProctoringGranted = (webcam: MediaStream, screen: MediaStream) => {
     setWebcamStream(webcam);
     setScreenStream(screen);
+    setSubmissionSettled(false);
     setShowProctoringInstructions(false);
     if (pendingAssessment) {
       setSelectedAssessment(pendingAssessment);
@@ -167,6 +173,7 @@ export function EmbeddedAssessmentsTab() {
     }
     await loadAssessments();
     await refreshProfile();
+    setSubmissionSettled(false);
     setSelectedAssessment(null);
     setPendingAssessment(null);
   };
@@ -720,6 +727,7 @@ export function EmbeddedAssessmentsTab() {
       {selectedAssessment && (
         <CodeEditor
           ref={editorRef}
+          onSubmitSettled={() => setSubmissionSettled(true)}
           milestone={{
             milestoneId: selectedAssessment.milestoneId,
             title: selectedAssessment.title,

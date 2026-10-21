@@ -22,6 +22,8 @@ export const SUBMIT_AND_LEAVE_MESSAGE =
 export function useAssessmentNavigationGuard(
   active: boolean,
   submitAndEnd: () => Promise<SubmitOutcome>,
+  /** Runs after the leave-submit settles and before the navigation proceeds (e.g. refresh the profile). Not used by Sign out. */
+  beforeProceed?: () => Promise<void>,
 ) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   // Stay blocking for the whole submit, even if the profile refresh makes `active` false midway.
@@ -33,6 +35,8 @@ export function useAssessmentNavigationGuard(
   blockerRef.current = blocker;
   const submitRef = useRef(submitAndEnd);
   submitRef.current = submitAndEnd;
+  const beforeProceedRef = useRef(beforeProceed);
+  beforeProceedRef.current = beforeProceed;
   const handlingRef = useRef(false);
 
   /** Runs the submit; failures are logged but never stop the student from leaving. */
@@ -61,7 +65,14 @@ export function useAssessmentNavigationGuard(
     }
 
     setIsSubmitting(true);
-    void submitAndLeave().finally(() => {
+    void submitAndLeave().then(async () => {
+      try {
+        await beforeProceedRef.current?.();
+      } catch (err) {
+        // Never keep the student from leaving because of a refresh problem.
+        console.error('[proctoring] beforeProceed failed:', err);
+      }
+    }).finally(() => {
       const current = blockerRef.current;
       if (current.state === 'blocked') current.proceed();
       setIsSubmitting(false);
