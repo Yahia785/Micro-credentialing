@@ -41,6 +41,17 @@ Parameters:
     Description: Name of the Judge0 API Key secret in Secrets Manager
     Default: "micro-credentialing/judge0-api-key"
 
+  EmbeddedGradingMode:
+    Type: String
+    Default: "manual"
+    AllowedValues:
+      - llm
+      - manual
+    Description: >-
+      How embedded assessment submissions are graded. "manual" saves the submission for
+      instructor review and never calls the Anthropic API; "llm" grades against the rubric
+      with the LLM first.
+
   AllowedOrigins:
     Type: String
     Description: >-
@@ -763,8 +774,11 @@ Resources:
     Properties:
       CodeUri: functions/embedded-assessments/submit/
       Handler: index.handler
-      Description: Submit embedded systems code for LLM rubric grading
+      Description: Submit embedded systems code (instructor review, or LLM rubric grading when EmbeddedGradingMode is llm)
       Timeout: 90
+      Environment:
+        Variables:
+          EMBEDDED_GRADING_MODE: !Ref EmbeddedGradingMode
       Events:
         SubmitEmbeddedAssessment:
           Type: Api

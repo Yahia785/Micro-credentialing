@@ -24,6 +24,11 @@ async function createSubmission(submissionData) {
       code: submissionData.code,
       language: submissionData.language,
       status: submissionData.status || 'pending',
+      // How the session ended ('submit_button' | 'left_page'). Top-level on purpose:
+      // save-recording-metadata overwrites the whole proctoringData map.
+      endedBy: submissionData.endedBy || 'submit_button',
+      // Optional initial proctoring state (e.g. forced 'pending' review for left_page).
+      ...(submissionData.proctoringData && { proctoringData: submissionData.proctoringData }),
       passedTests: 0,
       totalTests: 0,
       score: 0,

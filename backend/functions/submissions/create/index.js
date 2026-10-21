@@ -5,7 +5,7 @@ const { successResponse } = require('/opt/nodejs/utils/responses');
 const log = require('/opt/nodejs/utils/logger');
 
 exports.handler = withHandler(async (ctx) => {
-  const { milestoneId, code, language } = ctx.body;
+  const { milestoneId, code, language, endedBy } = ctx.body;
 
   if (!milestoneId || !code || !language) {
     return errorResponse(400, 'milestoneId, code, and language are required');
@@ -21,6 +21,7 @@ exports.handler = withHandler(async (ctx) => {
       milestoneId,
       code,
       language,
+      endedBy,
       user: null, // service will fetch user internally
       deadlineMs,
     });

@@ -23,15 +23,19 @@ async function createEmbeddedSubmission(data) {
       milestoneId: data.milestoneId,
       userMilestoneKey: `${data.userId}#${data.milestoneId}`,
       type: 'embedded',
-      gradingType: 'llm',
+      gradingType: data.gradingType || 'llm',
+      ...(data.gradingMode && { gradingMode: data.gradingMode }),
+      ...(data.errorMessage && { errorMessage: data.errorMessage }),
       code: data.code,
       rubricResults: data.rubricResults || [],
       passedCriteria: data.passedCriteria || 0,
       totalCriteria: data.totalCriteria || 0,
       score: data.score || 0,
       passed: data.passed || false,
-      status: data.passed ? 'passed' : 'failed',
+      // Additive statuses: 'manual_review' (manual grading mode) and 'grading_failed' (LLM error)
+      status: data.status || (data.passed ? 'passed' : 'failed'),
       llmModel: data.llmModel || null,
+      endedBy: data.endedBy || 'submit_button',
        proctoringData: {
         reviewStatus: 'pending'
       },

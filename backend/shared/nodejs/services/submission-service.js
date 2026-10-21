@@ -13,6 +13,62 @@ const {
   calculateMetrics
 } = require('../utils/judge0');
 const { ValidationError, NotFoundError, ExternalServiceError } = require('../utils/errors');
+const { END_REASONS, parseEndedBy } = require('../utils/submission-end-reason');
+
+/**
+ * Save a submission whose grading failed so it is never lost.
+ * Status "grading_failed" is additive; the original failure kind is kept in gradingFailureReason
+ * ('error' | 'timeout'). The submission goes to instructor review (proctoringData.reviewStatus =
+ * 'pending'), is never credentialed, and the milestone is recorded as completed (one attempt).
+ * Returns a normal 200-style result so the client gets a submissionId and uploads its recordings.
+ */
+async function saveGradingFailure({ submissionRecord, alreadyCreated, reason, errorMessage }) {
+  const { submissionId, userId, milestoneId, totalTests } = submissionRecord;
+  const reviewFields = { proctoringData: { reviewStatus: 'pending' } };
+
+  if (alreadyCreated) {
+    await updateSubmission(submissionId, {
+      status: 'grading_failed',
+      gradingFailureReason: reason,
+      errorMessage,
+      credentialAwarded: false,
+      ...reviewFields,
+      updatedAt: new Date().toISOString()
+    });
+  } else {
+    await createSubmission({ ...submissionRecord, status: 'grading_failed', ...reviewFields });
+    await updateSubmission(submissionId, {
+      gradingFailureReason: reason,
+      errorMessage,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  try {
+    await addCompletedMilestone(userId, {
+      milestoneId,
+      score: 0,
+      passedTests: 0,
+      totalTests,
+      submissionId
+    });
+  } catch (error) {
+    // Don't fail the response if this fails: the submission itself is saved.
+    log.error('Error updating user milestones after grading failure', { submissionId, error: error.message });
+  }
+
+  return {
+    submissionId,
+    status: 'grading_failed',
+    passedTests: 0,
+    totalTests,
+    score: 0,
+    testResults: [],
+    totalExecutionTime: 0,
+    credentialAwarded: false,
+    gradingFailed: true
+  };
+}
 
 /**
  * Core submission workflow: validate the milestone/test cases, run the code
@@ -25,10 +81,19 @@ const { ValidationError, NotFoundError, ExternalServiceError } = require('../uti
  * pending submission.
  *
  * Throws ValidationError for bad input / missing resources, and
- * ExternalServiceError when Judge0 itself fails.
+ * Judge0 failures do not throw: the submission is saved as 'grading_failed' for instructor review
+ * (see saveGradingFailure).
  */
-async function processSubmission({ userId, milestoneId, code, language, deadlineMs }) {
-  log.info('Submission request', { userId, milestoneId, language });
+async function processSubmission({ userId, milestoneId, code, language, deadlineMs, endedBy: rawEndedBy }) {
+  const { value: endedBy, error: endedByError } = parseEndedBy(rawEndedBy);
+  if (endedByError) {
+    throw new ValidationError(endedByError);
+  }
+  // A student who left mid-session is auto-submitted: it must go to instructor review
+  // and can never be auto-credentialed, even with a perfect score.
+  const leftPage = endedBy === END_REASONS.LEFT_PAGE;
+
+  log.info('Submission request', { userId, milestoneId, language, endedBy });
 
   // Check if milestone exists
   const milestone = await getMilestone(milestoneId);
@@ -51,14 +116,43 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
 
   log.info('Running test cases through Judge0', { count: testCasesToRun.length });
 
+  // Build the submission record up front so any failure from here on can still be saved.
+  const submissionId = `sub_${crypto.randomUUID()}`;
+  const submissionRecord = {
+    submissionId,
+    userId,
+    studentEmail: user?.email || null,
+    studentName: user?.name || null,
+    milestoneId,
+    code,
+    language,
+    status: 'pending',
+    endedBy,
+    // Force the review queue entry now: for left_page the recording upload may never happen.
+    ...(leftPage && { proctoringData: { reviewStatus: 'pending' } }),
+    passedTests: 0,
+    totalTests: testCasesToRun.length,
+    score: 0,
+    testResults: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
   // Get Judge0 credentials from Secrets Manager
-  const { apiKey: judge0ApiKey, apiHost: judge0ApiHost } = await getJudge0Credentials();
+  let judge0Credentials;
+  try {
+    judge0Credentials = await getJudge0Credentials();
+  } catch (error) {
+    log.error('Could not load Judge0 credentials', { error: error.message });
+    // Nothing has been saved yet: save the student's work for instructor review.
+    return saveGradingFailure({ submissionRecord, alreadyCreated: false, reason: 'error', errorMessage: error.message });
+  }
+  const { apiKey: judge0ApiKey, apiHost: judge0ApiHost } = judge0Credentials;
 
   if (!judge0ApiKey || judge0ApiKey === 'dummy-key-for-testing') {
     log.error('JUDGE0_API_KEY not configured, returning mock response');
 
     // Return a test response without calling Judge0
-    const submissionId = `sub_${crypto.randomUUID()}`;
     const mockSubmission = {
       submissionId,
       userId,
@@ -66,6 +160,7 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
       code,
       language,
       status: 'pending',
+      endedBy,
       message: 'Judge0 not configured. Submission created but not executed.',
       passedTests: 0,
       totalTests: testCasesToRun.length,
@@ -90,24 +185,6 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
   }
 
   // Create submission record (pending state)
-  const submissionId = `sub_${crypto.randomUUID()}`;
-  const submissionRecord = {
-    submissionId,
-    userId,
-    studentEmail: user?.email || null,
-    studentName: user?.name || null,
-    milestoneId,
-    code,
-    language,
-    status: 'pending',
-    passedTests: 0,
-    totalTests: testCasesToRun.length,
-    score: 0,
-    testResults: [],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
   await createSubmission(submissionRecord);
   log.info('Submission created', { submissionId });
 
@@ -123,63 +200,47 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
 
   log.info('Submitting to Judge0', { submissionId });
 
-  // Submit to Judge0
-  let judge0Response;
+  // Submit to Judge0, poll for results and score them. Any failure here (error, daily quota,
+  // timeout) must not lose the student's work: the submission is kept as "grading_failed" and
+  // sent to the instructor, and the client still gets a submissionId to attach recordings to.
+  let testResults;
+  let metrics;
   try {
-    judge0Response = await submitBatch(judge0Submissions, judge0ApiKey, judge0ApiHost);
+    const judge0Response = await submitBatch(judge0Submissions, judge0ApiKey, judge0ApiHost);
+
+    // Extract tokens from response
+    const tokens = judge0Response.map(r => r.token);
+    log.info('Judge0 tokens received', { tokens });
+
+    // Poll for results
+    const judge0Results = await pollResults(tokens, judge0ApiKey, judge0ApiHost, 30, 1000, deadlineMs);
+    log.info('Judge0 results received', { submissionId });
+
+    // Parse results
+    testResults = judge0Results.map((result, index) =>
+      parseJudge0Result(result, testCasesToRun[index])
+    );
+
+    // Calculate metrics
+    metrics = calculateMetrics(testResults);
   } catch (error) {
-    log.error('Judge0 submission error', { error: error.message });
+    log.error('Judge0 grading error', { submissionId, error: error.message });
 
-    // Update submission with error
-    await updateSubmission(submissionId, {
-      status: 'error',
-      errorMessage: error.message,
-      updatedAt: new Date().toISOString()
+    // Keep the old distinction: bailing out because the Lambda is about to time out vs. other errors.
+    const isTimeout = String(error.message).includes('Lambda timeout');
+    return saveGradingFailure({
+      submissionRecord,
+      alreadyCreated: true,
+      reason: isTimeout ? 'timeout' : 'error',
+      errorMessage: error.message
     });
-
-    throw new ExternalServiceError('judge0', `Failed to submit code to Judge0: ${error.message}`);
   }
-
-  // Extract tokens from response
-  const tokens = judge0Response.map(r => r.token);
-  log.info('Judge0 tokens received', { tokens });
-
-  // Poll for results
-  let judge0Results;
-  try {
-    judge0Results = await pollResults(tokens, judge0ApiKey, judge0ApiHost, 30, 1000, deadlineMs);
-  } catch (error) {
-    log.error('Judge0 polling error', { error: error.message });
-
-    // If we bailed out because the Lambda is about to time out, leave the
-    // submission in a distinct 'timeout' state (recoverable / retryable)
-    // rather than the generic 'error' state.
-    const isTimeout = error.message.includes('Lambda timeout');
-
-    // Update submission with error
-    await updateSubmission(submissionId, {
-      status: isTimeout ? 'timeout' : 'error',
-      errorMessage: error.message,
-      updatedAt: new Date().toISOString()
-    });
-
-    throw new ExternalServiceError('judge0', `Failed to get results from Judge0: ${error.message}`);
-  }
-
-  log.info('Judge0 results received', { submissionId });
-
-  // Parse results
-  const testResults = judge0Results.map((result, index) =>
-    parseJudge0Result(result, testCasesToRun[index])
-  );
-
-  // Calculate metrics
-  const metrics = calculateMetrics(testResults);
 
   log.info('Submission metrics', { metrics });
 
   // Determine if credential should be awarded (100% pass rate)
-  const credentialAwarded = metrics.status === 'passed';
+  // Never for left_page submissions: those wait for an instructor.
+  const credentialAwarded = metrics.status === 'passed' && !leftPage;
 
   // Update submission with results
   const updatedSubmission = await updateSubmission(submissionId, {

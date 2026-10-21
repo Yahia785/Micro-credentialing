@@ -51,6 +51,11 @@ exports.handler = withHandler(async (ctx) => {
     }));
   }
 
+  // The "left mid-session" flag is for instructors only; students see it as any submission under review.
+  if (!isAdmin) {
+    delete filteredSubmission.endedBy;
+  }
+
   return successResponse(200, {
     submission: filteredSubmission
   });
