@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { API_BASE } from '../api/config';
+import { Badge } from './ui';
 
 // TODO: Make this per-assessment configurable (should match backend PASSING_THRESHOLD)
 const PASSING_THRESHOLD = 83;
@@ -25,6 +26,8 @@ interface PendingSubmission {
   totalCriteria?: number;
   rubricResults?: RubricResult[];
   submittedAt: string;
+  /** 'left_page' = the student left mid-session and the code was auto-submitted. */
+  endedBy?: 'submit_button' | 'left_page';
   code?: string;
   proctoringData?: {
     recordings?: {
@@ -353,6 +356,11 @@ export function AdminReviewsTab() {
                   <h4 style={{ margin: '0 0 8px 0', color: '#333', fontSize: '16px' }}>
                     {submission.studentName}
                   </h4>
+                  {submission.endedBy === 'left_page' && (
+                    <p style={{ margin: '4px 0' }}>
+                      <Badge variant="warning">Left mid-session (auto-submitted)</Badge>
+                    </p>
+                  )}
                   <p style={{ margin: '4px 0', fontSize: '14px', color: '#666' }}>
                     {submission.problemTitle}
                   </p>
@@ -382,7 +390,12 @@ export function AdminReviewsTab() {
               padding: '20px'
             }}>
               <h3 style={{ marginTop: 0, color: '#333' }}>Review Submission</h3>
-              
+              {selectedSubmission.endedBy === 'left_page' && (
+                <p style={{ margin: '0 0 12px' }}>
+                  <Badge variant="warning">Left mid-session (auto-submitted)</Badge>
+                </p>
+              )}
+
               {/* Student Info */}
               <div style={{ marginBottom: '20px' }}>
                 <p style={{ margin: '5px 0', color: '#000' }}><strong>Student:</strong> {selectedSubmission.studentName}</p>

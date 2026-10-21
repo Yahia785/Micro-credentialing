@@ -1,4 +1,5 @@
 import { getAuthToken, API_BASE } from './config';
+import type { SubmissionEndedBy } from '../types/submission';
 
 // ============================================
 // TYPES
@@ -144,7 +145,8 @@ export async function deleteEmbeddedAssessment(assessmentId: string): Promise<vo
 
 export async function submitEmbeddedAssessment(
   assessmentId: string,
-  code: string
+  code: string,
+  endedBy: SubmissionEndedBy = 'submit_button'
 ): Promise<EmbeddedSubmissionResult> {
   const token = await getAuthToken();
 
@@ -154,7 +156,7 @@ export async function submitEmbeddedAssessment(
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
     },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, endedBy }),
   });
 
   if (!response.ok) {

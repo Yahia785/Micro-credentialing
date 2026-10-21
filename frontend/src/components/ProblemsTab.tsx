@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getAllMilestones, createMilestone, deleteMilestone } from '../api/milestones';
 import { createTestCasesBatch } from '../api/testcases';
 import { CodeEditor } from './CodeEditor';
+import type { CodeEditorHandle } from './CodeEditor';
+import { BlockingOverlay } from './ui';
 import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
 import { useUser } from '../context/UserContext';
 import { useAssessmentNavigationGuard } from '../hooks/useAssessmentNavigationGuard';
@@ -51,7 +53,12 @@ export function ProblemsTab() {
       (webcamStream || screenStream) &&
       !userProfile?.completedMilestones?.some((m) => m.milestoneId === selectedProblem.milestoneId)
   );
-  useAssessmentNavigationGuard(isProctoredSessionActive);
+  const editorRef = useRef<CodeEditorHandle>(null);
+  // Leaving mid-session counts as submitting the current code.
+  const { isSubmitting: isSubmittingOnLeave } = useAssessmentNavigationGuard(
+    isProctoredSessionActive,
+    async () => (await editorRef.current?.submitAndEnd('left_page')) ?? { ok: true }
+  );
   useStopStreamsOnUnmount(webcamStream, screenStream);
 
   const [newProblem, setNewProblem] = useState({
@@ -1284,8 +1291,13 @@ const handleSubmitSuccess = async () => {
         />
       )}
 
+      {isSubmittingOnLeave && (
+        <BlockingOverlay message="Submitting your work…" detail="Please keep this tab open." />
+      )}
+
       {selectedProblem && (
         <CodeEditor
+          ref={editorRef}
           milestone={selectedProblem}
           userProfile={userProfile}
           webcamStream={webcamStream}

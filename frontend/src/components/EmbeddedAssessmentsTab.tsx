@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   getAllEmbeddedAssessments,
   createEmbeddedAssessment,
@@ -7,6 +7,8 @@ import {
 import type { EmbeddedAssessment } from '../api/embedded-assessments';
 import { ProctoringInstructions } from './proctoring/ProctoringInstructions';
 import { CodeEditor } from './CodeEditor';
+import type { CodeEditorHandle } from './CodeEditor';
+import { BlockingOverlay } from './ui';
 import { getAuthToken, API_BASE } from '../api/config';
 import { useUser } from '../context/UserContext';
 import { useAssessmentNavigationGuard } from '../hooks/useAssessmentNavigationGuard';
@@ -35,7 +37,12 @@ export function EmbeddedAssessmentsTab() {
       (webcamStream || screenStream) &&
       !userProfile?.completedMilestones?.some((m) => m.milestoneId === selectedAssessment.milestoneId)
   );
-  useAssessmentNavigationGuard(isProctoredSessionActive);
+  const editorRef = useRef<CodeEditorHandle>(null);
+  // Leaving mid-session counts as submitting the current code.
+  const { isSubmitting: isSubmittingOnLeave } = useAssessmentNavigationGuard(
+    isProctoredSessionActive,
+    async () => (await editorRef.current?.submitAndEnd('left_page')) ?? { ok: true }
+  );
   useStopStreamsOnUnmount(webcamStream, screenStream);
 
   // Step 1 form state
@@ -706,8 +713,13 @@ export function EmbeddedAssessmentsTab() {
         />
       )}
 
+      {isSubmittingOnLeave && (
+        <BlockingOverlay message="Submitting your work…" detail="Please keep this tab open." />
+      )}
+
       {selectedAssessment && (
         <CodeEditor
+          ref={editorRef}
           milestone={{
             milestoneId: selectedAssessment.milestoneId,
             title: selectedAssessment.title,

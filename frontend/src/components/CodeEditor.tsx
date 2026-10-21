@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useImperativeHandle } from 'react';
+import type { Ref } from 'react';
+import type { SubmissionEndedBy, SubmitOutcome } from '../types/submission';
 import Editor from '@monaco-editor/react';
 import { submitCode, getSubmission } from '../api/submissions';
 import { submitEmbeddedAssessment } from '../api/embedded-assessments';
@@ -50,16 +52,23 @@ interface CodeEditorProps {
   onClose: () => void;
   onSubmitSuccess?: () => void;
   isViewMode?: boolean;
+  ref?: Ref<CodeEditorHandle>;
 }
 
-export function CodeEditor({ 
-  milestone, 
-  userProfile, 
+/** Lets the parent end the session by submitting, without the editor's own confirm dialog. */
+export interface CodeEditorHandle {
+  submitAndEnd: (reason: SubmissionEndedBy) => Promise<SubmitOutcome>;
+}
+
+export function CodeEditor({
+  milestone,
+  userProfile,
   webcamStream,
   screenStream,
-  onClose, 
+  onClose,
   onSubmitSuccess,
-  isViewMode = false
+  isViewMode = false,
+  ref
 }: CodeEditorProps) {
   // Default language and starter code if not provided
   const defaultLanguage = milestone.language || 'python';
@@ -435,6 +444,32 @@ const stopRecording = () => {
       return;
     }
 
+    await trackedSubmit('submit_button');
+  };
+
+  // At most one submission runs at a time; callers share the in-flight one.
+  const submitInFlightRef = useRef<Promise<SubmitOutcome> | null>(null);
+  const trackedSubmit = (endedBy: SubmissionEndedBy): Promise<SubmitOutcome> => {
+    if (submitInFlightRef.current) return submitInFlightRef.current;
+    const promise = runSubmit(endedBy).finally(() => {
+      submitInFlightRef.current = null;
+    });
+    submitInFlightRef.current = promise;
+    return promise;
+  };
+
+  useImperativeHandle(ref, () => ({
+    submitAndEnd: (reason) => {
+      if (submitInFlightRef.current) return submitInFlightRef.current;
+      if (hasSubmitted || isAlreadyCompleted || isViewMode) return Promise.resolve({ ok: true });
+      return trackedSubmit(reason);
+    },
+  }));
+
+  const runSubmit = async (endedBy: SubmissionEndedBy): Promise<SubmitOutcome> => {
+    const isEmbedded = milestone.type === 'embedded';
+    let outcome: SubmitOutcome = { ok: true };
+
     // STOP RECORDING BEFORE SUBMISSION
     stopRecording();
     
@@ -458,7 +493,8 @@ const stopRecording = () => {
         console.log('📤 Submitting embedded code for LLM grading...');
         const embeddedResult = await submitEmbeddedAssessment(
           milestone.milestoneId,
-          code
+          code,
+          endedBy
         );
         // Shape the result to match the existing flow
         result = {
@@ -476,12 +512,14 @@ const stopRecording = () => {
           milestoneId: milestone.milestoneId,
           code,
           language: defaultLanguage,
+          endedBy,
         });
       }
 
       console.log('✅ Submission result:', result);
 
       if (result.error) {
+        outcome = { ok: false, error: String(result.error) };
         setOutput(`❌ Error: ${result.error}`);
         setSubmissionStatus('failed');
         setHasSubmitted(true);
@@ -645,10 +683,12 @@ const stopRecording = () => {
           setSubmissionStatus('failed');
         }
       } else {
+        outcome = { ok: false, error: 'Submission completed but no results received' };
         setOutput('⚠️ Submission completed but no results received. Please try again.');
         setHasSubmitted(true);
       }
     } catch (error: any) {
+      outcome = { ok: false, error: error?.message || 'Failed to submit code' };
       console.error('❌ Error submitting code:', error);
       setOutput(
         `❌ Submission Error\n\n` +
@@ -660,6 +700,8 @@ const stopRecording = () => {
     } finally {
       setIsSubmitting(false);
     }
+
+    return outcome;
   };
 
   const getDifficultyColor = (difficulty: string) => {

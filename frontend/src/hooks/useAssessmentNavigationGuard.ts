@@ -1,29 +1,73 @@
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { useBlocker } from 'react-router';
 import { AssessmentSessionContext } from '../context/AssessmentSessionContext';
+import type { SubmitOutcome } from '../types/submission';
+import { proctoringLogger } from '../utils/proctoringLogger';
 
-export const LEAVE_ASSESSMENT_MESSAGE =
-  'Leaving will end your proctored session and your work will not be submitted. Leave anyway?';
+export const SUBMIT_AND_LEAVE_MESSAGE =
+  'Leaving will submit your current code as your final answer and end the proctored session. Submit and leave?';
 
 /**
- * While `active`, asks for confirmation before in-app navigation (Back/Forward, links) and
- * triggers the browser's native warning on refresh or tab close. Also tells AppLayout a session
- * is in progress so Sign out can confirm too.
+ * While `active`, leaving a proctored assessment counts as submitting it.
+ *
+ * - In-app navigation (Back/Forward, links) is blocked and the student is asked to confirm. On OK the
+ *   blocker stays blocked while `submitAndLeave` runs (the caller shows a blocking state using the
+ *   returned `isSubmitting`), and only then does the navigation proceed. Cancel changes nothing.
+ * - The same `submitAndLeave` is registered with the layout so Sign out can do the same.
+ * - Refresh / tab close only trigger the browser's native warning. We deliberately do NOT submit from
+ *   `beforeunload`: async work (grading, uploading recordings) can't finish reliably once the page
+ *   is going away, and a half-finished submit would be worse than none. The server-side "attempt
+ *   started" record planned for the editor rebuild phase will close this gap.
  */
-export function useAssessmentNavigationGuard(active: boolean) {
-  const blocker = useBlocker(active);
+export function useAssessmentNavigationGuard(
+  active: boolean,
+  submitAndEnd: () => Promise<SubmitOutcome>,
+) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Stay blocking for the whole submit, even if the profile refresh makes `active` false midway.
+  const blocker = useBlocker(active || isSubmitting);
   const session = useContext(AssessmentSessionContext);
-  const setSessionActive = session?.setActive;
+  const register = session?.register;
+
+  const blockerRef = useRef(blocker);
+  blockerRef.current = blocker;
+  const submitRef = useRef(submitAndEnd);
+  submitRef.current = submitAndEnd;
+  const handlingRef = useRef(false);
+
+  /** Runs the submit; failures are logged but never stop the student from leaving. */
+  const submitAndLeave = useRef(async () => {
+    try {
+      const outcome = await submitRef.current();
+      if (!outcome.ok) {
+        proctoringLogger.log('submit_on_leave_failed', 'error', { error: outcome.error });
+      }
+    } catch (err) {
+      proctoringLogger.log('submit_on_leave_failed', 'error', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }).current;
 
   useEffect(() => {
-    if (blocker.state !== 'blocked') return;
+    if (blocker.state !== 'blocked' || handlingRef.current) return;
+    handlingRef.current = true;
+
     // TODO(later phase): replace window.confirm with a proper dialog.
-    if (window.confirm(LEAVE_ASSESSMENT_MESSAGE)) {
-      blocker.proceed();
-    } else {
+    if (!window.confirm(SUBMIT_AND_LEAVE_MESSAGE)) {
       blocker.reset();
+      handlingRef.current = false;
+      return;
     }
-  }, [blocker]);
+
+    setIsSubmitting(true);
+    void submitAndLeave().finally(() => {
+      const current = blockerRef.current;
+      if (current.state === 'blocked') current.proceed();
+      setIsSubmitting(false);
+      handlingRef.current = false;
+    });
+  }, [blocker, submitAndLeave]);
 
   useEffect(() => {
     if (!active) return;
@@ -36,8 +80,10 @@ export function useAssessmentNavigationGuard(active: boolean) {
   }, [active]);
 
   useEffect(() => {
-    if (!active || !setSessionActive) return;
-    setSessionActive(true);
-    return () => setSessionActive(false);
-  }, [active, setSessionActive]);
+    if (!active || !register) return;
+    register({ submitAndLeave });
+    return () => register(null);
+  }, [active, register, submitAndLeave]);
+
+  return { isSubmitting };
 }

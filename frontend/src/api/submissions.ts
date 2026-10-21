@@ -1,4 +1,5 @@
 import { getAuthToken, API_BASE } from './config';
+import type { SubmissionEndedBy } from '../types/submission';
 
 /**
  * Run code with sample test cases (visible ones only)
@@ -37,6 +38,7 @@ export async function submitCode(data: {
   milestoneId: string;
   code: string;
   language: string;
+  endedBy?: SubmissionEndedBy;
 }) {
   const token = await getAuthToken();
 

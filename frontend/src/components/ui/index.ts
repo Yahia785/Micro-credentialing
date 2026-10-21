@@ -2,6 +2,8 @@ export { Alert } from './Alert';
 export type { AlertProps, AlertVariant } from './Alert';
 export { Badge } from './Badge';
 export type { BadgeProps, BadgeVariant } from './Badge';
+export { BlockingOverlay } from './BlockingOverlay';
+export type { BlockingOverlayProps } from './BlockingOverlay';
 export { Button } from './Button';
 export type { ButtonProps, ButtonSize, ButtonVariant } from './Button';
 export { Card } from './Card';

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useMatches } from 'react-router';
-import { Badge, Button } from '../components/ui';
+import { Badge, BlockingOverlay, Button } from '../components/ui';
 import { AssessmentSessionContext } from '../context/AssessmentSessionContext';
+import type { ActiveAssessmentSession } from '../context/AssessmentSessionContext';
 import { useUser } from '../context/UserContext';
-import { LEAVE_ASSESSMENT_MESSAGE } from '../hooks/useAssessmentNavigationGuard';
+import { SUBMIT_AND_LEAVE_MESSAGE } from '../hooks/useAssessmentNavigationGuard';
 import { classNames } from '../utils/classNames';
 import { APP_NAME } from './constants';
 import type { RouteHandle } from './routes';
@@ -58,13 +59,20 @@ function useDocumentTitle() {
 export function AppLayout() {
   const { userProfile, cognitoUser, isAdmin, signOut } = useUser();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [assessmentActive, setAssessmentActive] = useState(false);
-  const assessmentSession = useMemo(() => ({ setActive: setAssessmentActive }), []);
+  const [activeSession, setActiveSession] = useState<ActiveAssessmentSession | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const assessmentSession = useMemo(() => ({ register: setActiveSession }), []);
   useDocumentTitle();
 
-  const handleSignOut = () => {
-    if (assessmentActive && !window.confirm(LEAVE_ASSESSMENT_MESSAGE)) return;
+  const handleSignOut = async () => {
+    if (activeSession) {
+      // TODO(later phase): replace window.confirm with a proper dialog.
+      if (!window.confirm(SUBMIT_AND_LEAVE_MESSAGE)) return;
+      setSigningOut(true);
+      await activeSession.submitAndLeave();
+    }
     signOut();
+    setSigningOut(false);
   };
 
   useEffect(() => {
@@ -81,6 +89,7 @@ export function AppLayout() {
 
   return (
     <div className={styles.layout}>
+      {signingOut && <BlockingOverlay message="Submitting your work…" detail="Please keep this tab open." />}
       <a href="#main-content" className={styles.skipLink}>
         Skip to main content
       </a>
