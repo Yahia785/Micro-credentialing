@@ -1,2 +1,23 @@
+# Dependencies and build output (anywhere in the repo)
 node_modules/
 .aws-sam/
+dist/
+coverage/
+
+# Secrets: never commit these
+.env
+*.pem
+*.key
+credentials*.json
+
+# Agent mock-interview output (test data, not code)
+transcript*.json
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# Logs
+*.log
