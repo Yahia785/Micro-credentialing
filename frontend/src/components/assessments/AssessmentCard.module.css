@@ -1,0 +1,44 @@
+.concept {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Date on the left, buttons on the right; the buttons wrap under the date on narrow cards. */
+.footerRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.added {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.courseForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-divider);
+}

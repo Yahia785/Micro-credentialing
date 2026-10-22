@@ -19,6 +19,8 @@ export interface EmbeddedAssessment {
   difficulty: 'easy' | 'medium' | 'hard';
   rubric: string[];
   bcdiplomaTemplateId?: string;
+  /** Optional grouping label. Absent or null means "No course". */
+  course?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +83,7 @@ export async function createEmbeddedAssessment(data: {
   difficulty?: 'easy' | 'medium' | 'hard';
   rubric: string[];
   bcdiplomaTemplateId?: string;
+  course?: string;
 }): Promise<{ assessment: EmbeddedAssessment }> {
   const token = await getAuthToken();
 
@@ -110,6 +113,8 @@ export async function updateEmbeddedAssessment(
     difficulty: 'easy' | 'medium' | 'hard';
     rubric: string[];
     bcdiplomaTemplateId: string;
+    /** Empty string clears the course. */
+    course: string;
   }>
 ): Promise<{ assessment: EmbeddedAssessment }> {
   const token = await getAuthToken();

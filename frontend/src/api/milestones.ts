@@ -61,6 +61,8 @@ export async function createMilestone(data: {
   timeLimit?: number;
   memoryLimit?: number;
   bcdiplomaTemplateId?: string;
+  /** Optional grouping label for the assessments page. */
+  course?: string;
 }) {
   const token = await getAuthToken();
 
@@ -74,7 +76,8 @@ export async function createMilestone(data: {
     ...(data.starterCode && { starterCode: data.starterCode }),
     ...(data.timeLimit && { timeLimit: data.timeLimit }),
     ...(data.memoryLimit && { memoryLimit: data.memoryLimit }),
-    ...(data.bcdiplomaTemplateId && { bcdiplomaTemplateId: data.bcdiplomaTemplateId }) // Fixed: Now included
+    ...(data.bcdiplomaTemplateId && { bcdiplomaTemplateId: data.bcdiplomaTemplateId }), // Fixed: Now included
+    ...(data.course && { course: data.course })
   };
 
   console.log('Creating milestone with data:', requestData);
@@ -112,6 +115,8 @@ export async function updateMilestone(
     timeLimit?: number;
     memoryLimit?: number;
     bcdiplomaTemplateId?: string;
+    /** Empty string clears the course. */
+    course?: string;
   }
 ) {
   const token = await getAuthToken();

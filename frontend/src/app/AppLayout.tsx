@@ -23,10 +23,7 @@ interface NavGroup {
 const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Assessments',
-    items: [
-      { to: '/assessments/coding', label: 'Coding Problems' },
-      { to: '/assessments/embedded', label: 'Embedded Systems' },
-    ],
+    items: [{ to: '/assessments', label: 'Assessments' }],
   },
   {
     label: 'My Account',

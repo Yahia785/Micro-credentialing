@@ -3,9 +3,8 @@ import type { RouteObject } from 'react-router';
 import { AppLayout } from './AppLayout';
 import { RequireAdmin } from './RequireAdmin';
 import { AdminReviewsPage } from '../pages/AdminReviewsPage';
-import { CodingProblemsPage } from '../pages/CodingProblemsPage';
+import { AssessmentsPage } from '../pages/AssessmentsPage';
 import { CredentialsPage } from '../pages/CredentialsPage';
-import { EmbeddedAssessmentsPage } from '../pages/EmbeddedAssessmentsPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { ProfilePage } from '../pages/ProfilePage';
 
@@ -31,17 +30,15 @@ export const router = createBrowserRouter([
     element: <AppLayout />,
     children: [
       // Phase 2 replaces this redirect with a dashboard.
-      { index: true, element: <Navigate to="/assessments/coding" replace /> },
+      { index: true, element: <Navigate to="/assessments" replace /> },
       {
-        path: 'assessments/coding',
-        element: <CodingProblemsPage />,
-        handle: { title: 'Coding Problems' } satisfies RouteHandle,
+        path: 'assessments',
+        element: <AssessmentsPage />,
+        handle: { title: 'Assessments' } satisfies RouteHandle,
       },
-      {
-        path: 'assessments/embedded',
-        element: <EmbeddedAssessmentsPage />,
-        handle: { title: 'Embedded Systems' } satisfies RouteHandle,
-      },
+      // The old per-kind pages now live on the single Assessments page.
+      { path: 'assessments/coding', element: <Navigate to="/assessments" replace /> },
+      { path: 'assessments/embedded', element: <Navigate to="/assessments" replace /> },
       {
         path: 'credentials',
         element: <CredentialsPage />,
