@@ -24,13 +24,27 @@ node scripts/mock-interview.js --code scripts/sample.cpp --config scripts/sample
 - `--config` the interview config (same shape as the `interview` field on a coding assessment)
 - `--out` where to write the transcript (default `mock-interview-<timestamp>.json`)
 - `--model` Bedrock model ID (default: `AGENT_MODEL_ID`, else `qwen.qwen3-coder-30b-a3b-v1:0`)
+- `--prompt` `host.v1` or `host.v2` (default: `AGENT_PROMPT_VERSION`, else `host.v2`)
 
-Type `/quit` to stop early. The clock follows `timeLimitMinutes`; an answer sent after it is not counted.
+Compare the two prompts on the same code and config:
+
+```
+node scripts/mock-interview.js --code scripts/sample.cpp --config scripts/sample-interview.json --prompt host.v1 --out v1.json
+node scripts/mock-interview.js --code scripts/sample.cpp --config scripts/sample-interview.json --prompt host.v2 --out v2.json
+```
+
+Type `/quit` to stop early. Each question shows the time left. The clock is enforced like the server:
+an empty or over-long answer is rejected and the clock keeps running, and an answer that arrives after
+`timeLimitMinutes` is not stored and the interview ends as `timed_out`.
+
+Follow-ups are budgeted per main question (`maxFollowUpsPerMainQuestion`, 0-3, default 1). A config that
+still has `maxFollowUpsPerTheme` is accepted and that number is used per main question (capped at 3).
 
 ### Transcript
 
 The JSON file has the model ID, prompt version, config, status and every turn. Host turns include
-`reason` (instructor-only), `kind`, `themeId`, `latencyMs`, token counts, and `fallback` when the
+`reason` (instructor-only, always describes what the engine actually did), `modelReason` (the model's own
+reason, only when the engine overrode or replaced its choice), `kind`, `themeId`, `latencyMs`, token counts, and `fallback` when the
 model output was unusable (`invalid_output`) or the call failed (`model_unavailable`).
 
 ### Privacy

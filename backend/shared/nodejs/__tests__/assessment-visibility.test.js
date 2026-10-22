@@ -21,7 +21,7 @@ const RUBRIC = ['Uses volatile for the register', 'Masks the interrupt before re
 const INTERVIEW = {
   enabled: true,
   timeLimitMinutes: 12,
-  maxFollowUpsPerTheme: 2,
+  maxFollowUpsPerMainQuestion: 1,
   themes: [{ id: 't1', title: 'Pointers', mainQuestions: ['Explain?'], criteria: ['SECRET CRITERION'] }],
 };
 const coding = { milestoneId: 'm1', title: 'List', language: 'cpp', interview: INTERVIEW, sampleTestCases: [] };

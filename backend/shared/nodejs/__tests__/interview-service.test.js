@@ -27,7 +27,7 @@ const SECRET_ANSWER = 'my private answer text';
 const config = {
   enabled: true,
   timeLimitMinutes: 10,
-  maxFollowUpsPerTheme: 2,
+  maxFollowUpsPerMainQuestion: 1,
   themes: [
     { id: 'ptr', title: 'Pointers', mainQuestions: ['Main A1?', 'Main A2?'], criteria: [CRITERION] },
   ],
@@ -77,7 +77,7 @@ describe('startInterview', () => {
     const [createdMeta, turn] = interviews.createInterview.mock.calls[0];
     expect(createdMeta).toMatchObject({
       submissionId: 'sub1', userId: 'u1', milestoneId: 'm1', status: 'in_progress',
-      promptVersion: 'host.v1', modelId: 'qwen.qwen3-coder-30b-a3b-v1:0',
+      promptVersion: 'host.v2', modelId: 'qwen.qwen3-coder-30b-a3b-v1:0',
       themeIndex: 0, mainIndex: 0, followUpCount: 0, fallbackCount: 0, turnCount: 1,
     });
     expect(createdMeta.configSnapshot).toEqual(config);
@@ -222,6 +222,26 @@ describe('submitAnswer', () => {
     expect(call.metaUpdates).toMatchObject({ status: 'completed', endReason: 'completed' });
   });
 
+  it('records on the META item why and how the Host ended the interview', async () => {
+    // Main A2 is the last main question and its follow-up budget is used up.
+    interviews.getInterviewMeta.mockResolvedValue(meta({ mainIndex: 1, followUpCount: 1, turnCount: 3 }));
+    interviews.getInterviewTurns.mockResolvedValue([
+      firstTurn, { role: 'student', text: 'a' }, { role: 'host', text: 'Main A2?', themeId: 'ptr', kind: 'main' },
+    ]);
+    await answer({ converseFn: reply({ action: 'follow_up', question: 'More?', reason: 'wants more' }) });
+    expect(interviews.appendTurns.mock.calls[0][0].metaUpdates.endDetail).toEqual({
+      reason: 'override: follow-up limit for this main question reached; no main questions remain, ended',
+      modelReason: 'wants more',
+    });
+  });
+
+  it('keeps using the prompt version the interview started with', async () => {
+    const seen = [];
+    interviews.getInterviewMeta.mockResolvedValue(meta({ promptVersion: 'host.v1' }));
+    await answer({ converseFn: async (req) => { seen.push(req.system); return reply({ action: 'next_main', question: '', reason: '' })(); } });
+    expect(seen[0]).toBe(require('../agent/interview-engine').loadPrompt('host.v1'));
+  });
+
   describe('validation and ownership', () => {
     it.each([[undefined], [''], ['   '], [42]])('rejects answer %p', async (value) => {
       await expect(answer({ answer: value })).rejects.toMatchObject({ statusCode: 400 });
@@ -280,7 +300,7 @@ describe('submitAnswer', () => {
       expect(call.turns[0]).toMatchObject({ role: 'student', text: SECRET_ANSWER });
       expect(call.turns[1]).toMatchObject({
         role: 'host', text: 'Main A2?', kind: 'main',
-        reason: 'fallback: model unavailable', fallback: 'model_unavailable',
+        reason: 'fallback: model unavailable; asked the next main question', fallback: 'model_unavailable',
       });
       expect(call.metaUpdates.fallbackCount).toBe(1);
     });
@@ -290,7 +310,8 @@ describe('submitAnswer', () => {
       await answer({ converseFn: async () => ({ text: 'not json', inputTokens: 7, outputTokens: 3, latencyMs: 20 }) });
       const call = interviews.appendTurns.mock.calls[0][0];
       expect(call.turns[1]).toMatchObject({
-        text: 'Main A2?', reason: 'fallback: invalid model output', fallback: 'invalid_output', inputTokens: 7,
+        text: 'Main A2?', reason: 'fallback: invalid model output; asked the next main question',
+        fallback: 'invalid_output', inputTokens: 7,
       });
       expect(call.metaUpdates.fallbackCount).toBe(2);
     });
@@ -302,16 +323,42 @@ describe('submitAnswer', () => {
   });
 
   describe('follow-up cap', () => {
-    it('moves on instead of asking a third follow-up', async () => {
-      interviews.getInterviewMeta.mockResolvedValue(meta({ followUpCount: 2, turnCount: 5 }));
+    it('moves on instead of asking a second follow-up on the same main question', async () => {
+      interviews.getInterviewMeta.mockResolvedValue(meta({ followUpCount: 1, turnCount: 3 }));
       interviews.getInterviewTurns.mockResolvedValue([
-        firstTurn, { role: 'student', text: 'a' }, { role: 'host', text: 'f1', kind: 'follow_up' },
-        { role: 'student', text: 'b' }, { role: 'host', text: 'f2', themeId: 'ptr', kind: 'follow_up' },
+        firstTurn, { role: 'student', text: 'a' }, { role: 'host', text: 'f1', themeId: 'ptr', kind: 'follow_up' },
       ]);
-      await answer({ converseFn: reply({ action: 'follow_up', question: 'A third?', reason: 'x' }) });
-      const host = interviews.appendTurns.mock.calls[0][0].turns[1];
-      expect(host).toMatchObject({ text: 'Main A2?', kind: 'main' });
-      expect(interviews.appendTurns.mock.calls[0][0].metaUpdates.followUpCount).toBe(2);
+      await answer({ converseFn: reply({ action: 'follow_up', question: 'A second?', reason: 'probe more' }) });
+      const call = interviews.appendTurns.mock.calls[0][0];
+      expect(call.turns[1]).toMatchObject({
+        text: 'Main A2?',
+        kind: 'main',
+        reason: 'override: follow-up limit for this main question reached; asked the next main question',
+        modelReason: 'probe more',
+      });
+      expect(call.turns[1].fallback).toBeUndefined();
+      // The next main question has a fresh budget, and an override is not counted as a fallback.
+      expect(call.metaUpdates).toMatchObject({ followUpCount: 0, mainIndex: 1, fallbackCount: 0 });
+    });
+
+    it('gives the next main question its own follow-up', async () => {
+      interviews.getInterviewMeta.mockResolvedValue(meta({ mainIndex: 1, followUpCount: 0, turnCount: 3 }));
+      interviews.getInterviewTurns.mockResolvedValue([
+        firstTurn, { role: 'student', text: 'a' }, { role: 'host', text: 'Main A2?', themeId: 'ptr', kind: 'main' },
+      ]);
+      await answer();
+      expect(interviews.appendTurns.mock.calls[0][0].turns[1]).toMatchObject({ kind: 'follow_up', text: 'Why line 12?' });
+    });
+
+    it('still honours a legacy per-theme limit in an interview that started with one', async () => {
+      const legacy = { ...config, maxFollowUpsPerTheme: 2 };
+      delete legacy.maxFollowUpsPerMainQuestion;
+      interviews.getInterviewMeta.mockResolvedValue(meta({ configSnapshot: legacy, followUpCount: 1, turnCount: 3 }));
+      interviews.getInterviewTurns.mockResolvedValue([
+        firstTurn, { role: 'student', text: 'a' }, { role: 'host', text: 'f1', themeId: 'ptr', kind: 'follow_up' },
+      ]);
+      await answer();
+      expect(interviews.appendTurns.mock.calls[0][0].turns[1]).toMatchObject({ kind: 'follow_up' });
     });
   });
 
@@ -344,6 +391,18 @@ describe('getInterview', () => {
       expect(json).not.toContain(hidden);
     }
     expect(interview.status).toBe('in_progress');
+  });
+
+  it('never shows a student the model reason or the end detail', async () => {
+    interviews.getInterviewMeta.mockResolvedValue(meta({ endDetail: { reason: 'r', modelReason: 'MODEL SAID' } }));
+    interviews.getInterviewTurns.mockResolvedValue([{ ...turns[0], modelReason: 'MODEL SAID' }, turns[1]]);
+    const { interview } = await getInterview({ userId: 'u1', interviewId: 'int_sub1', isAdmin: false, now: NOW + 1000 });
+    expect(JSON.stringify(interview)).not.toContain('MODEL SAID');
+    expect(JSON.stringify(interview)).not.toContain('endDetail');
+
+    const admin = await getInterview({ userId: 'admin1', interviewId: 'int_sub1', isAdmin: true, now: NOW + 1000 });
+    expect(admin.interview.turns[0].modelReason).toBe('MODEL SAID');
+    expect(admin.interview.endDetail.modelReason).toBe('MODEL SAID');
   });
 
   it('gives admins everything', async () => {

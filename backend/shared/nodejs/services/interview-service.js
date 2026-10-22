@@ -106,7 +106,7 @@ async function startInterview({ userId, submissionId, now = Date.now() }) {
       endReason: null,
       deadline,
       modelId: bedrock.resolveModelId(),
-      promptVersion: engine.PROMPT_VERSION,
+      promptVersion: engine.resolvePromptVersion(),
       ...stateFields(first.state),
       turnCount: 1,
       configSnapshot: config,
@@ -163,6 +163,8 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, now = D
     code: submission.code || '',
     turns: [...turns, studentTurn],
     modelId: meta.modelId,
+    // An interview keeps the prompt version it started with.
+    promptVersion: meta.promptVersion,
     ...(converseFn && { converseFn }),
   });
 
@@ -186,6 +188,12 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, now = D
         status: STATUS.COMPLETED,
         endedAt: new Date(now).toISOString(),
         endReason: 'completed',
+        // Why the Host ended it, for the instructor: what the engine did, and what the model said.
+        endDetail: {
+          reason: decision.reason,
+          ...(decision.modelReason && { modelReason: decision.modelReason }),
+          ...(decision.fallback && { fallback: decision.fallback }),
+        },
       },
       now,
     });
@@ -199,6 +207,7 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, now = D
     themeId: decision.themeId,
     kind: decision.kind,
     reason: decision.reason,
+    ...(decision.modelReason && { modelReason: decision.modelReason }),
     ...(decision.fallback && { fallback: decision.fallback }),
     latencyMs: decision.usage.latencyMs,
     inputTokens: decision.usage.inputTokens,

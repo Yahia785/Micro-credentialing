@@ -4,18 +4,22 @@
  * {
  *   enabled: boolean,
  *   timeLimitMinutes: 1-30 (default 10),
- *   maxFollowUpsPerTheme: 0-5 (default 2),
+ *   maxFollowUpsPerMainQuestion: 0-3 (default 1),
  *   themes: [{ id, title, mainQuestions: [string], criteria: [string] }]
  * }
  *
+ * Older configs may carry `maxFollowUpsPerTheme` (0-5) instead. It still validates and is kept
+ * as written; the interview engine converts it when it runs.
+ *
  * `criteria` are instructor-only guidance. They must never reach a student.
  */
-const DEFAULTS = Object.freeze({ timeLimitMinutes: 10, maxFollowUpsPerTheme: 2 });
+const DEFAULTS = Object.freeze({ timeLimitMinutes: 10, maxFollowUpsPerMainQuestion: 1 });
 
 const LIMITS = Object.freeze({
   minTimeLimitMinutes: 1,
   maxTimeLimitMinutes: 30,
-  maxFollowUps: 5,
+  maxFollowUpsPerMainQuestion: 3,
+  maxFollowUpsPerTheme: 5,
   maxThemes: 10,
   maxMainQuestions: 8,
   maxCriteria: 10,
@@ -108,10 +112,22 @@ function parseInterview(raw, assessment = {}) {
     raw.timeLimitMinutes, 'interview.timeLimitMinutes',
     LIMITS.minTimeLimitMinutes, LIMITS.maxTimeLimitMinutes, DEFAULTS.timeLimitMinutes, errors
   );
-  const maxFollowUpsPerTheme = cleanInteger(
-    raw.maxFollowUpsPerTheme, 'interview.maxFollowUpsPerTheme',
-    0, LIMITS.maxFollowUps, DEFAULTS.maxFollowUpsPerTheme, errors
-  );
+  // The per-main-question limit wins. A legacy per-theme limit is kept as written when it is the
+  // only one given; with neither, the default applies.
+  const hasNewLimit = raw.maxFollowUpsPerMainQuestion !== undefined && raw.maxFollowUpsPerMainQuestion !== null;
+  const hasLegacyLimit = raw.maxFollowUpsPerTheme !== undefined && raw.maxFollowUpsPerTheme !== null;
+  const followUpLimit = {};
+  if (hasNewLimit || !hasLegacyLimit) {
+    followUpLimit.maxFollowUpsPerMainQuestion = cleanInteger(
+      raw.maxFollowUpsPerMainQuestion, 'interview.maxFollowUpsPerMainQuestion',
+      0, LIMITS.maxFollowUpsPerMainQuestion, DEFAULTS.maxFollowUpsPerMainQuestion, errors
+    );
+  } else {
+    followUpLimit.maxFollowUpsPerTheme = cleanInteger(
+      raw.maxFollowUpsPerTheme, 'interview.maxFollowUpsPerTheme',
+      0, LIMITS.maxFollowUpsPerTheme, 0, errors
+    );
+  }
 
   let themes = [];
   if (raw.themes !== undefined && raw.themes !== null) {
@@ -155,7 +171,7 @@ function parseInterview(raw, assessment = {}) {
 
   return {
     provided: true,
-    value: { enabled: raw.enabled, timeLimitMinutes, maxFollowUpsPerTheme, themes },
+    value: { enabled: raw.enabled, timeLimitMinutes, ...followUpLimit, themes },
     error: null,
   };
 }

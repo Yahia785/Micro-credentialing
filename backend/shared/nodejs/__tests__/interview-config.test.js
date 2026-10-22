@@ -23,8 +23,44 @@ describe('parseInterview', () => {
     const { value, error } = parseInterview(valid(), cpp);
     expect(error).toBeNull();
     expect(value.timeLimitMinutes).toBe(DEFAULTS.timeLimitMinutes);
-    expect(value.maxFollowUpsPerTheme).toBe(DEFAULTS.maxFollowUpsPerTheme);
+    expect(value.maxFollowUpsPerMainQuestion).toBe(DEFAULTS.maxFollowUpsPerMainQuestion);
+    expect(value.maxFollowUpsPerMainQuestion).toBe(1);
+    expect(value.maxFollowUpsPerTheme).toBeUndefined();
     expect(value.themes[0]).toEqual(theme());
+  });
+
+  describe('follow-up limit', () => {
+    it.each([0, 1, 2, 3])('accepts maxFollowUpsPerMainQuestion %p', (n) => {
+      const { value, error } = parseInterview(valid({ maxFollowUpsPerMainQuestion: n }), cpp);
+      expect(error).toBeNull();
+      expect(value.maxFollowUpsPerMainQuestion).toBe(n);
+    });
+
+    it.each([-1, 4, 1.5, '1'])('rejects maxFollowUpsPerMainQuestion %p', (n) => {
+      expect(parseInterview(valid({ maxFollowUpsPerMainQuestion: n }), cpp).error).toContain('maxFollowUpsPerMainQuestion');
+    });
+
+    it('still validates a legacy maxFollowUpsPerTheme and keeps it as written', () => {
+      const { value, error } = parseInterview(valid({ maxFollowUpsPerTheme: 4 }), cpp);
+      expect(error).toBeNull();
+      expect(value.maxFollowUpsPerTheme).toBe(4);
+      expect(value.maxFollowUpsPerMainQuestion).toBeUndefined();
+    });
+
+    it('still range-checks the legacy field', () => {
+      expect(parseInterview(valid({ maxFollowUpsPerTheme: 6 }), cpp).error).toContain('maxFollowUpsPerTheme');
+    });
+
+    it('lets the new field win when both are sent, and drops the legacy one', () => {
+      const { value } = parseInterview(valid({ maxFollowUpsPerTheme: 4, maxFollowUpsPerMainQuestion: 2 }), cpp);
+      expect(value.maxFollowUpsPerMainQuestion).toBe(2);
+      expect(value.maxFollowUpsPerTheme).toBeUndefined();
+    });
+
+    it('a stored legacy config survives a re-save unchanged', () => {
+      const stored = parseInterview(valid({ maxFollowUpsPerTheme: 2 }), cpp).value;
+      expect(parseInterview(stored, cpp).value).toEqual(stored);
+    });
   });
 
   it('trims strings and drops unknown keys', () => {
@@ -40,7 +76,7 @@ describe('parseInterview', () => {
     ['no themes while enabled', { enabled: true, themes: [] }, 'at least one theme'],
     ['time limit out of range', valid({ timeLimitMinutes: 99 }), 'timeLimitMinutes'],
     ['time limit not an integer', valid({ timeLimitMinutes: 2.5 }), 'timeLimitMinutes'],
-    ['negative follow-ups', valid({ maxFollowUpsPerTheme: -1 }), 'maxFollowUpsPerTheme'],
+    ['negative follow-ups', valid({ maxFollowUpsPerMainQuestion: -1 }), 'maxFollowUpsPerMainQuestion'],
     ['theme without id', valid({ themes: [theme({ id: '' })] }), 'themes[0].id'],
     ['theme id with spaces', valid({ themes: [theme({ id: 'a b' })] }), 'letters, digits'],
     ['duplicate ids', valid({ themes: [theme(), theme()] }), 'used more than once'],

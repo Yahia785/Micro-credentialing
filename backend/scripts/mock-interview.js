@@ -13,6 +13,7 @@
  *   --config <file>   interview config JSON (required)
  *   --out    <file>   transcript file (default: mock-interview-<timestamp>.json)
  *   --model  <id>     Bedrock model ID (default: AGENT_MODEL_ID or the platform default)
+ *   --prompt <ver>    prompt version, host.v1 or host.v2 (default: AGENT_PROMPT_VERSION or host.v2)
  *
  * Type /quit to stop early. Note: your answers and the code are sent to Bedrock (us-east-1).
  */
@@ -32,6 +33,13 @@ function parseArgs(argv) {
   return args;
 }
 
+const MAX_ANSWER_LENGTH = 2000;
+
+function formatRemaining(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 function fail(message) {
   console.error(`Error: ${message}`);
   process.exit(1);
@@ -40,7 +48,7 @@ function fail(message) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.code || !args.config) {
-    fail('usage: node scripts/mock-interview.js --code <file.cpp> --config <interview.json> [--out transcript.json] [--model id]');
+    fail('usage: node scripts/mock-interview.js --code <file.cpp> --config <interview.json> [--out transcript.json] [--model id] [--prompt host.v1|host.v2]');
   }
 
   const code = fs.readFileSync(path.resolve(args.code), 'utf8');
@@ -51,13 +59,14 @@ async function main() {
   const config = parsed.value;
 
   const modelId = bedrock.resolveModelId(args.model);
+  const promptVersion = engine.resolvePromptVersion(args.prompt);
   const outFile = path.resolve(args.out || `mock-interview-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
 
   const startedAt = Date.now();
   const deadline = startedAt + config.timeLimitMinutes * 60000;
   const transcript = {
     modelId,
-    promptVersion: engine.PROMPT_VERSION,
+    promptVersion,
     startedAt: new Date(startedAt).toISOString(),
     endedAt: null,
     status: 'in_progress',
@@ -83,31 +92,34 @@ async function main() {
     rl.once('close', () => resolve(null));
   });
 
-  console.log(`\nInterview started (model ${modelId}, ${config.timeLimitMinutes} min). Type /quit to stop.\n`);
+  console.log(`\nInterview started (model ${modelId}, prompt ${promptVersion},${config.timeLimitMinutes} min). Type /quit to stop.\n`);
 
   while (true) {
-    console.log(`HOST: ${question}\n`);
-    const remaining = deadline - Date.now();
+    console.log(`HOST [${formatRemaining(deadline - Date.now())} left]: ${question}\n`);
     const typedAt = Date.now();
-    const answer = await ask(`YOU (${Math.max(0, Math.round(remaining / 1000))}s left): `);
+    const answer = await ask('YOU: ');
 
     if (answer === null || answer.trim() === '/quit') {
       transcript.status = 'abandoned';
       break;
     }
+    // Same order and rule as the server: the answer is validated first (an empty or over-long one
+    // is rejected and the clock keeps running), then the deadline. An answer that arrives after
+    // the deadline is not stored and the interview is timed_out.
+    if (!answer.trim() || answer.length > MAX_ANSWER_LENGTH) {
+      console.log(`(answer must be 1-${MAX_ANSWER_LENGTH} characters, try again)\n`);
+      continue;
+    }
     if (Date.now() > deadline) {
       console.log('\nTime is up. This answer is not counted.');
       transcript.status = 'timed_out';
+      transcript.endReason = 'deadline_passed';
       break;
-    }
-    if (!answer.trim()) {
-      console.log('(empty answer, try again)\n');
-      continue;
     }
 
     const studentTurn = {
       role: 'student',
-      text: answer.trim().slice(0, 2000),
+      text: answer.trim(),
       ...asked,
       createdAt: new Date().toISOString(),
       clientTiming: {
@@ -118,15 +130,19 @@ async function main() {
     transcript.turns.push(studentTurn);
 
     console.log('\n...thinking\n');
-    const decision = await engine.decideNext({ config, state, code, turns: transcript.turns, modelId });
+    const decision = await engine.decideNext({ config, state, code, turns: transcript.turns, modelId, promptVersion });
     state = decision.state;
     transcript.fallbackCount = state.fallbackCount;
 
     if (decision.action === engine.ACTIONS.END) {
       transcript.status = 'completed';
-      transcript.endReason = decision.reason;
+      transcript.endReason = 'completed';
       transcript.endUsage = decision.usage;
-      if (decision.fallback) transcript.endFallback = decision.fallback;
+      transcript.endDetail = {
+        reason: decision.reason,
+        ...(decision.modelReason && { modelReason: decision.modelReason }),
+        ...(decision.fallback && { fallback: decision.fallback }),
+      };
       console.log('HOST: Thank you, that is the end of the interview.\n');
       break;
     }
@@ -139,6 +155,7 @@ async function main() {
       text: question,
       ...asked,
       reason: decision.reason,
+      ...(decision.modelReason && { modelReason: decision.modelReason }),
       ...(decision.fallback && { fallback: decision.fallback }),
       latencyMs: decision.usage.latencyMs,
       inputTokens: decision.usage.inputTokens,

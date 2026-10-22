@@ -1,14 +1,14 @@
 {
   "enabled": true,
   "timeLimitMinutes": 10,
-  "maxFollowUpsPerTheme": 2,
+  "maxFollowUpsPerMainQuestion": 1,
   "themes": [
     {
       "id": "pointers",
       "title": "Pointers and memory",
       "mainQuestions": [
-        "Walk me through how your linked list is built. What does each node point to?",
-        "What happens to the memory your program allocates once it is finished with the list?"
+        "Look at the Node struct and pushFront. Explain how a new node becomes part of the list.",
+        "Look at the destructor. Explain what happens to each node when list goes out of scope at the end of main."
       ],
       "criteria": [
         "Student can describe the node structure and how the next pointer links nodes",
@@ -19,10 +19,22 @@
       "id": "edge-cases",
       "title": "Edge cases",
       "mainQuestions": [
-        "What does your code do if the list is empty when you try to remove an element?"
+        "Look at removeFront. Explain what happens when it is called on an empty list."
       ],
       "criteria": [
         "Student can explain the empty-list check or admits the case is not handled"
+      ]
+    },
+    {
+      "id": "tracing",
+      "title": "Tracing the program",
+      "mainQuestions": [
+        "Trace main from the first pushFront call. What does each print() call output?",
+        "Suppose pushFront added new nodes at the end of the list instead of the front. What would change in the output of main?"
+      ],
+      "criteria": [
+        "Student correctly predicts the printed order and explains why nodes appear in reverse insertion order",
+        "Student can reason about how changing the insertion point changes the list order"
       ]
     }
   ]
