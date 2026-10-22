@@ -17,7 +17,9 @@ export interface EmbeddedAssessment {
   title: string;
   description: string;
   difficulty: 'easy' | 'medium' | 'hard';
-  rubric: string[];
+  /** Rubric text. Only admins receive it; students get criteriaCount instead. */
+  rubric?: string[];
+  criteriaCount?: number;
   bcdiplomaTemplateId?: string;
   /** Optional grouping label. Absent or null means "No course". */
   course?: string | null;
@@ -31,7 +33,8 @@ export interface EmbeddedSubmissionResult {
   score: number;
   passedCriteria: number;
   totalCriteria: number;
-  rubricResults: RubricResult[];
+  /** Not returned on submit: students see the criteria once the submission is reviewed. */
+  rubricResults?: RubricResult[];
   message: string;
   /** 'manual': saved for instructor grading, not graded automatically. */
   gradingMode?: 'llm' | 'manual';

@@ -27,7 +27,8 @@ export interface CodingAssessment extends AssessmentBase {
 /** An embedded systems assessment graded against a rubric. */
 export interface EmbeddedRubricAssessment extends AssessmentBase {
   kind: 'embedded';
-  rubric: string[];
+  /** Number of rubric criteria. The criteria text is not sent to students. */
+  criteriaCount: number;
 }
 
 export type Assessment = CodingAssessment | EmbeddedRubricAssessment;

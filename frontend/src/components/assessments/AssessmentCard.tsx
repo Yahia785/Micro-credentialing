@@ -136,7 +136,7 @@ export function AssessmentCard({
         {assessment.kind === 'coding' && assessment.testCaseCount !== undefined && (
           <Badge variant="neutral">{assessment.testCaseCount} test cases</Badge>
         )}
-        {assessment.kind === 'embedded' && <Badge variant="neutral">{assessment.rubric.length} criteria</Badge>}
+        {assessment.kind === 'embedded' && <Badge variant="neutral">{assessment.criteriaCount} criteria</Badge>}
         <StatusIndicator assessment={assessment} completed={completed} reviewStatus={reviewStatus} />
       </div>
 

@@ -75,7 +75,7 @@ export async function getAllAssessments(): Promise<LoadedAssessments> {
         description: row.description,
         difficulty: row.difficulty,
         course: normalizeCourse(row.course),
-        rubric: row.rubric || [],
+        criteriaCount: row.criteriaCount ?? row.rubric?.length ?? 0,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       });
