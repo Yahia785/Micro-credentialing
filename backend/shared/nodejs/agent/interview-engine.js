@@ -14,8 +14,8 @@ const fs = require('fs');
 const path = require('path');
 const bedrock = require('./bedrock-client');
 
-const PROMPT_VERSIONS = Object.freeze(['host.v1', 'host.v2']);
-const PROMPT_VERSION = 'host.v2'; // default; AGENT_PROMPT_VERSION or an explicit version overrides it
+const PROMPT_VERSIONS = Object.freeze(['host.v1', 'host.v2', 'host.v3']);
+const PROMPT_VERSION = 'host.v3'; // default; AGENT_PROMPT_VERSION or an explicit version overrides it
 const DEFAULT_FOLLOW_UPS_PER_MAIN = 1;
 const MAX_FOLLOW_UPS_PER_MAIN = 3;
 const MAX_FOLLOW_UP_LENGTH = 300;
@@ -103,6 +103,20 @@ function neutralise(text) {
   return String(text).replace(WRAPPER_TAG, '&lt;$1');
 }
 
+/**
+ * The actions the model may choose right now:
+ * follow_up only while this main question has budget left, next_main only while a main question
+ * remains, end only when none remain.
+ */
+function allowedActions(config, state) {
+  const followUpsRemaining = Math.max(0, followUpBudget(config) - state.followUpCount);
+  const mainsLeft = nextMainPosition(config, state) !== null;
+  const allowed = [];
+  if (followUpsRemaining > 0) allowed.push(ACTIONS.FOLLOW_UP);
+  allowed.push(mainsLeft ? ACTIONS.NEXT_MAIN : ACTIONS.END);
+  return allowed;
+}
+
 function buildUserMessage({ config, state, code, turns }) {
   const theme = currentTheme(config, state);
   const followUpsRemaining = Math.max(0, followUpBudget(config) - state.followUpCount);
@@ -124,6 +138,7 @@ function buildUserMessage({ config, state, code, turns }) {
     criteria,
     `Follow-ups remaining for this main question: ${followUpsRemaining}`,
     `More main questions remain after this one: ${mainsLeft ? 'yes' : 'no'}`,
+    `Allowed actions now: ${allowedActions(config, state).join(', ')}`,
     '</instructor_config>',
     '<student_code>',
     neutralise(trimmedCode),
@@ -311,6 +326,7 @@ module.exports = {
   MAX_FOLLOW_UP_LENGTH,
   resolvePromptVersion,
   followUpBudget,
+  allowedActions,
   initialState,
   firstQuestion,
   decideNext,

@@ -13,7 +13,7 @@
  *   --config <file>   interview config JSON (required)
  *   --out    <file>   transcript file (default: mock-interview-<timestamp>.json)
  *   --model  <id>     Bedrock model ID (default: AGENT_MODEL_ID or the platform default)
- *   --prompt <ver>    prompt version, host.v1 or host.v2 (default: AGENT_PROMPT_VERSION or host.v2)
+ *   --prompt <ver>    prompt version, host.v1, host.v2 or host.v3 (default: AGENT_PROMPT_VERSION or host.v3)
  *
  * Type /quit to stop early. Note: your answers and the code are sent to Bedrock (us-east-1).
  */
@@ -48,7 +48,7 @@ function fail(message) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.code || !args.config) {
-    fail('usage: node scripts/mock-interview.js --code <file.cpp> --config <interview.json> [--out transcript.json] [--model id] [--prompt host.v1|host.v2]');
+    fail('usage: node scripts/mock-interview.js --code <file.cpp> --config <interview.json> [--out transcript.json] [--model id] [--prompt host.v1|host.v2|host.v3]');
   }
 
   const code = fs.readFileSync(path.resolve(args.code), 'utf8');
@@ -84,15 +84,24 @@ async function main() {
   transcript.turns.push({ role: 'host', text: question, ...asked, createdAt: new Date(askedAt).toISOString(), reason: 'first main question' });
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  // One close listener for the whole run. It ends the question that is waiting, if any, with null.
   let closed = false;
-  rl.on('close', () => { closed = true; });
+  let pendingAnswer = null;
+  rl.on('close', () => {
+    closed = true;
+    if (pendingAnswer) pendingAnswer(null);
+    pendingAnswer = null;
+  });
   const ask = (prompt) => new Promise((resolve) => {
     if (closed) return resolve(null);
-    rl.question(prompt, resolve);
-    rl.once('close', () => resolve(null));
+    pendingAnswer = resolve;
+    rl.question(prompt, (answer) => {
+      pendingAnswer = null;
+      resolve(answer);
+    });
   });
 
-  console.log(`\nInterview started (model ${modelId}, prompt ${promptVersion},${config.timeLimitMinutes} min). Type /quit to stop.\n`);
+  console.log(`\nInterview started (model ${modelId}, prompt ${promptVersion}, ${config.timeLimitMinutes} min). Type /quit to stop.\n`);
 
   while (true) {
     console.log(`HOST [${formatRemaining(deadline - Date.now())} left]: ${question}\n`);

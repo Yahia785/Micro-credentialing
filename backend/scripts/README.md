@@ -24,13 +24,13 @@ node scripts/mock-interview.js --code scripts/sample.cpp --config scripts/sample
 - `--config` the interview config (same shape as the `interview` field on a coding assessment)
 - `--out` where to write the transcript (default `mock-interview-<timestamp>.json`)
 - `--model` Bedrock model ID (default: `AGENT_MODEL_ID`, else `qwen.qwen3-coder-30b-a3b-v1:0`)
-- `--prompt` `host.v1` or `host.v2` (default: `AGENT_PROMPT_VERSION`, else `host.v2`)
+- `--prompt` `host.v1`, `host.v2` or `host.v3` (default: `AGENT_PROMPT_VERSION`, else `host.v3`)
 
 Compare the two prompts on the same code and config:
 
 ```
-node scripts/mock-interview.js --code scripts/sample.cpp --config scripts/sample-interview.json --prompt host.v1 --out v1.json
-node scripts/mock-interview.js --code scripts/sample.cpp --config scripts/sample-interview.json --prompt host.v2 --out v2.json
+node scripts/mock-interview.js --code scripts/sample.cpp --config scripts/sample-interview.json --prompt host.v2 --out transcript-v2.json
+node scripts/mock-interview.js --code scripts/sample.cpp --config scripts/sample-interview.json --prompt host.v3 --out transcript-v3.json
 ```
 
 Type `/quit` to stop early. Each question shows the time left. The clock is enforced like the server:

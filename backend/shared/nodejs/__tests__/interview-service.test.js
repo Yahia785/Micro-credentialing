@@ -77,7 +77,7 @@ describe('startInterview', () => {
     const [createdMeta, turn] = interviews.createInterview.mock.calls[0];
     expect(createdMeta).toMatchObject({
       submissionId: 'sub1', userId: 'u1', milestoneId: 'm1', status: 'in_progress',
-      promptVersion: 'host.v2', modelId: 'qwen.qwen3-coder-30b-a3b-v1:0',
+      promptVersion: 'host.v3', modelId: 'qwen.qwen3-coder-30b-a3b-v1:0',
       themeIndex: 0, mainIndex: 0, followUpCount: 0, fallbackCount: 0, turnCount: 1,
     });
     expect(createdMeta.configSnapshot).toEqual(config);

@@ -48,11 +48,24 @@ describe('prompt versions', () => {
     else process.env.AGENT_PROMPT_VERSION = saved;
   });
 
-  it('defaults to host.v2 and keeps host.v1 available', () => {
+  it('defaults to host.v3 and keeps host.v1 and host.v2 available', () => {
     delete process.env.AGENT_PROMPT_VERSION;
-    expect(engine.resolvePromptVersion()).toBe('host.v2');
+    expect(engine.resolvePromptVersion()).toBe('host.v3');
     expect(engine.resolvePromptVersion('host.v1')).toBe('host.v1');
-    expect(engine.loadPrompt('host.v1')).not.toEqual(engine.loadPrompt('host.v2'));
+    expect(engine.resolvePromptVersion('host.v2')).toBe('host.v2');
+    const prompts = ['host.v1', 'host.v2', 'host.v3'].map((v) => engine.loadPrompt(v));
+    expect(new Set(prompts).size).toBe(3);
+  });
+
+  it.each(['host.v1', 'host.v2', 'host.v3'])('%s still runs through the engine', async (promptVersion) => {
+    const out = await engine.decideNext({
+      config, state: st(), code: 'x', turns, promptVersion,
+      converseFn: async (req) => {
+        expect(req.system).toBe(engine.loadPrompt(promptVersion));
+        return nextMain()();
+      },
+    });
+    expect(out).toMatchObject({ action: 'next_main', question: 'Main A2?', fallback: null });
   });
 
   it('can be chosen with AGENT_PROMPT_VERSION', () => {
@@ -71,7 +84,35 @@ describe('prompt versions', () => {
     await engine.decideNext({ config, state: st(), code: 'x', turns, converseFn: spy, promptVersion: 'host.v1' });
     await engine.decideNext({ config, state: st(), code: 'x', turns, converseFn: spy });
     expect(seen[0]).toBe(engine.loadPrompt('host.v1'));
-    expect(seen[1]).toBe(engine.loadPrompt('host.v2'));
+    expect(seen[1]).toBe(engine.loadPrompt('host.v3'));
+  });
+
+  it('v3 adds the move-on rule, the reason rule and the allowed-actions rule', () => {
+    const v3 = engine.loadPrompt('host.v3');
+    expect(v3).toMatch(/move on with "next_main" and no follow-up/i);
+    expect(v3).toMatch(/vague, incomplete or wrong/i);
+    expect(v3).toMatch(/must justify the action you chose, and only that action/i);
+    expect(v3).toMatch(/Allowed actions now/);
+    // one good and one bad example for the move-on rule and for the reason rule
+    expect(v3).toMatch(/Bad: "follow_up" with/);
+    expect(v3).toMatch(/Good: "next_main"/);
+    expect(v3).toMatch(/Bad: action "next_main", reason/);
+    expect(v3).toMatch(/Good: action "next_main", reason/);
+  });
+
+  it('v3 keeps every v2 question rule', () => {
+    const v3 = engine.loadPrompt('host.v3');
+    expect(v3).toMatch(/do not state or summarize what the code does/i);
+    expect(v3).toMatch(/never ask a yes\/no question/i);
+    expect(v3).toMatch(/one concept per question/i);
+    expect(v3).toMatch(/factual error/i);
+    expect(v3).toMatch(/untrusted/i);
+    expect(v3).toMatch(/never quote them/i);
+  });
+
+  it('v1 and v2 are unchanged by the v3 work', () => {
+    expect(engine.loadPrompt('host.v1')).not.toMatch(/Allowed actions now/);
+    expect(engine.loadPrompt('host.v2')).not.toMatch(/Allowed actions now/);
   });
 
   it('v2 carries the question rules', () => {
@@ -82,6 +123,77 @@ describe('prompt versions', () => {
     expect(v2).toMatch(/factual error/i);
     expect(v2).toMatch(/untrusted/i);
     expect(v2).toMatch(/never quote them/i);
+  });
+});
+
+describe('allowed actions', () => {
+  const lastMain = { themeIndex: 1, mainIndex: 0 };
+
+  it.each([
+    ['main questions remain and budget is left', st(), 1, ['follow_up', 'next_main']],
+    ['main questions remain and the budget is 0', st(), 0, ['next_main']],
+    ['main questions remain and the budget is used up', st({ followUpCount: 1 }), 1, ['next_main']],
+    ['no main questions remain and budget is left', st(lastMain), 1, ['follow_up', 'end']],
+    ['no main questions remain and the budget is 0', st(lastMain), 0, ['end']],
+    ['no main questions remain and the budget is used up', st({ ...lastMain, followUpCount: 1 }), 1, ['end']],
+  ])('%s', (_name, state, budget, expected) => {
+    expect(engine.allowedActions(withBudget(budget), state)).toEqual(expected);
+  });
+
+  it('follow_up is never offered when the budget is 0, and next_main never when none remain', () => {
+    const noFollowUp = engine.buildUserMessage({ config: withBudget(0), state: st(), code: 'x', turns });
+    expect(noFollowUp).toContain('Allowed actions now: next_main');
+    expect(noFollowUp).not.toMatch(/Allowed actions now:.*follow_up/);
+
+    const noMain = engine.buildUserMessage({ config, state: st({ themeIndex: 1 }), code: 'x', turns });
+    expect(noMain).toContain('Allowed actions now: follow_up, end');
+    expect(noMain).not.toMatch(/Allowed actions now:.*next_main/);
+  });
+
+  it('puts the allowed actions inside the instructor block, not in student content', () => {
+    const message = engine.buildUserMessage({ config, state: st(), code: 'x', turns });
+    const block = message.slice(message.indexOf('<instructor_config>'), message.indexOf('</instructor_config>'));
+    expect(block).toContain('Allowed actions now: follow_up, next_main');
+  });
+
+  it('is sent to the model on every prompt version', async () => {
+    for (const promptVersion of ['host.v1', 'host.v2', 'host.v3']) {
+      let sent;
+      await engine.decideNext({
+        config: withBudget(0), state: st(), code: 'x', turns, promptVersion,
+        converseFn: async (req) => { sent = req.messages[0].content[0].text; return nextMain()(); },
+      });
+      expect(sent).toContain('Allowed actions now: next_main');
+    }
+  });
+
+  it('still calls the model when only one action is allowed, so every turn has a reason', async () => {
+    const calls = jest.fn(nextMain('only choice'));
+    const out = await run(st({ followUpCount: 1 }), calls);
+    expect(calls).toHaveBeenCalledTimes(1);
+    expect(out).toMatchObject({ action: 'next_main', reason: 'only choice' });
+  });
+
+  describe('safety net when the model picks an action that is not allowed', () => {
+    it('follow_up with no budget: same override text, model reason kept', async () => {
+      const out = await run(st({ followUpCount: 1 }), followUp('More?', 'wants detail'));
+      expect(out.action).toBe('next_main');
+      expect(out.reason).toBe('override: follow-up limit for this main question reached; asked the next main question');
+      expect(out.modelReason).toBe('wants detail');
+    });
+
+    it('next_main with none remaining: same override text', async () => {
+      const out = await run(st(lastMain), nextMain('more please'));
+      expect(out.action).toBe('end');
+      expect(out.reason).toBe('override: model asked for another main question but none remain; ended');
+      expect(out.modelReason).toBe('more please');
+    });
+
+    it('end while main questions remain: same override text', async () => {
+      const out = await run(st(), end('done'));
+      expect(out.action).toBe('next_main');
+      expect(out.reason).toBe('override: model asked to end but main questions remain; asked the next main question');
+    });
   });
 });
 
