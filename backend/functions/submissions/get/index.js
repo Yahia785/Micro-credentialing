@@ -4,6 +4,7 @@ const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
+const { toStudentSubmission } = require('/opt/nodejs/utils/assessment-view');
 
 /**
  * Lambda Handler: Get Submission
@@ -54,6 +55,8 @@ exports.handler = withHandler(async (ctx) => {
   // The "left mid-session" flag is for instructors only; students see it as any submission under review.
   if (!isAdmin) {
     delete filteredSubmission.endedBy;
+    // Embedded rubric criteria and per-criterion feedback appear only once the submission is reviewed.
+    filteredSubmission = toStudentSubmission(filteredSubmission);
   }
 
   return successResponse(200, {

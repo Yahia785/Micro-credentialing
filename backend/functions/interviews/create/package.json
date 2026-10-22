@@ -1,0 +1,7 @@
+{
+  "name": "interview-create-function",
+  "version": "1.0.0",
+  "description": "Interview endpoint (create)",
+  "main": "index.js",
+  "dependencies": {}
+}

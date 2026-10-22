@@ -64,7 +64,8 @@ describe('manual grading mode', () => {
       gradingMode: 'manual'
     });
     expect(result.gradingFailed).toBeUndefined();
-    expect(Array.isArray(result.rubricResults)).toBe(true);
+    // The rubric text is not returned on submit; students see it once the submission is reviewed.
+    expect(result.rubricResults).toBeUndefined();
   });
 
   it('records the attempt, with no credential counters', async () => {

@@ -24,6 +24,10 @@ exports.handler = withHandler(async (ctx) => {
 
   const body = ctx.body;
 
+  if (body.interview !== undefined && body.interview !== null) {
+    return errorResponse(400, 'interview is only supported on coding assessments');
+  }
+
   const updates = {};
 
   if (body.title !== undefined) updates.title = body.title;

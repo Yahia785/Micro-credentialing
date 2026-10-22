@@ -28,6 +28,11 @@ exports.handler = withHandler(async (ctx) => {
     }
   }
 
+  // Interviews are C++ coding assessments only for now.
+  if (body.interview !== undefined && body.interview !== null) {
+    return errorResponse(400, 'interview is only supported on coding assessments');
+  }
+
   const course = parseCourse(body.course);
   if (course.error) {
     return errorResponse(400, course.error);

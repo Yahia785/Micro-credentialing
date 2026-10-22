@@ -1,0 +1,7 @@
+{
+  "name": "interview-answer-function",
+  "version": "1.0.0",
+  "description": "Interview endpoint (answer)",
+  "main": "index.js",
+  "dependencies": {}
+}

@@ -3,6 +3,7 @@ const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
+const { isAdminUser, forViewer } = require('/opt/nodejs/utils/assessment-view');
 
 /**
  * Lambda Handler: Get Embedded Assessment(s)
@@ -13,6 +14,9 @@ const log = require('/opt/nodejs/utils/logger');
 exports.handler = withHandler(async (ctx) => {
   const assessmentId = ctx.pathParams.assessmentId;
 
+  // Students get criteriaCount only; the rubric text is shown after their submission is reviewed.
+  const isAdmin = await isAdminUser(ctx.userId);
+
   if (assessmentId) {
     log.info('Getting embedded assessment', { assessmentId });
 
@@ -22,13 +26,13 @@ exports.handler = withHandler(async (ctx) => {
       return errorResponse(404, 'Embedded assessment not found');
     }
 
-    return successResponse(200, { assessment });
+    return successResponse(200, { assessment: forViewer(assessment, isAdmin) });
 
   } else {
     log.info('Getting all embedded assessments');
 
     const assessments = await getAllEmbeddedAssessments();
 
-    return successResponse(200, { assessments });
+    return successResponse(200, { assessments: assessments.map((a) => forViewer(a, isAdmin)) });
   }
 });

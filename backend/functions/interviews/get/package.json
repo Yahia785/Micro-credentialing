@@ -1,0 +1,7 @@
+{
+  "name": "interview-get-function",
+  "version": "1.0.0",
+  "description": "Interview endpoint (get)",
+  "main": "index.js",
+  "dependencies": {}
+}

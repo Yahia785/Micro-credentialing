@@ -1,0 +1,29 @@
+{
+  "enabled": true,
+  "timeLimitMinutes": 10,
+  "maxFollowUpsPerTheme": 2,
+  "themes": [
+    {
+      "id": "pointers",
+      "title": "Pointers and memory",
+      "mainQuestions": [
+        "Walk me through how your linked list is built. What does each node point to?",
+        "What happens to the memory your program allocates once it is finished with the list?"
+      ],
+      "criteria": [
+        "Student can describe the node structure and how the next pointer links nodes",
+        "Student knows allocated nodes must be freed and where this happens in their code"
+      ]
+    },
+    {
+      "id": "edge-cases",
+      "title": "Edge cases",
+      "mainQuestions": [
+        "What does your code do if the list is empty when you try to remove an element?"
+      ],
+      "criteria": [
+        "Student can explain the empty-list check or admits the case is not handled"
+      ]
+    }
+  ]
+}

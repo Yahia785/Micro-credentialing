@@ -30,6 +30,8 @@ async function createMilestone(milestoneData) {
       bcdiplomaTemplateId: milestoneData.bcdiplomaTemplateId || null,
       // Optional label used to group assessments; absent means "No course".
       ...(milestoneData.course && { course: milestoneData.course }),
+      // Optional interview setup (C++ coding assessments). Admin-only: contains the criteria.
+      ...(milestoneData.interview && { interview: milestoneData.interview }),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }

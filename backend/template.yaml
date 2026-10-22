@@ -52,6 +52,23 @@ Parameters:
       instructor review and never calls the Anthropic API; "llm" grades against the rubric
       with the LLM first.
 
+  # Interview agent (Amazon Bedrock). Must be a direct model ID: cross-region inference
+  # profiles ("us.", "eu.", "global." or an ARN) are refused by the code and not covered by IAM.
+  AgentModelId:
+    Type: String
+    Default: "qwen.qwen3-coder-30b-a3b-v1:0"
+    Description: >-
+      Bedrock model ID used by the interview Host agent (Qwen3 Coder 30B A3B Instruct).
+      Called directly in us-east-1 only.
+
+  InterviewRetentionDays:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: >-
+      Days to keep interview records before DynamoDB TTL deletes them (the expiresAt attribute).
+      0 keeps them until deleted by hand.
+
   AllowedOrigins:
     Type: String
     Description: >-
@@ -80,7 +97,7 @@ Conditions:
 # ==========================================
 Globals:
   Function:
-    Runtime: nodejs18.x
+    Runtime: nodejs22.x
     Timeout: 90
     MemorySize: 256
     Layers:
@@ -93,6 +110,9 @@ Globals:
         MILESTONES_TABLE: Milestones
         TESTCASES_TABLE: TestCases
         SUBMISSIONS_TABLE: Submissions
+        INTERVIEWS_TABLE: !Sub "Interviews-${Environment}"
+        AGENT_MODEL_ID: !Ref AgentModelId
+        INTERVIEW_RETENTION_DAYS: !Ref InterviewRetentionDays
         COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
         JUDGE0_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${Judge0ApiKeySecretName}"
         JUDGE0_API_HOST: "judge0-ce.p.rapidapi.com"
@@ -121,7 +141,7 @@ Resources:
       Description: Shared database functions, utilities, and middleware
       ContentUri: shared/
       CompatibleRuntimes:
-        - nodejs18.x
+        - nodejs22.x
 
   # ------------------------------------------
   # API GATEWAY
@@ -1436,8 +1456,155 @@ Resources:
  
  
   # ==========================================
+  # INTERVIEW FUNCTIONS (AI interview after a coding submission)
+  # ==========================================
+
+  # ------------------------------------------
+  # LAMBDA: Start Interview
+  # ------------------------------------------
+  CreateInterviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/interviews/create/
+      Handler: index.handler
+      Description: Starts the interview for a coding submission
+      Timeout: 25
+      Events:
+        CreateInterview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsInterviews:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref InterviewsTable
+        - DynamoDBReadPolicy:
+            TableName: Submissions
+        - DynamoDBReadPolicy:
+            TableName: Milestones
+
+  # ------------------------------------------
+  # LAMBDA: Answer Interview Question
+  # ------------------------------------------
+  SubmitInterviewAnswerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/interviews/answer/
+      Handler: index.handler
+      Description: Stores an interview answer and returns the next question
+      Timeout: 25
+      Events:
+        SubmitInterviewAnswer:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews/{interviewId}/answers
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsInterviewAnswers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews/{interviewId}/answers
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref InterviewsTable
+        - DynamoDBReadPolicy:
+            TableName: Submissions
+        # Converse needs bedrock:InvokeModel on this one model, in us-east-1 only.
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${AgentModelId}"
+
+  # ------------------------------------------
+  # LAMBDA: Get Interview
+  # ------------------------------------------
+  GetInterviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/interviews/get/
+      Handler: index.handler
+      Description: Gets an interview transcript (students without reasons, admins everything)
+      Events:
+        GetInterview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews/{interviewId}
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsInterviewId:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews/{interviewId}
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        # Read, plus the timed_out update when the deadline has passed.
+        - DynamoDBCrudPolicy:
+            TableName: !Ref InterviewsTable
+        - DynamoDBReadPolicy:
+            TableName: Users
+
+  # ==========================================
   # DYNAMODB TABLES
   # ==========================================
+
+  # ------------------------------------------
+  # TABLE: Interviews (per environment, unlike the older shared tables)
+  # ------------------------------------------
+  InterviewsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "Interviews-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: interviewId
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: submissionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: interviewId
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        # Only META items carry submissionId, so this index holds one item per interview.
+        - IndexName: SubmissionIdIndex
+          KeySchema:
+            - AttributeName: submissionId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      # Retention period: set InterviewRetentionDays to stamp expiresAt on every item.
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
 
   # ------------------------------------------
   # TABLE: Users

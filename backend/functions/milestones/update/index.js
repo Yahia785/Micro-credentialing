@@ -4,6 +4,7 @@ const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
 const { parseCourse } = require('/opt/nodejs/utils/course');
+const { parseInterview, redactInterview } = require('/opt/nodejs/utils/interview-config');
 
 /**
  * Lambda Handler: Update Milestone (Problem)
@@ -32,9 +33,22 @@ exports.handler = withHandler(async (ctx) => {
     return errorResponse(400, course.error);
   }
 
+  const interview = parseInterview(body.interview, {
+    language: body.language || existingMilestone.language,
+    type: existingMilestone.type
+  });
+  if (interview.error) {
+    return errorResponse(400, interview.error);
+  }
+  // An existing interview needs the assessment to stay C++.
+  const effectiveInterview = interview.provided ? interview.value : existingMilestone.interview;
+  if (effectiveInterview && effectiveInterview.enabled && (body.language || existingMilestone.language) !== 'cpp') {
+    return errorResponse(400, 'Interviews are only supported for C++ assessments');
+  }
+
   // Validate that at least one field is being updated
-  if (!body.title && !body.description && !body.difficulty && !course.provided) {
-    return errorResponse(400, 'At least one field (title, description, difficulty, or course) must be provided');
+  if (!body.title && !body.description && !body.difficulty && !course.provided && !interview.provided) {
+    return errorResponse(400, 'At least one field (title, description, difficulty, course, or interview) must be provided');
   }
 
   // Validate difficulty level if provided
@@ -45,14 +59,18 @@ exports.handler = withHandler(async (ctx) => {
     }
   }
 
-  log.info('Updating milestone', { milestoneId, body });
+  log.info('Updating milestone', { milestoneId, body: redactInterview(body) });
 
   // Update milestone
   // A cleared course is stored as null ("No course").
-  const updates = course.provided ? { ...body, course: course.value } : body;
+  // The interview is stored only in its validated form; a cleared interview is stored as null.
+  const updates = { ...body };
+  delete updates.interview;
+  if (course.provided) updates.course = course.value;
+  if (interview.provided) updates.interview = interview.value;
   const updatedMilestone = await updateMilestone(milestoneId, updates);
 
-  log.info('Milestone updated', { updatedMilestone });
+  log.info('Milestone updated', { updatedMilestone: redactInterview(updatedMilestone) });
 
   return successResponse(200, {
     message: 'Milestone updated successfully',

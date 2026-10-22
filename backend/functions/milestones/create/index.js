@@ -4,6 +4,7 @@ const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
 const { parseCourse } = require('/opt/nodejs/utils/course');
+const { parseInterview, redactInterview } = require('/opt/nodejs/utils/interview-config');
 
 /**
  * Lambda Handler: Create Milestone (Problem)
@@ -35,7 +36,12 @@ exports.handler = withHandler(async (ctx) => {
     return errorResponse(400, course.error);
   }
 
-  log.info('Creating milestone', { body });
+  const interview = parseInterview(body.interview, { language: body.language || 'python' });
+  if (interview.error) {
+    return errorResponse(400, interview.error);
+  }
+
+  log.info('Creating milestone', { body: redactInterview(body) });
 
   // Create milestone with ALL fields
   const milestone = await createMilestone({
@@ -48,10 +54,11 @@ exports.handler = withHandler(async (ctx) => {
     timeLimit: body.timeLimit || 5000,
     memoryLimit: body.memoryLimit || 256000,
     bcdiplomaTemplateId: body.bcdiplomaTemplateId,
-    course: course.value
+    course: course.value,
+    interview: interview.value
   });
 
-  log.info('Milestone created', { milestone });
+  log.info('Milestone created', { milestone: redactInterview(milestone) });
 
   return successResponse(201, {
     message: 'Milestone created successfully',

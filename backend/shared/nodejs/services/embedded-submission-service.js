@@ -185,7 +185,7 @@ async function processEmbeddedSubmission({ userId, assessmentId, body, gradingMo
     score: saveFields.score,
     passedCriteria: saveFields.passedCriteria,
     totalCriteria: saveFields.totalCriteria,
-    rubricResults: saveFields.rubricResults,
+    // rubricResults are deliberately not returned: students see the criteria only once reviewed.
     ...responseExtras
   };
 }
