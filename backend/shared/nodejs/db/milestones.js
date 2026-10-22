@@ -28,6 +28,8 @@ async function createMilestone(milestoneData) {
       testCaseCount: milestoneData.testCaseCount || 0,
       // NEW: BCdiploma template ID for this problem
       bcdiplomaTemplateId: milestoneData.bcdiplomaTemplateId || null,
+      // Optional label used to group assessments; absent means "No course".
+      ...(milestoneData.course && { course: milestoneData.course }),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }

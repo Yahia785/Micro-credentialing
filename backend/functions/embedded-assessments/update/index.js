@@ -3,6 +3,7 @@ const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
+const { parseCourse } = require('/opt/nodejs/utils/course');
 
 /**
  * Lambda Handler: Update Embedded Assessment
@@ -29,6 +30,13 @@ exports.handler = withHandler(async (ctx) => {
   if (body.description !== undefined) updates.description = body.description;
   if (body.difficulty !== undefined) updates.difficulty = body.difficulty;
   if (body.bcdiplomaTemplateId !== undefined) updates.bcdiplomaTemplateId = body.bcdiplomaTemplateId;
+
+  const course = parseCourse(body.course);
+  if (course.error) {
+    return errorResponse(400, course.error);
+  }
+  // A cleared course is stored as null ("No course").
+  if (course.provided) updates.course = course.value;
 
   if (body.rubric !== undefined) {
     if (!Array.isArray(body.rubric) || body.rubric.length === 0) {

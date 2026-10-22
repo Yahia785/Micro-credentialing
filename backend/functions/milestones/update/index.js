@@ -3,6 +3,7 @@ const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
+const { parseCourse } = require('/opt/nodejs/utils/course');
 
 /**
  * Lambda Handler: Update Milestone (Problem)
@@ -26,9 +27,14 @@ exports.handler = withHandler(async (ctx) => {
   // Parse request body
   const body = ctx.body;
 
+  const course = parseCourse(body.course);
+  if (course.error) {
+    return errorResponse(400, course.error);
+  }
+
   // Validate that at least one field is being updated
-  if (!body.title && !body.description && !body.difficulty) {
-    return errorResponse(400, 'At least one field (title, description, or difficulty) must be provided');
+  if (!body.title && !body.description && !body.difficulty && !course.provided) {
+    return errorResponse(400, 'At least one field (title, description, difficulty, or course) must be provided');
   }
 
   // Validate difficulty level if provided
@@ -42,7 +48,9 @@ exports.handler = withHandler(async (ctx) => {
   log.info('Updating milestone', { milestoneId, body });
 
   // Update milestone
-  const updatedMilestone = await updateMilestone(milestoneId, body);
+  // A cleared course is stored as null ("No course").
+  const updates = course.provided ? { ...body, course: course.value } : body;
+  const updatedMilestone = await updateMilestone(milestoneId, updates);
 
   log.info('Milestone updated', { updatedMilestone });
 

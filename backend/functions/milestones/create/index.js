@@ -3,6 +3,7 @@ const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
+const { parseCourse } = require('/opt/nodejs/utils/course');
 
 /**
  * Lambda Handler: Create Milestone (Problem)
@@ -29,6 +30,11 @@ exports.handler = withHandler(async (ctx) => {
     return errorResponse(400, 'Language must be one of: python, javascript, java, cpp, c');
   }
 
+  const course = parseCourse(body.course);
+  if (course.error) {
+    return errorResponse(400, course.error);
+  }
+
   log.info('Creating milestone', { body });
 
   // Create milestone with ALL fields
@@ -41,7 +47,8 @@ exports.handler = withHandler(async (ctx) => {
     starterCode: body.starterCode || '',
     timeLimit: body.timeLimit || 5000,
     memoryLimit: body.memoryLimit || 256000,
-    bcdiplomaTemplateId: body.bcdiplomaTemplateId
+    bcdiplomaTemplateId: body.bcdiplomaTemplateId,
+    course: course.value
   });
 
   log.info('Milestone created', { milestone });

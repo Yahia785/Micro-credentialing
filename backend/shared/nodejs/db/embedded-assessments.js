@@ -24,6 +24,8 @@ async function createEmbeddedAssessment(data) {
       difficulty: data.difficulty || 'medium',
       rubric: data.rubric || [],
       bcdiplomaTemplateId: data.bcdiplomaTemplateId || null,
+      // Optional label used to group assessments; absent means "No course".
+      ...(data.course && { course: data.course }),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }

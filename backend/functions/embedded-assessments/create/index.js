@@ -3,6 +3,7 @@ const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
+const { parseCourse } = require('/opt/nodejs/utils/course');
 
 /**
  * Lambda Handler: Create Embedded Assessment
@@ -27,6 +28,11 @@ exports.handler = withHandler(async (ctx) => {
     }
   }
 
+  const course = parseCourse(body.course);
+  if (course.error) {
+    return errorResponse(400, course.error);
+  }
+
   log.info('Creating embedded assessment', { title: body.title });
 
   const assessment = await createEmbeddedAssessment({
@@ -34,7 +40,8 @@ exports.handler = withHandler(async (ctx) => {
     description: body.description || '',
     difficulty: body.difficulty || 'medium',
     rubric: body.rubric.map(c => c.trim()),
-    bcdiplomaTemplateId: body.bcdiplomaTemplateId || null
+    bcdiplomaTemplateId: body.bcdiplomaTemplateId || null,
+    course: course.value
   });
 
   log.info('Embedded assessment created', { milestoneId: assessment.milestoneId });
