@@ -13,6 +13,9 @@ credentials*.json
 # Agent mock-interview output (test data, not code)
 transcript*.json
 
+# Agent evaluation output (transcripts and summaries)
+eval-results/
+
 # OS and editor files
 .DS_Store
 Thumbs.db
