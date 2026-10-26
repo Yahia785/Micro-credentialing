@@ -1,0 +1,41 @@
+{
+  "enabled": true,
+  "timeLimitMinutes": 10,
+  "maxFollowUpsPerMainQuestion": 1,
+  "themes": [
+    {
+      "id": "capacity",
+      "title": "Capacity handling",
+      "mainQuestions": [
+        "Look at the check at the top of push. Explain what it protects against and what the caller sees when it triggers.",
+        "In main, the for loop pushes six values. Predict which pushes succeed and what is printed for the others."
+      ],
+      "criteria": [
+        "Student explains that the check prevents writing past the end of the data array and that push returns false when the stack is full",
+        "Student predicts that the first four pushes succeed and the fifth and sixth report that the stack is full"
+      ]
+    },
+    {
+      "id": "index",
+      "title": "Index bookkeeping",
+      "mainQuestions": [
+        "Look at how top is used inside pop. Explain why the value is read before top changes."
+      ],
+      "criteria": [
+        "Student explains that top is the index of the most recent element, so the value is read from data[top] first and top is decremented afterwards"
+      ]
+    },
+    {
+      "id": "tracing",
+      "title": "Tracing the program",
+      "mainQuestions": [
+        "Trace the while loop in main. In what order are the values printed, and why?",
+        "What does size() return at the end of main, and how is that number computed?"
+      ],
+      "criteria": [
+        "Student states that the values print as 40 30 20 10 because the last value pushed is the first one popped",
+        "Student says size returns 0 because top is back at -1 after four pops, and that top + 1 is the item count"
+      ]
+    }
+  ]
+}

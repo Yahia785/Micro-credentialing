@@ -1,0 +1,116 @@
+{
+  "caseId": "case1",
+  "mixed": ["good", "wrong", "vague", "idk", "short"],
+  "profiles": {
+    "strong": [
+      {
+        "main": { "label": "good", "text": "Node holds a value and a next pointer. In pushFront, new Node{value, head} allocates a node whose next is the current head, and then head is set to the new node. So the new node becomes the first node of the list and links to what used to be first." },
+        "followUp": { "label": "good", "text": "The order is what matters: the new node takes the old head as its next before head is moved, so the rest of the list is not lost. On an empty list head is nullptr, so the new node's next is nullptr and it is both the first and the last node." }
+      },
+      {
+        "main": { "label": "good", "text": "The destructor walks the list from head. It saves the current node in temp, moves head to head->next, and then deletes temp. Every node was allocated with new in pushFront, so every one has to be deleted, and keeping temp first means I never lose the pointer to the rest of the list. It runs automatically when list goes out of scope at the end of main." },
+        "followUp": { "label": "good", "text": "With three nodes it deletes them one at a time, 1 then 2 then 3, and head ends up nullptr. Without the destructor the memory from the three new calls would be leaked." }
+      },
+      {
+        "main": { "label": "good", "text": "removeFront first checks head == nullptr. On an empty list it returns false immediately and does not touch out or delete anything, so the only effect is the false return value telling the caller that nothing was removed." },
+        "followUp": { "label": "good", "text": "The caller checks the bool before using the removed value, and out is left unchanged. Without that check, head->next would dereference a null pointer and the program would crash." }
+      },
+      {
+        "main": { "label": "good", "text": "pushFront(3), then (2), then (1), each new node goes in front, so the list is 1 2 3. The first print() outputs '1 2 3'. removeFront takes the front value 1, so main prints 'Removed 1', and the second print() outputs '2 3'. The list reads in reverse of the insertion order because each push goes to the front." },
+        "followUp": { "label": "good", "text": "The values were inserted as 3, 2, 1 but read as 1 2 3, which is reverse insertion order, because the most recent push is always the head." }
+      },
+      {
+        "main": { "label": "good", "text": "If pushFront added at the end, the list would read 3 2 1, the same as the insertion order. The first print() would output '3 2 1', removeFront would remove 3 so main prints 'Removed 3', and the last print() would output '2 1'. Where the new node is inserted decides the order of the list." },
+        "followUp": { "label": "good", "text": "Appending would also need a walk to the last node or a tail pointer, but the visible change is that the printed order matches the insertion order instead of being reversed." }
+      }
+    ],
+    "vague": [
+      {
+        "main": { "label": "vague", "text": "It adds a new node to the list. The node points to the other nodes." },
+        "followUp": { "label": "vague", "text": "It just links it in with the pointers, so it ends up in the list." }
+      },
+      {
+        "main": { "label": "vague", "text": "It cleans up the memory when the list is done." },
+        "followUp": { "label": "vague", "text": "It goes through the nodes and cleans them up somehow." }
+      },
+      {
+        "main": { "label": "vague", "text": "It probably handles that case somehow, it checks something first." },
+        "followUp": { "label": "vague", "text": "I think it looks at the list and does the right thing." }
+      },
+      {
+        "main": { "label": "vague", "text": "It prints the numbers in the list a couple of times." },
+        "followUp": { "label": "vague", "text": "It prints the list and then prints it again after removing something." }
+      },
+      {
+        "main": { "label": "vague", "text": "The order would be different I think." },
+        "followUp": { "label": "vague", "text": "Things would print in another order, more or less." }
+      }
+    ],
+    "wrong": [
+      {
+        "main": { "label": "wrong", "text": "pushFront copies the whole list into a new array and puts the value at index zero, then the old array is freed. Node is just a struct for temporary storage." },
+        "followUp": { "label": "wrong", "text": "Yes, the array is resized on every push, that is how the new value ends up first." }
+      },
+      {
+        "main": { "label": "wrong", "text": "The destructor does nothing important because C++ frees all heap memory automatically at the end of the program, and delete is only needed for arrays." },
+        "followUp": { "label": "wrong", "text": "I am sure the destructor could be empty, the system frees the nodes as soon as list goes out of scope." }
+      },
+      {
+        "main": { "label": "wrong", "text": "On an empty list removeFront throws an exception that main catches, and the program prints an error message." },
+        "followUp": { "label": "wrong", "text": "It definitely throws, that is what the false return is for, it gets converted to an exception." }
+      },
+      {
+        "main": { "label": "wrong", "text": "The first print() outputs 3 2 1 because pushFront adds each new value at the end. Then 'Removed 3' is printed and the last print() shows 2 1." },
+        "followUp": { "label": "wrong", "text": "Right, the values stay in the order they were pushed because new nodes go to the back." }
+      },
+      {
+        "main": { "label": "wrong", "text": "Nothing would change in the output, because a linked list always prints its values in sorted order." },
+        "followUp": { "label": "wrong", "text": "I am confident the output stays identical since the list sorts itself." }
+      }
+    ],
+    "short": [
+      {
+        "main": { "label": "short", "text": "Links a new node." },
+        "followUp": { "label": "short", "text": "Sets next." }
+      },
+      {
+        "main": { "label": "short", "text": "Deletes the nodes." },
+        "followUp": { "label": "short", "text": "One by one." }
+      },
+      {
+        "main": { "label": "short", "text": "Returns false." },
+        "followUp": { "label": "short", "text": "No removal." }
+      },
+      {
+        "main": { "label": "short", "text": "1 2 3, then 2 3." },
+        "followUp": { "label": "short", "text": "Reverse order." }
+      },
+      {
+        "main": { "label": "short", "text": "It reverses." },
+        "followUp": { "label": "short", "text": "Prints 3 2 1." }
+      }
+    ],
+    "idk": [
+      {
+        "main": { "label": "idk", "text": "I don't know." },
+        "followUp": { "label": "idk", "text": "I really don't know." }
+      },
+      {
+        "main": { "label": "idk", "text": "I don't know, I'm not sure how that part works." },
+        "followUp": { "label": "idk", "text": "Sorry, I don't know." }
+      },
+      {
+        "main": { "label": "idk", "text": "I don't know." },
+        "followUp": { "label": "idk", "text": "I'm not sure, I don't know." }
+      },
+      {
+        "main": { "label": "idk", "text": "I don't know what it prints." },
+        "followUp": { "label": "idk", "text": "I don't know." }
+      },
+      {
+        "main": { "label": "idk", "text": "I don't know." },
+        "followUp": { "label": "idk", "text": "No idea, I don't know." }
+      }
+    ]
+  }
+}

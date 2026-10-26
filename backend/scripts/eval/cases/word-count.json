@@ -1,0 +1,41 @@
+{
+  "enabled": true,
+  "timeLimitMinutes": 10,
+  "maxFollowUpsPerMainQuestion": 1,
+  "themes": [
+    {
+      "id": "counting",
+      "title": "How words are counted",
+      "mainQuestions": [
+        "Look at the loop in countWords. Explain how it arrives at the number of words for the string a.",
+        "Look at the starting value of words in countWords. Explain why it is not 0."
+      ],
+      "criteria": [
+        "Student explains that the function counts the spaces and adds one, so the string a with three spaces gives 4",
+        "Student explains that words starts at 1 because a sentence of n words has n minus 1 separating spaces"
+      ]
+    },
+    {
+      "id": "bug",
+      "title": "Input the function mishandles",
+      "mainQuestions": [
+        "Look at the calls to countWords with b and c in main. What does each call return, and is that the correct word count?",
+        "Suppose the text passed to countWords starts with a space. What would the function return, and why?"
+      ],
+      "criteria": [
+        "Student predicts 3 for b and 1 for c, recognises that both are wrong (the correct counts are 2 and 0), or admits the function does not handle repeated spaces or empty input",
+        "Student explains that every space is counted wherever it appears, so a leading or trailing space adds an extra word"
+      ]
+    },
+    {
+      "id": "helpers",
+      "title": "Helper functions",
+      "mainQuestions": [
+        "Look at isLetter and countLetters. Explain how countLetters decides which characters to count."
+      ],
+      "criteria": [
+        "Student explains that isLetter checks the ASCII ranges for lowercase and uppercase letters and that countLetters adds one for each such character, ignoring spaces"
+      ]
+    }
+  ]
+}
