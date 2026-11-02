@@ -12,6 +12,7 @@ const {
   parseJudge0Result,
   calculateMetrics
 } = require('../utils/judge0');
+const { runCppBatch } = require('../utils/codeRunner');
 const { ValidationError, NotFoundError, ExternalServiceError } = require('../utils/errors');
 const { END_REASONS, parseEndedBy } = require('../utils/submission-end-reason');
 
@@ -69,6 +70,43 @@ async function saveGradingFailure({ submissionRecord, alreadyCreated, reason, er
     credentialAwarded: false,
     gradingFailed: true
   };
+}
+
+/**
+ * Run every test case of a C++ submission through codeRunner and build the same test result
+ * objects parseJudge0Result produces. An internal_error (provider failure, quota, polling
+ * timeout) is thrown with the provider's message so the caller's grading_failed handling is unchanged.
+ */
+async function gradeCppTestCases({ code, testCasesToRun, milestone, deadlineMs }) {
+  const runs = await runCppBatch(testCasesToRun.map(testCase => ({
+    source: code,
+    stdin: testCase.input,
+    expectedOutput: testCase.expectedOutput,
+    timeLimitMs: milestone.timeLimit || 5000,
+    memoryLimitKb: milestone.memoryLimit || 256000
+  })), { deadlineMs });
+
+  const failed = runs.find(run => run.status === 'internal_error');
+  if (failed) {
+    throw new Error(failed.message || 'Code runner internal error');
+  }
+
+  return runs.map((run, index) => {
+    const testCase = testCasesToRun[index];
+    return {
+      testCaseId: testCase.testCaseId,
+      judge0TokenId: run.runId,
+      status: run.statusText,
+      passed: run.status === 'accepted',
+      input: testCase.input,
+      expectedOutput: testCase.expectedOutput,
+      actualOutput: run.stdout || '',
+      executionTime: run.timeMs / 1000,
+      memory: run.memoryKb,
+      isHidden: testCase.isHidden,
+      error: run.stderr || run.compileOutput || null
+    };
+  });
 }
 
 /**
@@ -213,20 +251,24 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
   let testResults;
   let metrics;
   try {
-    const judge0Response = await submitBatch(judge0Submissions, judge0ApiKey, judge0ApiHost);
+    if (language.toLowerCase() === 'cpp') {
+      testResults = await gradeCppTestCases({ code, testCasesToRun, milestone, deadlineMs });
+    } else {
+      const judge0Response = await submitBatch(judge0Submissions, judge0ApiKey, judge0ApiHost);
 
-    // Extract tokens from response
-    const tokens = judge0Response.map(r => r.token);
-    log.info('Judge0 tokens received', { tokens });
+      // Extract tokens from response
+      const tokens = judge0Response.map(r => r.token);
+      log.info('Judge0 tokens received', { tokens });
 
-    // Poll for results
-    const judge0Results = await pollResults(tokens, judge0ApiKey, judge0ApiHost, 30, 1000, deadlineMs);
-    log.info('Judge0 results received', { submissionId });
+      // Poll for results
+      const judge0Results = await pollResults(tokens, judge0ApiKey, judge0ApiHost, 30, 1000, deadlineMs);
+      log.info('Judge0 results received', { submissionId });
 
-    // Parse results
-    testResults = judge0Results.map((result, index) =>
-      parseJudge0Result(result, testCasesToRun[index])
-    );
+      // Parse results
+      testResults = judge0Results.map((result, index) =>
+        parseJudge0Result(result, testCasesToRun[index])
+      );
+    }
 
     // Calculate metrics
     metrics = calculateMetrics(testResults);
