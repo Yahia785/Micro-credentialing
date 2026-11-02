@@ -13,14 +13,15 @@
  * Optional inputs: expectedOutput (the provider compares stdout and returns status 'wrong_answer'
  * on a mismatch) and deadlineMs (Lambda time budget, so polling can stop early).
  *
- * The provider is chosen by the CODE_RUNNER environment variable (default 'judge0'). To add a
+ * The provider is chosen by the CODE_RUNNER environment variable ('judge0' by default, or 'own'). To add a
  * provider, register a module exposing runBatch(runs, { deadlineMs }) in PROVIDERS; no caller changes.
  */
 
 const log = require('./logger');
 
 const PROVIDERS = {
-  judge0: () => require('./codeRunnerJudge0')
+  judge0: () => require('./codeRunnerJudge0'),
+  own: () => require('./codeRunnerOwn')
 };
 
 function internalError(message) {
