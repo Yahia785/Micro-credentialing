@@ -37,5 +37,12 @@
         "Student explains that isLetter checks the ASCII ranges for lowercase and uppercase letters and that countLetters adds one for each such character, ignoring spaces"
       ]
     }
+  ],
+  "fixedFollowUps": [
+    "How does the loop in countWords reach its result for the string 'one two'?",
+    "What would countWords return for the string 'one two' if words started at 0?",
+    "How would you change countWords so that it returns the right answer for b?",
+    "What does countWords return for a string that ends with a space, such as 'hello '?",
+    "What does countLetters return for the string 'a b'?"
   ]
 }

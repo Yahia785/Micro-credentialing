@@ -1,6 +1,214 @@
 {
   "caseId": "case1",
   "mixed": ["good", "wrong", "vague", "idk", "short"],
+  "gaps": [
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "Does not say how the link is made: the new node takes the old head as its next pointer before head moves to the new node."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "Does not describe what a Node holds (a value and a next pointer) or that the list is a chain of such nodes."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 1,
+        "text": "Does not say that every node was allocated with new and so must be deleted, or that the memory would leak otherwise."
+      },
+      {
+        "id": "g2",
+        "criterion": 1,
+        "text": "Does not describe the loop: save the node in temp, move head along, then delete temp."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "Does not say that removeFront checks head == nullptr and returns false straight away."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "Does not say what the caller sees: a false return, with nothing removed and out untouched."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "Does not predict the printed output: \"1 2 3\", then \"Removed 1\", then \"2 3\"."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "Does not explain why the list reads in reverse insertion order: each pushFront puts the new node at the front."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 1,
+        "text": "Does not say the list would then read 3 2 1, the same as the insertion order (and what would print)."
+      },
+      {
+        "id": "g2",
+        "criterion": 1,
+        "text": "Does not connect the point of insertion to the order of the list."
+      }
+    ]
+  ],
+  "pairs": [
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "Node has a value and a next pointer, and pushFront makes a new one and puts it in the list."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "pushFront sets the new node's next to head and then moves head over to the new node."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g1",
+          "text": "Each node stores a value and a pointer to the next node, and the new one gets added to the list somewhere."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "The new node is created with new and its next is set to the old head, then head becomes that node."
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "It loops while head isn't null, keeps the current node in temp, moves head along and deletes temp."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "The nodes were made with new in pushFront so they all have to be deleted or the memory leaks."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g1",
+          "text": "Inside the while loop it saves head in temp, then head = head->next, then delete temp each time."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "It is needed because new was used for every node, otherwise that memory would never be returned."
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "It tells the caller nothing was removed, the return value is false and out stays as it was."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "It checks if head is nullptr at the top and returns straight away."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g1",
+          "text": "The function gives back false so main would know there was nothing to take off the list."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "There is an if on head being nullptr before anything is deleted, so it exits early."
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "Each pushFront puts the new node in front, so the last value pushed ends up first and the order is reversed."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "It prints 1 2 3, then Removed 1, then 2 3."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g1",
+          "text": "Since new nodes go on the front, what was pushed last is read first, the opposite of how they went in."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "First print gives 1 2 3, then removeFront takes 1 so 'Removed 1' appears, and the last print shows 2 3."
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "The order of the list depends on where each new node goes, so putting it at the end would flip the order compared to now."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "The first print would show 3 2 1 and then Removed 3 and 2 1."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g1",
+          "text": "Inserting at the other end changes which value is first, so the printed order would not be reversed any more."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "Main would print 3 2 1 first, and after the removal it prints 2 1."
+        }
+      }
+    ]
+  ],
+  "gaming": {
+    "keywords": [
+      {
+        "main": "Node, next pointer, head, new, pushFront, linked list, link, nodes.",
+        "followUp": "Pointers, head, next, nodes, linked list."
+      },
+      {
+        "main": "Destructor, delete, temp, head->next, new, heap, memory leak, scope.",
+        "followUp": "Delete, temp, destructor, leak, heap."
+      },
+      {
+        "main": "removeFront, empty list, nullptr, head, return false, out, bool.",
+        "followUp": "nullptr check, false, empty, head."
+      },
+      {
+        "main": "pushFront, print, 1 2 3, Removed 1, 2 3, front, reverse order.",
+        "followUp": "Reverse order, head, pushFront, print."
+      },
+      {
+        "main": "Insertion point, end of list, 3 2 1, Removed 3, 2 1, order, tail.",
+        "followUp": "Order, end, 3 2 1, pushFront."
+      }
+    ]
+  },
   "profiles": {
     "strong": [
       {
@@ -26,90 +234,90 @@
     ],
     "vague": [
       {
-        "main": { "label": "vague", "text": "It adds a new node to the list. The node points to the other nodes." },
-        "followUp": { "label": "vague", "text": "It just links it in with the pointers, so it ends up in the list." }
+        "main": { "label": "vague", "gap": "g1", "text": "It adds a new node to the list. The node points to the other nodes." },
+        "followUp": { "label": "vague", "gap": "g1", "text": "It just links it in with the pointers, so it ends up in the list." }
       },
       {
-        "main": { "label": "vague", "text": "It cleans up the memory when the list is done." },
-        "followUp": { "label": "vague", "text": "It goes through the nodes and cleans them up somehow." }
+        "main": { "label": "vague", "gap": "g2", "text": "It cleans up the memory when the list is done." },
+        "followUp": { "label": "vague", "gap": "g2", "text": "It goes through the nodes and cleans them up somehow." }
       },
       {
-        "main": { "label": "vague", "text": "It probably handles that case somehow, it checks something first." },
-        "followUp": { "label": "vague", "text": "I think it looks at the list and does the right thing." }
+        "main": { "label": "vague", "gap": "g1", "text": "It probably handles that case somehow, it checks something first." },
+        "followUp": { "label": "vague", "gap": "g1", "text": "I think it looks at the list and does the right thing." }
       },
       {
-        "main": { "label": "vague", "text": "It prints the numbers in the list a couple of times." },
-        "followUp": { "label": "vague", "text": "It prints the list and then prints it again after removing something." }
+        "main": { "label": "vague", "gap": "g1", "text": "It prints the numbers in the list a couple of times." },
+        "followUp": { "label": "vague", "gap": "g1", "text": "It prints the list and then prints it again after removing something." }
       },
       {
-        "main": { "label": "vague", "text": "The order would be different I think." },
-        "followUp": { "label": "vague", "text": "Things would print in another order, more or less." }
+        "main": { "label": "vague", "gap": "g1", "text": "The order would be different I think." },
+        "followUp": { "label": "vague", "gap": "g1", "text": "Things would print in another order, more or less." }
       }
     ],
     "wrong": [
       {
-        "main": { "label": "wrong", "text": "pushFront copies the whole list into a new array and puts the value at index zero, then the old array is freed. Node is just a struct for temporary storage." },
-        "followUp": { "label": "wrong", "text": "Yes, the array is resized on every push, that is how the new value ends up first." }
+        "main": { "label": "wrong", "gap": "g2", "text": "pushFront copies the whole list into a new array and puts the value at index zero, then the old array is freed. Node is just a struct for temporary storage." },
+        "followUp": { "label": "wrong", "gap": "g2", "text": "Yes, the array is resized on every push, that is how the new value ends up first." }
       },
       {
-        "main": { "label": "wrong", "text": "The destructor does nothing important because C++ frees all heap memory automatically at the end of the program, and delete is only needed for arrays." },
-        "followUp": { "label": "wrong", "text": "I am sure the destructor could be empty, the system frees the nodes as soon as list goes out of scope." }
+        "main": { "label": "wrong", "gap": "g1", "text": "The destructor does nothing important because C++ frees all heap memory automatically at the end of the program, and delete is only needed for arrays." },
+        "followUp": { "label": "wrong", "gap": "g1", "text": "I am sure the destructor could be empty, the system frees the nodes as soon as list goes out of scope." }
       },
       {
-        "main": { "label": "wrong", "text": "On an empty list removeFront throws an exception that main catches, and the program prints an error message." },
-        "followUp": { "label": "wrong", "text": "It definitely throws, that is what the false return is for, it gets converted to an exception." }
+        "main": { "label": "wrong", "gap": "g2", "text": "On an empty list removeFront throws an exception that main catches, and the program prints an error message." },
+        "followUp": { "label": "wrong", "gap": "g2", "text": "It definitely throws, that is what the false return is for, it gets converted to an exception." }
       },
       {
-        "main": { "label": "wrong", "text": "The first print() outputs 3 2 1 because pushFront adds each new value at the end. Then 'Removed 3' is printed and the last print() shows 2 1." },
-        "followUp": { "label": "wrong", "text": "Right, the values stay in the order they were pushed because new nodes go to the back." }
+        "main": { "label": "wrong", "gap": "g2", "text": "The first print() outputs 3 2 1 because pushFront adds each new value at the end. Then 'Removed 3' is printed and the last print() shows 2 1." },
+        "followUp": { "label": "wrong", "gap": "g2", "text": "Right, the values stay in the order they were pushed because new nodes go to the back." }
       },
       {
-        "main": { "label": "wrong", "text": "Nothing would change in the output, because a linked list always prints its values in sorted order." },
-        "followUp": { "label": "wrong", "text": "I am confident the output stays identical since the list sorts itself." }
+        "main": { "label": "wrong", "gap": "g2", "text": "Nothing would change in the output, because a linked list always prints its values in sorted order." },
+        "followUp": { "label": "wrong", "gap": "g2", "text": "I am confident the output stays identical since the list sorts itself." }
       }
     ],
     "short": [
       {
-        "main": { "label": "short", "text": "Links a new node." },
-        "followUp": { "label": "short", "text": "Sets next." }
+        "main": { "label": "short", "gap": "all", "text": "Links a new node." },
+        "followUp": { "label": "short", "gap": "all", "text": "Sets next." }
       },
       {
-        "main": { "label": "short", "text": "Deletes the nodes." },
-        "followUp": { "label": "short", "text": "One by one." }
+        "main": { "label": "short", "gap": "all", "text": "Deletes the nodes." },
+        "followUp": { "label": "short", "gap": "all", "text": "One by one." }
       },
       {
-        "main": { "label": "short", "text": "Returns false." },
-        "followUp": { "label": "short", "text": "No removal." }
+        "main": { "label": "short", "gap": "all", "text": "Returns false." },
+        "followUp": { "label": "short", "gap": "all", "text": "No removal." }
       },
       {
-        "main": { "label": "short", "text": "1 2 3, then 2 3." },
-        "followUp": { "label": "short", "text": "Reverse order." }
+        "main": { "label": "short", "gap": "all", "text": "1 2 3, then 2 3." },
+        "followUp": { "label": "short", "gap": "all", "text": "Reverse order." }
       },
       {
-        "main": { "label": "short", "text": "It reverses." },
-        "followUp": { "label": "short", "text": "Prints 3 2 1." }
+        "main": { "label": "short", "gap": "all", "text": "It reverses." },
+        "followUp": { "label": "short", "gap": "all", "text": "Prints 3 2 1." }
       }
     ],
     "idk": [
       {
-        "main": { "label": "idk", "text": "I don't know." },
-        "followUp": { "label": "idk", "text": "I really don't know." }
+        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
+        "followUp": { "label": "idk", "gap": "all", "text": "I really don't know." }
       },
       {
-        "main": { "label": "idk", "text": "I don't know, I'm not sure how that part works." },
-        "followUp": { "label": "idk", "text": "Sorry, I don't know." }
+        "main": { "label": "idk", "gap": "all", "text": "I don't know, I'm not sure how that part works." },
+        "followUp": { "label": "idk", "gap": "all", "text": "Sorry, I don't know." }
       },
       {
-        "main": { "label": "idk", "text": "I don't know." },
-        "followUp": { "label": "idk", "text": "I'm not sure, I don't know." }
+        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
+        "followUp": { "label": "idk", "gap": "all", "text": "I'm not sure, I don't know." }
       },
       {
-        "main": { "label": "idk", "text": "I don't know what it prints." },
-        "followUp": { "label": "idk", "text": "I don't know." }
+        "main": { "label": "idk", "gap": "all", "text": "I don't know what it prints." },
+        "followUp": { "label": "idk", "gap": "all", "text": "I don't know." }
       },
       {
-        "main": { "label": "idk", "text": "I don't know." },
-        "followUp": { "label": "idk", "text": "No idea, I don't know." }
+        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
+        "followUp": { "label": "idk", "gap": "all", "text": "No idea, I don't know." }
       }
     ]
   }

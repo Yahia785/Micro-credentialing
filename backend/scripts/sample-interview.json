@@ -37,5 +37,12 @@
         "Student can reason about how changing the insertion point changes the list order"
       ]
     }
+  ],
+  "fixedFollowUps": [
+    "Suppose the list is empty when pushFront(5) is called. What do head and the new node's next point to afterwards?",
+    "If the destructor were removed from LinkedList, what would happen to the nodes created by the three pushFront calls in main?",
+    "How does the caller of removeFront find out whether a node was actually removed?",
+    "After removeFront succeeds, what happens to the node that used to be first?",
+    "What extra information would pushFront need in order to add a node at the end of the list?"
   ]
 }

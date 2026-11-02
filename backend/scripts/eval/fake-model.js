@@ -99,4 +99,4 @@ function createFakeModel({ seed = 1, chaos = 0.26 } = {}) {
   };
 }
 
-module.exports = { createFakeModel };
+module.exports = { createFakeModel, readMessage };

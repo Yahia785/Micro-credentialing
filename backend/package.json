@@ -1,0 +1,11 @@
+{
+  "name": "micro-credentialing-backend",
+  "private": true,
+  "description": "Scripts for the backend. The Lambda code and its dependencies live in functions/ and shared/, not here.",
+  "scripts": {
+    "eval:check": "node scripts/eval/run-eval.js --fake-model --baseline fixed --judge --repeats 1 --yes",
+    "eval:quick": "node scripts/eval/run-eval.js --profiles strong,vague,wrong --repeats 1 --yes",
+    "eval:full": "node scripts/eval/run-eval.js --prompts host.v1,host.v2,host.v3 --baseline fixed --repeats 3",
+    "eval:compare": "node scripts/eval/compare.js"
+  }
+}

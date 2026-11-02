@@ -57,8 +57,11 @@ function loadCase(id) {
   const parsed = parseInterview(JSON.parse(fs.readFileSync(entry.configFile, 'utf8')), { language: 'cpp' });
   if (parsed.error) throw new Error(`Case ${id}: invalid interview config: ${parsed.error}`);
 
+  const rawConfig = JSON.parse(fs.readFileSync(entry.configFile, 'utf8'));
   return {
     id: entry.id,
+    // One question per main question, asked by the fixed-survey baseline (the engine ignores this key).
+    fixedFollowUps: rawConfig.fixedFollowUps || [],
     title: entry.title,
     codeFile: entry.codeFile,
     configFile: entry.configFile,

@@ -37,5 +37,12 @@
         "Student says size returns 0 because top is back at -1 after four pops, and that top + 1 is the item count"
       ]
     }
+  ],
+  "fixedFollowUps": [
+    "What could go wrong in main if push did not return false when the stack was full?",
+    "What is stored in the stack once the for loop in main has finished?",
+    "What would pop return if top were decremented before the value was read?",
+    "Which value is removed first by the first successful call to pop in main?",
+    "What would size() return right after the for loop, before the first pop?"
   ]
 }

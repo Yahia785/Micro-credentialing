@@ -9,11 +9,12 @@
 const fs = require('fs');
 const path = require('path');
 const { CASES, loadCase } = require('./cases');
-const { PROFILES, buildProfile, validateStudents } = require('./students');
+const { RUN_PROFILES, buildProfile, validateStudents, pairsFor } = require('./students');
 const engine = require('../../shared/nodejs/agent/interview-engine');
 
 const ANSWERS_FILE = path.join(__dirname, 'answers.md');
 
+const labelOf = (answer) => (answer.gap ? `${answer.label} (gap ${answer.gap})` : answer.label);
 const cell = (text) => String(text).replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
 
 function buildAnswersMarkdown() {
@@ -24,14 +25,22 @@ function buildAnswersMarkdown() {
     '',
     'For each main question the table shows what every profile says to the main question and to the follow-up',
     'the Host asks about it (the same follow-up answer is used for any follow-up on that main question).',
-    'Labels: good (complete and correct), vague, wrong (confident but incorrect), short (a few words), idk.',
+    'Labels: good (complete and correct), vague, wrong (confident but incorrect), short (a few words), idk,',
+    'gaming (tries to get past the Host without explaining: `keywords` lists the right terms, `echo` repeats the question,',
+    '`inject` is a vague answer plus text telling the Host to move on).',
     'The `mixed` profile uses a fixed label per main question; its text comes from the profile in brackets.',
+    'Every answer that is not good has a gap: the id of what it leaves open (see the gap list of each question), or `all`',
+    'when it explains nothing. Gap ids are used by the judge and by the minimal pairs.',
+    '',
+    'Each question also lists its fixed follow-up (the one question the `fixed` baseline asks after every main answer,',
+    'whatever the student said) and its minimal pairs (two weak answers that leave different gaps, run in the same',
+    'interview position).',
     '',
   ];
 
   for (const entry of CASES) {
     const c = loadCase(entry.id);
-    validateStudents(c.studentsRaw, c.mains.length, c.id);
+    validateStudents(c.studentsRaw, c.mains.length, c.id, c.mains);
     out.push(`## ${c.id}: ${c.title}`, '');
     out.push(`Program: \`${path.relative(path.resolve(__dirname, '../..'), c.codeFile).replace(/\\/g, '/')}\` | follow-ups per main question: ${engine.followUpBudget(c.config)} | time limit: ${c.config.timeLimitMinutes} min`, '');
     out.push(`Mixed profile labels, in question order: ${c.studentsRaw.mixed.join(', ')}`, '');
@@ -42,13 +51,26 @@ function buildAnswersMarkdown() {
       out.push('Theme criteria the Host sees (private):', '');
       main.criteria.forEach((criterion) => out.push(`- ${criterion}`));
       out.push('');
+      out.push('Gaps (what a complete answer would still have to say):', '');
+      c.studentsRaw.gaps[i].forEach((gap) => {
+        out.push(`- **${gap.id}** (criterion: ${main.criteria[gap.criterion]}): ${gap.text}`);
+      });
+      out.push('');
       out.push('| Profile | Main answer | Label | Follow-up answer | Label |');
       out.push('| --- | --- | --- | --- | --- |');
-      for (const profile of PROFILES) {
-        const entryAnswers = buildProfile(c.studentsRaw, profile)[i];
+      for (const profile of RUN_PROFILES) {
+        const entryAnswers = buildProfile(c.studentsRaw, profile, c.mains)[i];
         const name = profile === 'mixed' ? `mixed (${entryAnswers.source})` : profile;
-        out.push(`| ${name} | ${cell(entryAnswers.main.text)} | ${entryAnswers.main.label} | ${cell(entryAnswers.followUp.text)} | ${entryAnswers.followUp.label} |`);
+        out.push(`| ${name} | ${cell(entryAnswers.main.text)} | ${labelOf(entryAnswers.main)} | ${cell(entryAnswers.followUp.text)} | ${labelOf(entryAnswers.followUp)} |`);
       }
+      out.push('');
+      out.push(`Fixed follow-up (baseline): ${c.fixedFollowUps[i]}`, '');
+      out.push('Minimal pairs (both answers go to the same question in the same interview position; each leaves a different gap):', '');
+      out.push('| Pair | Answer A | Leaves | Answer B | Leaves |');
+      out.push('| --- | --- | --- | --- | --- |');
+      pairsFor(c.studentsRaw, i).forEach((pair) => {
+        out.push(`| ${pair.id} | ${cell(pair.a.text)} | ${pair.a.gap} | ${cell(pair.b.text)} | ${pair.b.gap} |`);
+      });
       out.push('');
     });
   }

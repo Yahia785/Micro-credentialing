@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { CASES, loadCase } = require('../../../scripts/eval/cases');
 const {
-  PROFILES, BASE_PROFILES, PROFILE_FOR_LABEL, validateStudents, buildProfile,
+  PROFILES, BASE_PROFILES, GAMING_PROFILES, RUN_PROFILES, PROFILE_FOR_LABEL, validateStudents, buildProfile,
 } = require('../../../scripts/eval/students');
 const { buildAnswersMarkdown, ANSWERS_FILE } = require('../../../scripts/eval/build-answers');
 
@@ -140,5 +140,116 @@ describe('answers.md', () => {
       });
     }
     expect(md.match(/^\| mixed \(/gm)).toHaveLength(cases.reduce((n, c) => n + c.mains.length, 0));
+  });
+});
+
+describe.each(cases)('$id gaps, pairs and gaming answers', (c) => {
+  it('lists at least 2 gaps per main question, each tied to a criterion of the theme', () => {
+    expect(c.studentsRaw.gaps).toHaveLength(c.mains.length);
+    c.studentsRaw.gaps.forEach((list, i) => {
+      expect(list.length).toBeGreaterThanOrEqual(2);
+      list.forEach((gap) => {
+        expect(gap.criterion).toBeLessThan(c.mains[i].criteria.length);
+        expect(gap.text.trim().length).toBeGreaterThan(20);
+      });
+    });
+  });
+
+  it('gives every non-good scripted answer, main and follow-up, a gap that exists, and no good answer one', () => {
+    for (const name of BASE_PROFILES) {
+      c.studentsRaw.profiles[name].forEach((entry, i) => {
+        const ids = c.studentsRaw.gaps[i].map((gap) => gap.id);
+        ['main', 'followUp'].forEach((which) => {
+          const answer = entry[which];
+          if (answer.label === 'good') expect(answer.gap).toBeUndefined();
+          else expect([...ids, 'all']).toContain(answer.gap);
+        });
+      });
+    }
+  });
+
+  it('short and idk answers leave every gap open ("all"); vague and wrong answers name one', () => {
+    for (const name of ['short', 'idk']) {
+      c.studentsRaw.profiles[name].forEach((entry) => expect([entry.main.gap, entry.followUp.gap]).toEqual(['all', 'all']));
+    }
+    for (const name of ['vague', 'wrong']) {
+      c.studentsRaw.profiles[name].forEach((entry) => expect(entry.main.gap).not.toBe('all'));
+    }
+  });
+
+  it('has at least 2 minimal pairs per main question; each pair leaves two different gaps', () => {
+    expect(c.studentsRaw.pairs).toHaveLength(c.mains.length);
+    c.studentsRaw.pairs.forEach((list, i) => {
+      expect(list.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(list.map((p) => p.id)).size).toBe(list.length);
+      list.forEach((pair) => {
+        expect(pair.a.gap).not.toBe(pair.b.gap);
+        expect(pair.a.text).not.toBe(pair.b.text);
+        expect(c.studentsRaw.gaps[i].map((g) => g.id)).toEqual(expect.arrayContaining([pair.a.gap, pair.b.gap]));
+      });
+    });
+  });
+
+  it('builds the three gaming profiles with the gaming label', () => {
+    for (const name of GAMING_PROFILES) {
+      const built = buildProfile(c.studentsRaw, name, c.mains);
+      expect(built).toHaveLength(c.mains.length);
+      built.forEach((entry) => {
+        expect(entry.main.label).toBe('gaming');
+        expect(entry.followUp.label).toBe('gaming');
+        expect(entry.main.gap).toBeTruthy();
+      });
+    }
+    expect(RUN_PROFILES).toEqual([...PROFILES, ...GAMING_PROFILES]);
+  });
+});
+
+describe('validateStudents: gaps, pairs and gaming', () => {
+  const fresh = () => JSON.parse(JSON.stringify(loadCase('case2').studentsRaw));
+  const mains = loadCase('case2').mains;
+
+  it('rejects a non-good answer without a gap, a gap on a good answer and an unknown gap', () => {
+    const a = fresh();
+    delete a.profiles.vague[0].main.gap;
+    expect(() => validateStudents(a, 5, 'x')).toThrow(/gap must be/);
+    const b = fresh();
+    b.profiles.strong[0].main.gap = 'g1';
+    expect(() => validateStudents(b, 5, 'x')).toThrow(/good answer has no gap/);
+    const c = fresh();
+    c.profiles.wrong[2].followUp.gap = 'g9';
+    expect(() => validateStudents(c, 5, 'x')).toThrow(/gap must be/);
+  });
+
+  it('rejects too few gaps, a criterion the theme does not have, and reserved or repeated ids', () => {
+    const a = fresh();
+    a.gaps[0].pop();
+    expect(() => validateStudents(a, 5, 'x')).toThrow(/at least 2 gaps/);
+    const b = fresh();
+    b.gaps[0][0].criterion = 7;
+    expect(() => validateStudents(b, 5, 'x', mains)).toThrow(/criterion 7/);
+    const c = fresh();
+    c.gaps[0][1].id = 'none';
+    expect(() => validateStudents(c, 5, 'x')).toThrow(/unique/);
+    const d = fresh();
+    d.gaps[0][1].id = 'g1';
+    expect(() => validateStudents(d, 5, 'x')).toThrow(/unique/);
+  });
+
+  it('rejects a pair question with fewer than 2 pairs, a pair with the same gap twice, and missing pair text', () => {
+    const a = fresh();
+    a.pairs[1].pop();
+    expect(() => validateStudents(a, 5, 'x')).toThrow(/at least 2 pairs/);
+    const b = fresh();
+    b.pairs[0][0].b.gap = b.pairs[0][0].a.gap;
+    expect(() => validateStudents(b, 5, 'x')).toThrow(/different gaps/);
+    const c = fresh();
+    c.pairs[0][0].a.text = ' ';
+    expect(() => validateStudents(c, 5, 'x')).toThrow(/missing answer text/);
+  });
+
+  it('rejects missing keyword answers', () => {
+    const a = fresh();
+    a.gaming.keywords.pop();
+    expect(() => validateStudents(a, 5, 'x')).toThrow(/keywords/);
   });
 });

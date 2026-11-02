@@ -157,6 +157,7 @@ function stepsOf(transcript) {
         reason: next.reason,
         fallback: next.fallback || null,
         modelCall: next.modelCall || null,
+        judgement: next.judgement || null,
       };
     } else if (!next && transcript.status === 'completed' && transcript.endDetail) {
       step = {
@@ -169,7 +170,14 @@ function stepsOf(transcript) {
     } else {
       return; // timed out or errored before the Host answered
     }
-    steps.push({ ...step, answeredMain: !!asked && asked.kind === 'main', label: turn.scripted && turn.scripted.label });
+    const scripted = turn.scripted || {};
+    steps.push({
+      ...step,
+      answeredMain: !!asked && asked.kind === 'main',
+      label: scripted.label,
+      gap: scripted.gap || null,
+      mainOrdinal: scripted.mainOrdinal,
+    });
   });
   return steps;
 }
@@ -210,7 +218,7 @@ function analyzeTranscript(transcript) {
 
     // Follow-up judgement: only answers to a main question, and only decisions the model made.
     if (step.answeredMain && step.label && !step.fallback) {
-      c.mainAnswers[step.label] += 1;
+      if (c.mainAnswers[step.label] !== undefined) c.mainAnswers[step.label] += 1; // gaming answers are counted in adaptive.js
       if (followUpAllowed && step.label === 'good') {
         c.unnecessaryOpportunities += 1;
         if (step.action === 'follow_up') c.unnecessary += 1;

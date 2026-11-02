@@ -1,6 +1,214 @@
 {
   "caseId": "case2",
   "mixed": ["wrong", "good", "idk", "short", "vague"],
+  "gaps": [
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "Does not say the check prevents writing past the end of the data array (out of bounds)."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "Does not say that push returns false when the stack is full, which is what the caller sees."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 1,
+        "text": "Does not say that the first four pushes (10 to 40) succeed."
+      },
+      {
+        "id": "g2",
+        "criterion": 1,
+        "text": "Does not say that the fifth and sixth pushes fail and main prints \"Full at 5\" and \"Full at 6\"."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "Does not say that top is the index of the most recent element."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "Does not say that the value is read from data[top] before top is decremented, or why the order matters."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "Does not give the printed order 40 30 20 10."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "Does not explain why: the last value pushed is the first one popped (last in, first out)."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 1,
+        "text": "Does not say that size returns 0 at the end of main because all four values were popped."
+      },
+      {
+        "id": "g2",
+        "criterion": 1,
+        "text": "Does not say that top + 1 is the item count, because top is an index that starts at -1."
+      }
+    ]
+  ],
+  "pairs": [
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "When the stack is full push just returns false and doesn't store anything."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "It stops the code from writing outside the data array when top is already at the last index."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g1",
+          "text": "The caller gets false back, so it can tell the value did not go in."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "Without it data[top] would be written past index 3 and corrupt memory."
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "The last two pushes fail and main prints 'Full at 5' and 'Full at 6'."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "The first four values, 10 to 40, fit in the array and get stored."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g1",
+          "text": "Full at 5 and Full at 6 are printed, because the stack can't hold more."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "Pushes of 10, 20, 30 and 40 work since CAPACITY is 4."
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "It copies data[top] into out first and only then does top--, the order matters."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "top always holds the index of the newest element in the array."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g1",
+          "text": "If top-- came first the code would read the wrong slot, so the read is done before it."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "top is the position of the last item that was pushed."
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "It is last in, first out, so the newest value comes out of the stack first."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "The loop prints 40 30 20 10 and then stops."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g1",
+          "text": "A stack gives back the value that was pushed last, which is why the order is reversed."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "The output line is 40 30 20 10 with spaces in between."
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "size returns top + 1 which is the number of items, since top is an index."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "At the end every value has been popped so size gives 0 and it prints Size: 0."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g1",
+          "text": "It adds one to top because indexes start at zero and the count is one more."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "The stack is empty by then so main prints Size: 0."
+        }
+      }
+    ]
+  ],
+  "gaming": {
+    "keywords": [
+      {
+        "main": "top, CAPACITY - 1, bounds, data array, push, return false, full, out of bounds.",
+        "followUp": "Bounds check, false, full, top, CAPACITY."
+      },
+      {
+        "main": "CAPACITY 4, push, 10 20 30 40, Full at 5, Full at 6, false, for loop.",
+        "followUp": "Four succeed, Full at 5, Full at 6, false."
+      },
+      {
+        "main": "pop, top, data[top], decrement, index, out, read before top--.",
+        "followUp": "data[top], top--, index, order."
+      },
+      {
+        "main": "while loop, pop, 40 30 20 10, LIFO, last in first out, stack order.",
+        "followUp": "LIFO, 40 30 20 10, pop, false."
+      },
+      {
+        "main": "size, top + 1, 0, Size: 0, -1, index, pops.",
+        "followUp": "top + 1, zero, -1, size."
+      }
+    ]
+  },
   "profiles": {
     "strong": [
       {
@@ -26,90 +234,90 @@
     ],
     "vague": [
       {
-        "main": { "label": "vague", "text": "It checks if the stack is full before adding." },
-        "followUp": { "label": "vague", "text": "It makes sure there is room, so it doesn't break things." }
+        "main": { "label": "vague", "gap": "g1", "text": "It checks if the stack is full before adding." },
+        "followUp": { "label": "vague", "gap": "g1", "text": "It makes sure there is room, so it doesn't break things." }
       },
       {
-        "main": { "label": "vague", "text": "Some of them get added and some don't." },
-        "followUp": { "label": "vague", "text": "The ones at the end don't fit, I think." }
+        "main": { "label": "vague", "gap": "g1", "text": "Some of them get added and some don't." },
+        "followUp": { "label": "vague", "gap": "g2", "text": "The ones at the end don't fit, I think." }
       },
       {
-        "main": { "label": "vague", "text": "It takes the value off the top and moves things around." },
-        "followUp": { "label": "vague", "text": "It does the top part and then updates top." }
+        "main": { "label": "vague", "gap": "g2", "text": "It takes the value off the top and moves things around." },
+        "followUp": { "label": "vague", "gap": "g2", "text": "It does the top part and then updates top." }
       },
       {
-        "main": { "label": "vague", "text": "It prints the numbers from the stack." },
-        "followUp": { "label": "vague", "text": "They come out in some order, probably the stack order." }
+        "main": { "label": "vague", "gap": "g1", "text": "It prints the numbers from the stack." },
+        "followUp": { "label": "vague", "gap": "g1", "text": "They come out in some order, probably the stack order." }
       },
       {
-        "main": { "label": "vague", "text": "It returns how big the stack is." },
-        "followUp": { "label": "vague", "text": "It works out the count from top." }
+        "main": { "label": "vague", "gap": "g1", "text": "It returns how big the stack is." },
+        "followUp": { "label": "vague", "gap": "g2", "text": "It works out the count from top." }
       }
     ],
     "wrong": [
       {
-        "main": { "label": "wrong", "text": "The check makes push wait until another thread frees a slot, so push blocks and then stores the value once there is space." },
-        "followUp": { "label": "wrong", "text": "Yes, push blocks, it never returns false, the false is only for invalid values." }
+        "main": { "label": "wrong", "gap": "g2", "text": "The check makes push wait until another thread frees a slot, so push blocks and then stores the value once there is space." },
+        "followUp": { "label": "wrong", "gap": "g2", "text": "Yes, push blocks, it never returns false, the false is only for invalid values." }
       },
       {
-        "main": { "label": "wrong", "text": "All six pushes succeed because the array grows automatically when it is full, so main never prints Full." },
-        "followUp": { "label": "wrong", "text": "I am sure it grows, data is resized by the compiler as needed." }
+        "main": { "label": "wrong", "gap": "g2", "text": "All six pushes succeed because the array grows automatically when it is full, so main never prints Full." },
+        "followUp": { "label": "wrong", "gap": "g2", "text": "I am sure it grows, data is resized by the compiler as needed." }
       },
       {
-        "main": { "label": "wrong", "text": "pop decrements top first so it points to the next element, and then it returns the element below, which is the one being removed." },
-        "followUp": { "label": "wrong", "text": "The order does not matter, either way the same element comes out." }
+        "main": { "label": "wrong", "gap": "g1", "text": "pop decrements top first so it points to the next element, and then it returns the element below, which is the one being removed." },
+        "followUp": { "label": "wrong", "gap": "g2", "text": "The order does not matter, either way the same element comes out." }
       },
       {
-        "main": { "label": "wrong", "text": "It prints 10 20 30 40, because a stack returns values in the order they were pushed, first in first out." },
-        "followUp": { "label": "wrong", "text": "Definitely 10 first, a stack is a queue, the oldest value comes out first." }
+        "main": { "label": "wrong", "gap": "g2", "text": "It prints 10 20 30 40, because a stack returns values in the order they were pushed, first in first out." },
+        "followUp": { "label": "wrong", "gap": "g2", "text": "Definitely 10 first, a stack is a queue, the oldest value comes out first." }
       },
       {
-        "main": { "label": "wrong", "text": "size returns CAPACITY, which is 4, since the array always has four slots, so main prints 'Size: 4'." },
-        "followUp": { "label": "wrong", "text": "It is always 4 because the capacity never changes." }
+        "main": { "label": "wrong", "gap": "g1", "text": "size returns CAPACITY, which is 4, since the array always has four slots, so main prints 'Size: 4'." },
+        "followUp": { "label": "wrong", "gap": "g1", "text": "It is always 4 because the capacity never changes." }
       }
     ],
     "short": [
       {
-        "main": { "label": "short", "text": "Checks if full." },
-        "followUp": { "label": "short", "text": "Returns false." }
+        "main": { "label": "short", "gap": "all", "text": "Checks if full." },
+        "followUp": { "label": "short", "gap": "all", "text": "Returns false." }
       },
       {
-        "main": { "label": "short", "text": "Four succeed." },
-        "followUp": { "label": "short", "text": "Rest fail." }
+        "main": { "label": "short", "gap": "all", "text": "Four succeed." },
+        "followUp": { "label": "short", "gap": "all", "text": "Rest fail." }
       },
       {
-        "main": { "label": "short", "text": "Reads then decrements." },
-        "followUp": { "label": "short", "text": "Order matters." }
+        "main": { "label": "short", "gap": "all", "text": "Reads then decrements." },
+        "followUp": { "label": "short", "gap": "all", "text": "Order matters." }
       },
       {
-        "main": { "label": "short", "text": "40 30 20 10." },
-        "followUp": { "label": "short", "text": "Last in first out." }
+        "main": { "label": "short", "gap": "all", "text": "40 30 20 10." },
+        "followUp": { "label": "short", "gap": "all", "text": "Last in first out." }
       },
       {
-        "main": { "label": "short", "text": "Zero." },
-        "followUp": { "label": "short", "text": "top plus one." }
+        "main": { "label": "short", "gap": "all", "text": "Zero." },
+        "followUp": { "label": "short", "gap": "all", "text": "top plus one." }
       }
     ],
     "idk": [
       {
-        "main": { "label": "idk", "text": "I don't know." },
-        "followUp": { "label": "idk", "text": "I really don't know." }
+        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
+        "followUp": { "label": "idk", "gap": "all", "text": "I really don't know." }
       },
       {
-        "main": { "label": "idk", "text": "I don't know, I'm not sure what it prints." },
-        "followUp": { "label": "idk", "text": "Sorry, I don't know." }
+        "main": { "label": "idk", "gap": "all", "text": "I don't know, I'm not sure what it prints." },
+        "followUp": { "label": "idk", "gap": "all", "text": "Sorry, I don't know." }
       },
       {
-        "main": { "label": "idk", "text": "I don't know." },
-        "followUp": { "label": "idk", "text": "I'm not sure, I don't know." }
+        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
+        "followUp": { "label": "idk", "gap": "all", "text": "I'm not sure, I don't know." }
       },
       {
-        "main": { "label": "idk", "text": "I don't know the order." },
-        "followUp": { "label": "idk", "text": "I don't know." }
+        "main": { "label": "idk", "gap": "all", "text": "I don't know the order." },
+        "followUp": { "label": "idk", "gap": "all", "text": "I don't know." }
       },
       {
-        "main": { "label": "idk", "text": "I don't know." },
-        "followUp": { "label": "idk", "text": "No idea, I don't know." }
+        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
+        "followUp": { "label": "idk", "gap": "all", "text": "No idea, I don't know." }
       }
     ]
   }

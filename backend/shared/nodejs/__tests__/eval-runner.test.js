@@ -133,7 +133,7 @@ describe('runEval with --fake-model', () => {
       expect(f.throttleRetries).toBeGreaterThan(0);
 
       const transcripts = readTranscripts(outDir);
-      expect(transcripts).toHaveLength(18);
+      expect(transcripts).toHaveLength(3 * 9); // 3 cases x 6 base profiles + 3 gaming profiles
       const throttledTurn = transcripts.flatMap((t) => t.turns).find((x) => x.modelCall && x.modelCall.throttled);
       expect(throttledTurn.fallback).toBe('model_unavailable');
       expect(throttledTurn.modelCall.errorName).toBe('ThrottlingException');
