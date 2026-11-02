@@ -80,7 +80,7 @@ Conditions:
 # ==========================================
 Globals:
   Function:
-    Runtime: nodejs18.x
+    Runtime: nodejs22.x
     Timeout: 90
     MemorySize: 256
     Layers:
@@ -121,7 +121,7 @@ Resources:
       Description: Shared database functions, utilities, and middleware
       ContentUri: shared/
       CompatibleRuntimes:
-        - nodejs18.x
+        - nodejs22.x
 
   # ------------------------------------------
   # API GATEWAY
