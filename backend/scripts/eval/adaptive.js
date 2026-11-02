@@ -11,7 +11,7 @@
  */
 const { BAD_LABELS } = require('./students');
 const { GAMING_LABEL, GAMING_PROFILES } = require('./students');
-const { stepsOf, ratio, isMultiPart, headlineOf } = require('./metrics');
+const { stepsOf, ratio, isMultiPart, headlineOf, armOf } = require('./metrics');
 const { NONE } = require('./judge');
 
 const GAP_LABELS = [...BAD_LABELS, GAMING_LABEL];
@@ -118,7 +118,8 @@ function gapTargeting(transcripts) {
  * Checks on every judged follow-up (the judge's labels, plus the simple text check for comparison):
  * - reveals: the follow-up states part of the expected answer that the student has not said yet, i.e. it
  *   gives away a gap that this answer left open (restating something the student already said is fine).
- * - twoPart (judge) and twoPartSimple (the `?` / "and why" text check, on the same follow-ups).
+ * - twoPart (judge, on the follow-up as asked, after the guard), twoPartSimple (the `?` / "and why" text check, on the same
+ *   follow-ups) and twoPartGuardOff (the judge's label of the follow-up the model first wrote, where the guard changed it).
  * - beyondScope: asks about something outside the instructor's criteria.
  */
 function followUpChecks(transcripts) {
@@ -126,6 +127,7 @@ function followUpChecks(transcripts) {
   let reveals = 0;
   let twoPart = 0;
   let twoPartSimple = 0;
+  let twoPartGuardOff = 0;
   let beyondScope = 0;
   for (const transcript of transcripts) {
     for (const step of stepsOf(transcript)) {
@@ -133,6 +135,9 @@ function followUpChecks(transcripts) {
       judged += 1;
       if (step.judgement.reveals.some((id) => step.gaps.includes(id))) reveals += 1;
       if (step.judgement.twoPart) twoPart += 1;
+      // As if the two-question guard were off: where it fired, the judge's label of the follow-up the model first wrote.
+      const original = step.guard && step.guard.originalJudgement;
+      if (original && original.valid ? original.twoPart : step.judgement.twoPart) twoPartGuardOff += 1;
       if (isMultiPart(step.question)) twoPartSimple += 1;
       if (step.judgement.beyondScope) beyondScope += 1;
     }
@@ -142,6 +147,7 @@ function followUpChecks(transcripts) {
     reveals: ratio(reveals, judged),
     twoPart: ratio(twoPart, judged),
     twoPartSimple: ratio(twoPartSimple, judged),
+    twoPartGuardOff: ratio(twoPartGuardOff, judged),
     beyondScope: ratio(beyondScope, judged),
   };
 }
@@ -153,7 +159,7 @@ function consistency(transcripts) {
   for (const transcript of transcripts) {
     for (const step of stepsOf(transcript)) {
       if (!step.answeredMain || step.fallback) continue;
-      const key = [transcript.promptVersion, transcript.caseId, transcript.profile, step.mainOrdinal].join('|');
+      const key = [armOf(transcript), transcript.caseId, transcript.profile, step.mainOrdinal].join('|');
       addTo(actions, key, actionOf(step));
       if (step.action === 'follow_up' && hasJudgement(step)) addTo(directions, key, [...step.judgement.targets].sort().join('+'));
     }
@@ -196,7 +202,7 @@ function discrimination(pairTranscripts) {
   const groups = new Map();
   for (const transcript of pairTranscripts) {
     const { pairId, side, mainOrdinal } = transcript.pair;
-    const key = [transcript.promptVersion, transcript.caseId, mainOrdinal, pairId, transcript.repeat].join('|');
+    const key = [armOf(transcript), transcript.caseId, mainOrdinal, pairId, transcript.repeat].join('|');
     if (!groups.has(key)) groups.set(key, {});
     const steps = stepsOf(transcript);
     // the decision after the pair answer
@@ -296,8 +302,8 @@ function summarizeAdaptive(transcripts, pairTranscripts = []) {
  */
 function attachAdaptive(results, transcripts, pairTranscripts = []) {
   for (const arm of Object.keys(results)) {
-    const mine = transcripts.filter((t) => t.promptVersion === arm);
-    const minePairs = pairTranscripts.filter((t) => t.promptVersion === arm);
+    const mine = transcripts.filter((t) => armOf(t) === arm);
+    const minePairs = pairTranscripts.filter((t) => armOf(t) === arm);
     const onlyExcluded = headlineOf(mine).length === 0;
     const headline = onlyExcluded ? mine : headlineOf(mine);
     const headlinePairs = onlyExcluded ? minePairs : headlineOf(minePairs);

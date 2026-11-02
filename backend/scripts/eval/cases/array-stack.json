@@ -13,6 +13,28 @@
       "criteria": [
         "Student explains that the check prevents writing past the end of the data array and that push returns false when the stack is full",
         "Student predicts that the first four pushes succeed and the fifth and sixth report that the stack is full"
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "Says the check prevents writing past the end of the data array (out of bounds)."
+          },
+          {
+            "id": "r2",
+            "text": "Says that push returns false when the stack is full, which is what the caller sees."
+          }
+        ],
+        [
+          {
+            "id": "r1",
+            "text": "Says that the first four pushes (10 to 40) succeed."
+          },
+          {
+            "id": "r2",
+            "text": "Says that the fifth and sixth pushes fail and main prints \"Full at 5\" and \"Full at 6\"."
+          }
+        ]
       ]
     },
     {
@@ -23,6 +45,22 @@
       ],
       "criteria": [
         "Student explains that top is the index of the most recent element, so the value is read from data[top] first and top is decremented afterwards"
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "Says that top is the index of the most recent element."
+          },
+          {
+            "id": "r2",
+            "text": "Says that the value is read from data[top] before top is decremented, or why the order matters."
+          },
+          {
+            "id": "r3",
+            "text": "Says that decrementing top afterwards is what removes the item from the stack."
+          }
+        ]
       ]
     },
     {
@@ -35,6 +73,32 @@
       "criteria": [
         "Student states that the values print as 40 30 20 10 because the last value pushed is the first one popped",
         "Student says size returns 0 because top is back at -1 after four pops, and that top + 1 is the item count"
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "Gives the printed order 40 30 20 10."
+          },
+          {
+            "id": "r2",
+            "text": "Explains why: the last value pushed is the first one popped (last in, first out)."
+          }
+        ],
+        [
+          {
+            "id": "r1",
+            "text": "Gives the result: size returns 0 at the end of main and main prints \"Size: 0\"."
+          },
+          {
+            "id": "r2",
+            "text": "Says that size returns top + 1, the item count, because top is an index and one less than the number of items."
+          },
+          {
+            "id": "r3",
+            "text": "Says that top is back at -1 after all four values were popped."
+          }
+        ]
       ]
     }
   ],

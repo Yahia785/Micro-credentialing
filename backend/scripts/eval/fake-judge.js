@@ -33,6 +33,39 @@ function readJudgeMessage(text) {
   return { followUp, criteria, gaps };
 }
 
+const SHOWN_WORDS = 3; // a rubric item counts as shown when the answer shares this many words with it
+
+/** The rubric-check message (judge-rubric.js) starts with the question and has a rubric list. */
+const isRubricMessage = (text) => text.startsWith('Question: ') && text.split('\n').includes('Rubric:');
+
+/** Reads the rubric-check message back into its parts. */
+function readRubricMessage(text) {
+  const lines = text.split('\n');
+  const rubric = [];
+  let i = lines.indexOf('Rubric:') + 1;
+  for (; i < lines.length && lines[i].startsWith('- '); i += 1) {
+    const m = /^- ([^:]+): (.*)$/.exec(lines[i]);
+    if (m) rubric.push({ id: m[1], text: m[2] });
+  }
+  const open = lines.indexOf('<student_answer>');
+  const close = lines.lastIndexOf('</student_answer>');
+  const answer = open !== -1 && close > open ? lines.slice(open + 1, close).join('\n') : '';
+  return { rubric, answer };
+}
+
+/** An item is "missing" when the answer shares fewer than three words with it. Same seed and input, same result. */
+function rubricReply(text, hash, attempt, chaos) {
+  const { rubric, answer } = readRubricMessage(text);
+  const words = new Set(tokens(answer));
+  const missing = rubric.filter((item) => tokens(item.text).filter((w) => words.has(w)).length < SHOWN_WORDS).map((item) => item.id);
+  const usage = { inputTokens: 300 + (hash % 200), outputTokens: 20 + (hash % 20), latencyMs: 300 + (hash % 300) };
+  if ((hash % 1000) / 1000 < chaos && attempt === 0) return { ...usage, text: 'The answer looks fine to me.' };
+  return {
+    ...usage,
+    text: JSON.stringify({ missing, reason: missing.length ? `The answer does not show ${missing.join(', ')}.` : 'Every rubric item is shown.' }),
+  };
+}
+
 function createFakeJudge({ seed = 1, chaos = 0 } = {}) {
   const seen = new Map();
 
@@ -41,6 +74,8 @@ function createFakeJudge({ seed = 1, chaos = 0 } = {}) {
     const hash = crypto.createHash('sha256').update(`${seed}|${text}`).digest().readUInt32BE(0);
     const attempt = seen.get(hash) || 0;
     seen.set(hash, attempt + 1);
+
+    if (isRubricMessage(text)) return rubricReply(text, hash, attempt, chaos);
 
     const { followUp, criteria, gaps } = readJudgeMessage(text);
     const words = new Set(tokens(followUp));
@@ -69,4 +104,4 @@ function createFakeJudge({ seed = 1, chaos = 0 } = {}) {
   };
 }
 
-module.exports = { createFakeJudge, readJudgeMessage };
+module.exports = { createFakeJudge, readJudgeMessage, readRubricMessage };

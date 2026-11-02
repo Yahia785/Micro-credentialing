@@ -59,11 +59,31 @@ function caseIds() {
 function mainQuestionsOf(config) {
   const list = [];
   config.themes.forEach((theme) => {
-    theme.mainQuestions.forEach((question) => {
-      list.push({ themeId: theme.id, themeTitle: theme.title, question, criteria: theme.criteria });
+    theme.mainQuestions.forEach((question, index) => {
+      list.push({
+        themeId: theme.id,
+        themeTitle: theme.title,
+        question,
+        criteria: theme.criteria,
+        // What a full answer must say, [{ id: 'r1', text }] (host.v4 only; empty when the case has none)
+        rubric: (theme.rubric && theme.rubric[index]) || [],
+      });
     });
   });
   return list;
+}
+
+/** The rubric of a theme: one list of { id, text } per main question, ids r1, r2, ... in order. */
+function checkRubric(rubric, theme, where) {
+  if (!Array.isArray(rubric) || rubric.length !== theme.mainQuestions.length) {
+    throw new Error(`${where}: rubric needs one list per main question (${theme.mainQuestions.length})`);
+  }
+  rubric.forEach((list, q) => {
+    const ok = Array.isArray(list) && list.length > 0
+      && list.every((item, i) => item && item.id === `r${i + 1}` && typeof item.text === 'string' && item.text.trim());
+    if (!ok) throw new Error(`${where}: rubric for main question ${q + 1} must be a list of { id: "r1", text }, { id: "r2", text }, ...`);
+  });
+  return rubric;
 }
 
 /** Load a case: program, validated config and scripted students. */
@@ -75,6 +95,12 @@ function loadCase(id) {
   if (parsed.error) throw new Error(`Case ${id}: invalid interview config: ${parsed.error}`);
 
   const rawConfig = JSON.parse(fs.readFileSync(entry.configFile, 'utf8'));
+  // The rubric sits next to the criteria in the theme: one list per main question. The shared config parser
+  // does not know it, so it is copied over here and travels with the config snapshot of the interview.
+  parsed.value.themes.forEach((theme, i) => {
+    const rubric = rawConfig.themes[i].rubric;
+    if (rubric !== undefined) theme.rubric = checkRubric(rubric, theme, `${id} theme ${theme.id}`);
+  });
   return {
     id: entry.id,
     // One question per main question, asked by the fixed-survey baseline (the engine ignores this key).

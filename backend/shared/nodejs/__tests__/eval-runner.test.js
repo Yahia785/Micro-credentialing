@@ -203,9 +203,10 @@ describe('planning and confirmation', () => {
     const loaded = { case1: loadCase('case1'), case2: loadCase('case2') };
     const plan = planOf(opts, loaded);
     expect(plan.interviews).toBe(2 * 2 * 3 * 3);
-    // 5 mains each, budget 1: between 5 and 10 calls per interview
+    // 5 mains each, budget 1: the model is asked after every main answer; after the follow-up answer only the next
+    // main question is allowed, so the engine decides alone. Exactly 5 calls per interview.
     expect(plan.minCalls).toBe(plan.interviews * 5);
-    expect(plan.maxCalls).toBe(plan.interviews * 10);
+    expect(plan.maxCalls).toBe(plan.interviews * 5);
   });
 
   it('asks before starting and runs nothing when declined', async () => {

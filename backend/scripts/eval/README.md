@@ -35,7 +35,9 @@ and (with `--judge`) the judge's possible cost first, and asks to confirm unless
 
 | Option | Meaning | Default |
 | --- | --- | --- |
-| `--prompts` | comma-separated prompt versions (`host.v1`, `host.v2`, `host.v3`) | the current default |
+| `--prompts` | comma-separated prompt versions (`host.v1` to `host.v4`). Add `@temperature` to name the temperature of an arm: `host.v4@0,host.v4@0.2,host.v3@0.2` | the current default (`host.v3`) |
+| `--temperatures` | comma-separated temperatures (0 to 1): every prompt in `--prompts` without an `@` gets one arm per temperature, named `host.v4@0` and so on | none: a plain prompt runs at the Bedrock client's default, 0.2, under its own name |
+| `--rubric-sample` | with `--judge` and a `host.v4` arm: how many answers go into `rubric-check-blind.csv` and `rubric-check-key.csv` (0 = none) | 40 |
 | `--baseline fixed` | also run the fixed-survey baseline as an extra arm named `fixed` (see below) | off |
 | `--cases` | `all` or a list: `case1` to `case5` | `all` |
 | `--profiles` | `all` or a list: `strong`, `vague`, `wrong`, `short`, `idk`, `mixed`, `keywords`, `echo`, `inject` | `all` |
@@ -77,6 +79,7 @@ those two are compared. `--arm host.v3` picks one arm in both folders, `--arm ho
 - `summary.csv`: the same as one row per arm and scope.
 - `summary.md`: comparison tables across arms, an **Adaptive behaviour** section, then one table per arm.
 - `judge-sample.csv` (only with `--judge`): see "Checking the judge against a person".
+- `rubric-check-blind.csv` and `rubric-check-key.csv` (only with `--judge` and a `host.v4` arm): see "host.v4 and the rubric check".
 
 ## Test cases and students
 
@@ -226,6 +229,63 @@ Expect action agreement below 100% for a real model: the Host runs at temperatur
 consistency numbers. In a repeat the earlier follow-ups may differ, so the history before a question is not always
 identical; the pair interviews are the controlled version of the comparison.
 
+## host.v4 and the rubric check
+
+`host.v4` is the first prompt that works from the instructor's **rubric**: for each main question, a list of items r1, r2, r3 that a
+full answer must say, written as positive statements. In a case file the rubric sits next to the criteria, in the theme:
+`"rubric": [[{"id": "r1", "text": "..."}, ...], ...]`, one list per main question. For cases 4 and 5 the items are the gap texts as they
+are; for cases 1 to 3 each "Does not say X" gap was rewritten as "Says X". The gap lists themselves are unchanged (the blind judge
+still gets them). Only `host.v4` is sent the rubric; `host.v1` to `host.v3` get exactly the message they always got. Students never see it
+(the student view of an interview has none of `missing`, `target`, `isHint`).
+
+`host.v4` first checks the answer against each item and replies with `missing` (the ids it did not see). If nothing is missing it moves on;
+otherwise it writes ONE follow-up aimed at the first missing item and returns that id as `target`. After "I don't know" or a struggling answer
+the follow-up is a smaller step or a hint (`isHint: true`, stored on the turn, not scored). Reply shape:
+`{"missing": [...], "action": "...", "target": "r2", "isHint": false, "question": "...", "reason": "..."}`.
+The engine also rejects a v4 follow-up that repeats five words in a row of a rubric item. `host.v3` stays the default; `host.v4` is chosen with
+`--prompts` or `AGENT_PROMPT_VERSION`. A config without a rubric falls back to the theme criteria, one item each.
+
+**Engine changes that apply to every prompt version**
+- *Two-question guard*: a follow-up that asks more than one question (the simple text check: more than one `?`, or two questions joined by
+  "and what/why/how...") is sent back once with "rewrite it as ONE question". If the rewrite still asks two, or the model cannot answer, only the
+  first question is kept. The turn records `guard: { fired, original, fixedByRetry }`. summary.md ("Two-question guard and skipped model calls")
+  reports, per arm, how often it fired, how often the rewrite fixed it, and the multi-part rate as if the guard were off: the simple check on the
+  original follow-ups, and the judge's two-part label of the original (the blind judge also labels the original when the guard fired).
+  Use these "guard off" columns to compare with a run made before the guard existed.
+- *Skipped model calls*: when the only allowed action is the next main question (or end), the engine decides alone: no model call, reason
+  `engine: ...`, `engineDecision: true` on the turn. It is not counted as a model decision (so not as an override or a reason check). summary.md reports
+  the calls saved. With a follow-up budget of 1 that is one call per interview less than before, and the old "follow-up limit" override no longer happens.
+- *Temperature*: an arm is a prompt version at a temperature. The temperature goes with every model call of the arm, is stored on every interview
+  (`temperature`, `arm`), and results, files and tables are keyed by arm (`host.v4@0`).
+
+**The rubric check by the judge** (`judge-rubric-prompt.v1.md`, `judge-rubric.v1`): a second, separate judge call on every main answer and
+follow-up answer of the `host.v4` arms. It sees the main question, the rubric items and the student's answer, and returns `missing` (the ids
+the answer did not show) and a short reason. The blind targeting judge is unchanged and never sees an answer. Identical inputs are judged once and
+reused (the answers are scripted, so the same answer in another arm or repeat is the same input). The verdict is stored on the student turn
+(`rubricCheck`).
+
+**What summary.md reports for each `host.v4` arm** ("Rubric check (host.v4)"): Host vs judge (the judge is the reference), Host vs scripted and judge vs scripted
+(scripted = the gaps the case file says the answer leaves, r1 = g1, r2 = g2, r3 = g3), each as exact match rate (the two lists are identical) and,
+per rubric item, **agreed**, **missed** (the reference says missing, the other says shown) and **wrongly missing**. The Host only checks answers where the model
+was asked, so mostly main answers; "answers both checked" rows compare the three on the same answers. **Host target accuracy (no judge)**: of the follow-ups with a
+`target`, asked after an answer that left a gap, how often the target is a gap the answer really left, next to the blind judge's targeting number.
+The headline "unnecessary follow-up" leaves out answers marked `ownCode` (case 5 Q1); follow-ups after them are counted separately.
+
+**The good-enough bar** ("Good-enough bar (cases 2 to 5)" in summary.md, one row per Host arm, pass or fail): reveals the answer 2% or fewer;
+two-part (judge label, after the guard) 5% or fewer; beyond scope 5% or fewer; gap targeting on partial answers at least 10 points above the fixed arm **and**
+at least 15 above chance; skips strong answers 85% or more; same action on repeats 90% or more; case 5 Q1 follow-ups targeting g1 or g2 60% or more; judge
+agreement with the human hand-check "fill in by hand". A bar this run cannot measure (no judge, one repeat, no fixed arm, no case 5) shows n/a and the arm is "incomplete".
+The hint rate per profile is a separate table.
+
+**Labelling a sample yourself.** With `--judge` and a `host.v4` arm the run writes about 40 distinct main answers (fixed seed, spread over cases 2 to 5
+and the profiles, strong answers included, shuffled):
+- `rubric-check-blind.csv`: `id, case, main_question, rubric_items, student_answer, human_missing`. Nothing else, so you are not influenced. Fill
+  `human_missing` with the rubric items the answer did NOT show, like `r1 r3`, or `none`. Leave a row empty to skip it.
+- `rubric-check-key.csv`: `id, host_arm, host_missing, judge_missing, scripted_gaps_left, host_target, host_follow_up, judge_reason`. Do not open it before you label.
+  The Host columns come from the first `host.v4` arm that checked the answer (`host_arm`).
+- `node scripts/eval/compare-rubric.js <run folder>` (or `<blind.csv> <key.csv>`) prints Host vs you, judge vs you and scripted vs you: exact match rate and,
+  per rubric item, agreed / missed (you say missing, it says shown) / wrongly called missing (it says missing, you say shown).
+
 ### The judge
 
 The judge is a second model that labels each follow-up **blind**. It is given only the main question, the criteria (the instructor's
@@ -267,6 +327,16 @@ project does not use. Options available on demand in us-east-1: Mistral Large 3 
 Check the current price and availability on the Bedrock pricing page.
 
 ## Known limits
+
+- host.v4's examples use a small grade-average program that is in no eval case. The rubric in the case files is written for this evaluation: the shared
+  interview config parser (`utils/interview-config.js`) does not know a `rubric` key yet, so a real assessment cannot store one until it does. The eval copies it
+  from the case file into the config snapshot.
+- With a follow-up budget of 1 the Host is only asked after the main answer. Answers to a follow-up are checked by the rubric judge but not by the Host, so
+  Host vs judge compares main answers.
+- The guard changes the follow-up that the student sees and the judge labels (the rewrite), so a v1 to v3 run made with the guard differs from an older run;
+  use the "guard off" columns to compare.
+- The cost and time estimates are rough: Host token sizes are guesses (v4 larger), rewrite calls are a guessed 10%, and the time assumes the judge calls are
+  not reused (they mostly are).
 
 - The final "end" decision is not stored by the service, so its tokens and latency come from the runner's own
   record of each call.

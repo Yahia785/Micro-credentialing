@@ -11,6 +11,22 @@
       ],
       "criteria": [
         "The student traces each reading to the correct state and explains why the state holds between the two levels."
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "At 40 the controller stays `FILLING`, because a reading between `low` and `high` keeps the current state."
+          },
+          {
+            "id": "r2",
+            "text": "At 70 the controller stays `FULL` for the same reason (it does not go back to `IDLE` or `FILLING`)."
+          },
+          {
+            "id": "r3",
+            "text": "The pump starts twice (at 18 and at 15), because a start is counted only when entering `FILLING` from another state."
+          }
+        ]
       ]
     },
     {
@@ -21,6 +37,22 @@
       ],
       "criteria": [
         "The student explains the purpose of the gap between the levels (hysteresis) and its effect on the pump."
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "With a single level, readings that go back and forth around it (49, 51, 49, 51) would turn the pump on and off on every reading."
+          },
+          {
+            "id": "r2",
+            "text": "The gap between the levels means the pump runs until the tank is high, and stays off until it is low, so it switches rarely."
+          },
+          {
+            "id": "r3",
+            "text": "Fewer switches means less wear on the pump (and a more stable level), which is why real controllers do this."
+          }
+        ]
       ]
     },
     {
@@ -31,6 +63,22 @@
       ],
       "criteria": [
         "The student explains how an invalid reading is detected and what the alarm state does to later readings."
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "-5 is invalid because it is negative, so the controller moves to `ALARM`."
+          },
+          {
+            "id": "r2",
+            "text": "The pump turns off in `ALARM` (it is not `FILLING` any more)."
+          },
+          {
+            "id": "r3",
+            "text": "The controller stays in `ALARM` for every later reading, even valid ones, because `step` checks `ALARM` first."
+          }
+        ]
       ]
     },
     {
@@ -41,6 +89,22 @@
       ],
       "criteria": [
         "The student identifies the boundary case the change affects and its consequence."
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "Only a reading of exactly 80 (exactly `high`) behaves differently."
+          },
+          {
+            "id": "r2",
+            "text": "An input that shows it, for example `10 80`: the second line becomes `80 -> FILLING` instead of `80 -> FULL`."
+          },
+          {
+            "id": "r3",
+            "text": "The pump keeps running at the high level, so the tank fills past the level it should stop at."
+          }
+        ]
       ]
     },
     {
@@ -51,6 +115,22 @@
       ],
       "criteria": [
         "The student explains the benefit of a pure function for a state machine."
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "It can be tested on its own: call it with any state and reading and check the result."
+          },
+          {
+            "id": "r2",
+            "text": "There is no hidden state, so the same inputs always give the same next state."
+          },
+          {
+            "id": "r3",
+            "text": "`main` stays in control of the current state, which makes the loop easy to read and trace."
+          }
+        ]
       ]
     }
   ],

@@ -228,10 +228,13 @@ describe('submitAnswer', () => {
     interviews.getInterviewTurns.mockResolvedValue([
       firstTurn, { role: 'student', text: 'a' }, { role: 'host', text: 'Main A2?', themeId: 'ptr', kind: 'main' },
     ]);
-    await answer({ converseFn: reply({ action: 'follow_up', question: 'More?', reason: 'wants more' }) });
+    const converseFn = jest.fn(reply({ action: 'follow_up', question: 'More?', reason: 'wants more' }));
+    await answer({ converseFn });
+    // Only one action was allowed, so the engine decided alone: the model was not asked.
+    expect(converseFn).not.toHaveBeenCalled();
     expect(interviews.appendTurns.mock.calls[0][0].metaUpdates.endDetail).toEqual({
-      reason: 'override: follow-up limit for this main question reached; no main questions remain, ended',
-      modelReason: 'wants more',
+      reason: 'engine: no follow-up left and no main question remains; ended',
+      engineDecision: true,
     });
   });
 
@@ -328,14 +331,17 @@ describe('submitAnswer', () => {
       interviews.getInterviewTurns.mockResolvedValue([
         firstTurn, { role: 'student', text: 'a' }, { role: 'host', text: 'f1', themeId: 'ptr', kind: 'follow_up' },
       ]);
-      await answer({ converseFn: reply({ action: 'follow_up', question: 'A second?', reason: 'probe more' }) });
+      const converseFn = jest.fn(reply({ action: 'follow_up', question: 'A second?', reason: 'probe more' }));
+      await answer({ converseFn });
+      expect(converseFn).not.toHaveBeenCalled(); // the only allowed action is the next main question
       const call = interviews.appendTurns.mock.calls[0][0];
       expect(call.turns[1]).toMatchObject({
         text: 'Main A2?',
         kind: 'main',
-        reason: 'override: follow-up limit for this main question reached; asked the next main question',
-        modelReason: 'probe more',
+        reason: 'engine: no follow-up left for this main question; asked the next main question',
+        engineDecision: true,
       });
+      expect(call.turns[1].modelReason).toBeUndefined();
       expect(call.turns[1].fallback).toBeUndefined();
       // The next main question has a fresh budget, and an override is not counted as a fallback.
       expect(call.metaUpdates).toMatchObject({ followUpCount: 0, mainIndex: 1, fallbackCount: 0 });

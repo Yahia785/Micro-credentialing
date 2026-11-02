@@ -13,6 +13,32 @@
       "criteria": [
         "Student explains that the function counts the spaces and adds one, so the string a with three spaces gives 4",
         "Student explains that words starts at 1 because a sentence of n words has n minus 1 separating spaces"
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "Says that the loop counts the spaces, not the letters."
+          },
+          {
+            "id": "r2",
+            "text": "Says that one is added to the space count (the first word has no space in front of it)."
+          },
+          {
+            "id": "r3",
+            "text": "Says that the string a with three spaces gives 4."
+          }
+        ],
+        [
+          {
+            "id": "r1",
+            "text": "Explains why one is added: a sentence of n words has n minus 1 separating spaces."
+          },
+          {
+            "id": "r2",
+            "text": "Says what would happen if words started at 0: the result for the four-word string would be 3, one too few."
+          }
+        ]
       ]
     },
     {
@@ -25,6 +51,28 @@
       "criteria": [
         "Student predicts 3 for b and 1 for c, recognises that both are wrong (the correct counts are 2 and 0), or admits the function does not handle repeated spaces or empty input",
         "Student explains that every space is counted wherever it appears, so a leading or trailing space adds an extra word"
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "Gives the values returned: 3 for b and 1 for c."
+          },
+          {
+            "id": "r2",
+            "text": "Recognises that both results are wrong (the correct counts are 2 and 0) or that the function mishandles repeated spaces and empty input."
+          }
+        ],
+        [
+          {
+            "id": "r1",
+            "text": "Says what the function returns for a leading space: one word too many."
+          },
+          {
+            "id": "r2",
+            "text": "Explains why: every space is counted wherever it appears."
+          }
+        ]
       ]
     },
     {
@@ -35,6 +83,22 @@
       ],
       "criteria": [
         "Student explains that isLetter checks the ASCII ranges for lowercase and uppercase letters and that countLetters adds one for each such character, ignoring spaces"
+      ],
+      "rubric": [
+        [
+          {
+            "id": "r1",
+            "text": "Says that isLetter checks the ASCII ranges a to z and A to Z."
+          },
+          {
+            "id": "r2",
+            "text": "Says that countLetters adds one for each character that isLetter accepts."
+          },
+          {
+            "id": "r3",
+            "text": "Says that spaces (and other characters that are not letters) are therefore not counted."
+          }
+        ]
       ]
     }
   ],

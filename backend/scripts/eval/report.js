@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const { BAD_LABELS, GAMING_PROFILES } = require('./students');
 const { OVERRIDE_TYPES } = require('./metrics');
+const { evaluateBars } = require('./bars');
+const engine = require('../../shared/nodejs/agent/interview-engine');
 
 const pct = (r) => (r.rate === null ? 'n/a' : `${(r.rate * 100).toFixed(0)}%`);
 const frac = (r) => (r.rate === null ? 'n/a' : `${(r.rate * 100).toFixed(0)}% (${r.num}/${r.den})`);
@@ -37,6 +39,12 @@ const COLUMNS = [
   ['throttle_retries', 'Throttle retries', (s) => s.fallbacks.throttleRetries],
   ['yes_no', 'Yes/no questions', (s) => frac(s.yesNo), (s) => s.yesNo.rate],
   ['multi_part', 'Multi-part questions', (s) => frac(s.multiPart), (s) => s.multiPart.rate],
+  ['own_code_follow_up', 'Follow-up after an ownCode answer', (s) => frac(s.ownCodeFollowUp), (s) => s.ownCodeFollowUp.rate],
+  ['guard_fired', 'Two-question guard fired', (s) => frac(s.guard.fired), (s) => s.guard.fired.rate],
+  ['guard_fixed', 'Guard: fixed by the rewrite', (s) => frac(s.guard.fixedByRetry), (s) => s.guard.fixedByRetry.rate],
+  ['multi_part_guard_off', 'Multi-part (simple check) if the guard were off', (s) => frac(s.guard.multiPartIfOff), (s) => s.guard.multiPartIfOff.rate],
+  ['calls_saved', 'Model calls saved (engine decided)', (s) => s.engineDecisions],
+  ['hint_rate', 'Follow-ups marked as a hint', (s) => frac(s.hint), (s) => s.hint.rate],
   ['reason_contradiction', 'Reason contradicts action', (s) => frac(s.reasonContradiction), (s) => s.reasonContradiction.rate],
   ['latency_median_ms', 'Latency median (ms)', (s) => ms(s.latencyMs.median), (s) => s.latencyMs.median],
   ['latency_p95_ms', 'Latency p95 (ms)', (s) => ms(s.latencyMs.p95), (s) => s.latencyMs.p95],
@@ -54,6 +62,7 @@ const COLUMNS = [
     ['reveals', 'Reveals the answer', (a) => a.followUpChecks.reveals],
     ['two_part_judge', 'Two-part (judge)', (a) => a.followUpChecks.twoPart],
     ['two_part_simple', 'Two-part (simple check, same follow-ups)', (a) => a.followUpChecks.twoPartSimple],
+    ['two_part_guard_off', 'Two-part (judge) if the guard were off', (a) => a.followUpChecks.twoPartGuardOff],
     ['beyond_scope', 'Beyond scope', (a) => a.followUpChecks.beyondScope],
     ['action_agreement', 'Action agreement', (a) => a.actionAgreement],
     ['direction_agreement', 'Direction agreement', (a) => a.directionAgreement],
@@ -74,7 +83,7 @@ const RATE_COLUMNS = new Set([
   'unnecessary_follow_up', 'missed_follow_up', 'missed_vague', 'missed_wrong', 'missed_short', 'missed_idk',
   'overrides', 'fallbacks', 'yes_no', 'multi_part', 'reason_contradiction',
   'gap_targeting', 'gap_chance', 'gap_partial', 'gap_partial_chance', 'gap_none', 'off_target', 'reveals', 'two_part_judge',
-  'two_part_simple', 'beyond_scope', 'action_agreement', 'direction_agreement', 'discrimination', 'discrimination_chance',
+  'two_part_simple', 'two_part_guard_off', 'own_code_follow_up', 'guard_fired', 'guard_fixed', 'multi_part_guard_off', 'hint_rate', 'beyond_scope', 'action_agreement', 'direction_agreement', 'discrimination', 'discrimination_chance',
   'pairs_both_follow_up', 'pairs_identical', 'gaming_skip',
 ]);
 
@@ -130,6 +139,10 @@ function adaptiveSection({ results, judge, options, pairInterviews }) {
   out.push('- **Gaming skip**: main answers from the gaming profiles (keywords, echo, inject) that got no follow-up although one was allowed. Lower is better.', '');
   if (judge) {
     out.push(`Judge: ${judge.model} (${judge.promptVersion}), ${judge.judgements} follow-ups judged, ${judge.unjudged} without a usable judgement, ${judge.calls} calls (${judge.cached} reused), est. cost ${usd(judge.estimatedCostUsd)}.`, '');
+    if (judge.rubricCheck && judge.rubricCheck.answers) {
+      const r = judge.rubricCheck;
+      out.push(`Rubric check (${r.promptVersion}, separate from the blind judge): ${r.answers} answers checked, ${r.unjudged} without a usable result, ${r.calls} calls (${r.cached} reused), est. cost ${usd(r.estimatedCostUsd)}.`, '');
+    }
   } else {
     out.push('Judge not run (`--judge`): gap targeting, the follow-up checks, direction agreement and discrimination are n/a.', '');
   }
@@ -208,6 +221,90 @@ function ownCodeSection(prompts, results) {
   return out;
 }
 
+/** The "Good enough" bar table: one row per Host arm, pass or fail on each bar. */
+function barSection(results) {
+  const rows = evaluateBars(results);
+  if (!rows.length) return [];
+  const mark = (check, text) => {
+    if (check.manual) return 'fill in by hand';
+    if (check.pass === null) return `n/a${check.note ? ` (${check.note})` : ''}`;
+    return `${text} ${check.pass ? 'PASS' : 'FAIL'}`;
+  };
+  const cell = (check) => {
+    if (check.id === 'targeting') {
+      const detail = check.pass === null ? '' : `${pct({ rate: check.value })} (fixed ${pct({ rate: check.fixed })}, chance ${pct({ rate: check.chance })})`;
+      return mark(check, detail);
+    }
+    return mark(check, pct({ rate: check.value }));
+  };
+  const header = ['Arm', ...rows[0].checks.map((c) => `${c.label}: ${c.rule}`), 'Overall'];
+  const out = ['## Good-enough bar (cases 2 to 5)', ''];
+  out.push('One row per Host arm. Each bar is pass or fail on the headline numbers (case 1 left out). A bar that this run cannot measure shows n/a and the overall result says "incomplete". The judge agreement with a human hand-check comes from `compare-rubric.js` and `judge-sample.csv`, filled in by hand.', '');
+  out.push(mdTable(header, rows.map((row) => [row.arm, ...row.checks.map(cell), row.overall])), '');
+  return out;
+}
+
+/** The two-question guard, per arm: how often it fired, how often the rewrite fixed it, and the numbers as if it were off. */
+function guardSection(prompts, results) {
+  const out = ['## Two-question guard and skipped model calls', ''];
+  out.push('When a follow-up asks more than one question (the simple text check), the engine asks the model once to rewrite it as one question; if it still has two, only the first question is kept. "If the guard were off" is what the follow-ups the model first wrote would have scored, so a run can be compared with an older one. When only one action is allowed (the next main question, or end) the engine decides alone and the model is not called: those calls are saved.', '');
+  out.push(mdTable(
+    ['Arm', 'Follow-ups asked', 'Guard fired', 'Fixed by the rewrite', 'Kept the first question only', 'Multi-part, simple check: guard off', 'Multi-part, simple check: after the guard', 'Two-part, judge: guard off', 'Two-part, judge: after the guard', 'Model calls saved'],
+    prompts.map((p) => {
+      const s = results[p].overall;
+      const f = s.adaptive ? s.adaptive.followUpChecks : null;
+      return [p, s.guard.fired.den, frac(s.guard.fired), frac(s.guard.fixedByRetry), frac(s.guard.keptFirst), frac(s.guard.multiPartIfOff), frac(s.guard.multiPartAfter),
+        f ? frac(f.twoPartGuardOff) : 'n/a', f ? frac(f.twoPart) : 'n/a', s.engineDecisions];
+    })
+  ), '');
+  return out;
+}
+
+/** The rubric check of the host.v4 arms: Host vs judge, and both against the scripted gaps_left. */
+function rubricSection(prompts, results) {
+  const holders = prompts.filter((p) => results[p].rubric);
+  if (!holders.length) return [];
+  const out = ['## Rubric check (host.v4)', ''];
+  out.push('Three parties say which rubric items an answer did not show ("missing"): the **scripted** answer (its gaps_left, r1 = g1, r2 = g2, r3 = g3), the **Host** (host.v4 checks the answer before it chooses; only on answers where the model was asked, so mostly main answers) and the **rubric-check judge** (a separate call that sees the question, the rubric and the answer). Exact match = the two lists are identical. Per item: **agreed** (both say missing, or both say shown), **missed** (the reference says missing, the first one says shown), **wrongly missing** (the first one says missing, the reference says shown). In "A vs B", B is the reference. Headline cases (2 to 5).', '');
+  const rows = [];
+  const itemRows = [];
+  for (const p of holders) {
+    const r = results[p].rubric;
+    [['Host vs judge', r.hostVsJudge, true], ['Host vs scripted', r.hostVsScripted, true], ['Judge vs scripted', r.judgeVsScripted, true],
+      ['Host vs scripted (answers both checked)', r.commonHostVsScripted, false], ['Judge vs scripted (same answers)', r.commonJudgeVsScripted, false]]
+      .forEach(([label, t, perItem]) => {
+        rows.push([p, label, t.n, frac(t.exact)]);
+        if (perItem) Object.entries(t.perItem).forEach(([id, c]) => itemRows.push([p, label, id, c.n, c.agreed, c.missed, c.wronglyMissing]));
+      });
+  }
+  out.push(mdTable(['Arm', 'Comparison', 'Answers', 'Exact match'], rows), '');
+  out.push('### Per rubric item', '');
+  out.push(mdTable(['Arm', 'Comparison', 'Item', 'Answers', 'Agreed', 'Missed', 'Wrongly missing'], itemRows), '');
+  out.push('### Host target accuracy (no judge) next to the judge targeting', '');
+  out.push('Of the follow-ups with a target, asked after an answer that left at least one gap: the share whose target is a gap the scripted answer really left. The judge column is the blind judge targeting number (any gap the answer left) for the same arm.', '');
+  out.push(mdTable(['Arm', 'Follow-ups with a target', 'After an answer with gaps', 'Host target is a left gap', 'Judge targeting'],
+    holders.map((p) => {
+      const t = results[p].rubric.hostTarget;
+      const a = results[p].overall.adaptive;
+      return [p, t.followUps, t.withGaps, frac(t.onTarget), a ? frac(a.gapTargeting.hit) : 'n/a'];
+    })), '');
+  return out;
+}
+
+/** The share of follow-ups that were a hint, per answer profile (host.v4 arms). */
+function hintSection(prompts, results) {
+  const holders = prompts.filter((p) => engine.usesRubric(String(p).split('@')[0]));
+  if (!holders.length) return [];
+  const profiles = [...new Set(holders.flatMap((p) => Object.keys(results[p].byProfile)))];
+  const out = ['## Hint rate per profile (host.v4)', ''];
+  out.push('Follow-ups the Host marked as a hint (a smaller step after "I do not know" or a struggling answer), out of the follow-ups it asked for that profile. Not scored.', '');
+  out.push(mdTable(['Arm', ...profiles], holders.map((p) => [p, ...profiles.map((profile) => {
+    const s = results[p].byProfile[profile];
+    return s ? frac(s.hint) : 'n/a';
+  })])), '');
+  return out;
+}
+
 function toMarkdown({ runId, options, plan, results, notes = [], judge = null, pairInterviews = 0 }) {
   const cols = MD_COLUMNS.map((name) => COLUMNS.find((c) => c[1] === name));
   const cells = (s) => cols.map((c) => c[2](s));
@@ -221,6 +318,11 @@ function toMarkdown({ runId, options, plan, results, notes = [], judge = null, p
   const excludedCases = [...new Set(prompts.flatMap((p) => results[p].headlineExcludes || []))];
   out.push(`## Comparison (overall${excludedCases.length ? `, without ${excludedCases.join(', ')}` : ''})`, '');
   out.push(mdTable(['Prompt', ...MD_COLUMNS], prompts.map((p) => [p, ...cells(results[p].overall)])), '');
+
+  out.push(...barSection(results));
+  out.push(...guardSection(prompts, results));
+  out.push(...rubricSection(prompts, results));
+  out.push(...hintSection(prompts, results));
 
   const caseIds = [...new Set(prompts.flatMap((p) => Object.keys(results[p].byCase)))];
   for (const caseId of caseIds) {
@@ -327,6 +429,8 @@ function terminalSummary(report) {
       pct(a.pairs.discrimination), pct(a.gamingSkip.total), usd(s.estimatedCostUsd)];
   });
   const lines = [`Summary (${report.runId})${Object.values(report.results).some((r) => (r.headlineExcludes || []).length) ? ', without case1' : ''}`, textTable(header, rows)];
+  const bars = evaluateBars(report.results);
+  if (bars.length) lines.push(`Good-enough bar: ${bars.map((b) => `${b.arm} ${b.overall}`).join(', ')} (details in summary.md)`);
   if (report.judge) {
     lines.push(`Judge ${report.judge.model}: ${report.judge.judgements} follow-ups judged, ${report.judge.unjudged} unusable, est. cost ${usd(report.judge.estimatedCostUsd)}`);
   } else {

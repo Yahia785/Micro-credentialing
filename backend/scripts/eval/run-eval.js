@@ -23,6 +23,8 @@ const { createFakeModel } = require('./fake-model');
 const { createFakeJudge } = require('./fake-judge');
 const { createFixedModel, ARM: FIXED_ARM } = require('./fixed-baseline');
 const judging = require('./judge');
+const rubricJudging = require('./judge-rubric');
+const rubricStats = require('./rubric');
 const { caseIds, loadCase } = require('./cases');
 const { RUN_PROFILES, GAMING_PROFILES, HEADLINE_EXCLUDED_CASES, validateStudents, buildProfile, pairsFor, pairGapsLeft } = require('./students');
 const metrics = require('./metrics');
@@ -105,7 +107,7 @@ function withRetry(base, { calls, sleep, delayMs, retryDelayMs }) {
 const callSummary = (call) => (call ? { ...call } : null);
 
 /** Register the code and interview config the service reads, and build the model function for an arm. */
-function setUpInterview({ caseData, submissionId, promptVersion, opts, ctx }) {
+function setUpInterview({ caseData, submissionId, promptVersion, temperature, opts, ctx }) {
   const userId = 'eval-student';
   const milestoneId = `milestone_${caseData.id}`;
   stores.reset();
@@ -120,7 +122,9 @@ function setUpInterview({ caseData, submissionId, promptVersion, opts, ctx }) {
     // No model: the fixed question is asked after every main answer. Nothing is sent to Bedrock.
     converseFn = createFixedModel({ fixedFollowUps: caseData.fixedFollowUps, getMainOrdinal: () => ctx.mainOrdinal });
   } else {
-    const base = opts.fakeModel ? createFakeModel({ seed: opts.seed, chaos: opts.fakeChaos }) : bedrock.converse;
+    const model = opts.fakeModel ? createFakeModel({ seed: opts.seed, chaos: opts.fakeChaos }) : bedrock.converse;
+    // The arm's temperature goes with every call to the model (the guard's rewrite too); the engine and the service do not know it.
+    const base = temperature === undefined || temperature === null ? model : (request) => model({ ...request, temperature });
     converseFn = withRetry(base, { calls, sleep: opts.sleep, delayMs: opts.delayMs, retryDelayMs: opts.retryDelayMs });
   }
   return { userId, calls, converseFn };
@@ -144,17 +148,30 @@ const modelIdOf = (promptVersion, opts) => {
   return opts.fakeModel ? 'fake-model' : opts.modelId;
 };
 
-async function runInterview({ caseData, profileName, answers, promptVersion, repeat, opts }) {
+/**
+ * An arm is a prompt version at a temperature (or the fixed baseline). `armOf` fills in the defaults for a plain prompt
+ * version: the arm is named after the prompt and runs at the Bedrock client's default temperature.
+ */
+function armOf({ promptVersion, arm, temperature }) {
+  if (promptVersion === FIXED_ARM) return { arm: arm || FIXED_ARM, promptVersion, temperature: null };
+  return { arm: arm || promptVersion, promptVersion, temperature: temperature === undefined ? bedrock.DEFAULT_TEMPERATURE : temperature };
+}
+const safeName = (text) => String(text).replace(/[^A-Za-z0-9_-]/g, '');
+
+async function runInterview({ caseData, profileName, answers, promptVersion, arm: armName, temperature: armTemperature, repeat, opts }) {
   const service = loadService();
-  const submissionId = `eval_${caseData.id}_${profileName}_${promptVersion.replace('.', '')}_r${repeat}`;
+  const { arm, temperature } = armOf({ promptVersion, arm: armName, temperature: armTemperature });
+  const submissionId = `eval_${caseData.id}_${profileName}_${safeName(arm)}_r${repeat}`;
   const answerMs = opts.answerSeconds * 1000;
   const ctx = { mainOrdinal: 0 };
-  const { userId, calls, converseFn } = setUpInterview({ caseData, submissionId, promptVersion, opts, ctx });
+  const { userId, calls, converseFn } = setUpInterview({ caseData, submissionId, promptVersion, temperature, opts, ctx });
 
   const transcript = {
     schema: 2,
     runId: opts.runId,
     promptVersion,
+    arm,
+    temperature,
     caseId: caseData.id,
     profile: profileName,
     repeat,
@@ -192,6 +209,7 @@ async function runInterview({ caseData, profileName, answers, promptVersion, rep
         scripted: {
           profile: profileName, source: entry.source, label: answer.label, gaps: answer.gaps,
           gapCount: caseData.studentsRaw.gaps[mainOrdinal].length, answerType, mainOrdinal,
+          ...(answer.ownCode && { ownCode: true }),
         },
         call: calls[callsBefore] || null,
         status: result.ended ? result.status : null,
@@ -222,13 +240,14 @@ const SEEDED_REPLY = {
 };
 const seededConverse = async () => SEEDED_REPLY;
 
-async function runPairInterview({ caseData, mainOrdinal, pair, side, promptVersion, repeat, opts }) {
+async function runPairInterview({ caseData, mainOrdinal, pair, side, promptVersion, arm: armName, temperature: armTemperature, repeat, opts }) {
   const service = loadService();
+  const { arm, temperature } = armOf({ promptVersion, arm: armName, temperature: armTemperature });
   const label = `${pair.id}${side}`;
-  const submissionId = `pair_${caseData.id}_q${mainOrdinal + 1}_${label}_${promptVersion.replace('.', '')}_r${repeat}`;
+  const submissionId = `pair_${caseData.id}_q${mainOrdinal + 1}_${label}_${safeName(arm)}_r${repeat}`;
   const answerMs = opts.answerSeconds * 1000;
   const ctx = { mainOrdinal };
-  const { userId, calls, converseFn } = setUpInterview({ caseData, submissionId, promptVersion, opts, ctx });
+  const { userId, calls, converseFn } = setUpInterview({ caseData, submissionId, promptVersion, temperature, opts, ctx });
   const history = buildProfile(caseData.studentsRaw, 'strong', caseData.mains);
   const variant = pair[side];
 
@@ -237,6 +256,8 @@ async function runPairInterview({ caseData, mainOrdinal, pair, side, promptVersi
     kind: 'pair',
     runId: opts.runId,
     promptVersion,
+    arm,
+    temperature,
     caseId: caseData.id,
     profile: 'pair',
     repeat,
@@ -341,6 +362,42 @@ async function assemble(transcript, interviewId, steps) {
 // The whole run
 // ---------------------------------------------------------------------------------------------
 
+function parseTemperature(text) {
+  const value = Number(text);
+  if (String(text).trim() === '' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`Bad temperature "${text}": use a number from 0 to 1`);
+  }
+  return value;
+}
+
+/**
+ * The Host arms: each prompt version at one temperature. `--prompts host.v4@0,host.v4@0.2,host.v3` names the
+ * temperature of an arm after an @; `--temperatures 0,0.2` gives every prompt without an @ one arm per temperature.
+ * Without either, the arm is the prompt version itself and runs at the client's default temperature.
+ */
+function parseArms(promptsValue, temperaturesValue) {
+  const names = promptsValue === 'all' ? [...engine.PROMPT_VERSIONS] : String(promptsValue).split(',').map((s) => s.trim()).filter(Boolean);
+  const temps = temperaturesValue === undefined ? null : String(temperaturesValue).split(',').map((s) => s.trim()).filter(Boolean).map(parseTemperature);
+  if (temps && temps.length === 0) throw new Error('--temperatures needs at least one number');
+  const specs = [];
+  for (const item of names) {
+    const [promptVersion, at] = item.split('@');
+    if (!engine.PROMPT_VERSIONS.includes(promptVersion)) {
+      throw new Error(`Unknown prompt version: ${promptVersion}. Available: ${engine.PROMPT_VERSIONS.join(', ')}`);
+    }
+    const temperatures = at !== undefined ? [parseTemperature(at)] : temps;
+    if (!temperatures) specs.push({ arm: promptVersion, promptVersion, temperature: bedrock.DEFAULT_TEMPERATURE });
+    else temperatures.forEach((temperature) => specs.push({ arm: `${promptVersion}@${temperature}`, promptVersion, temperature }));
+  }
+  const seen = new Set();
+  for (const spec of specs) {
+    if (seen.has(spec.arm)) throw new Error(`The arm ${spec.arm} is listed twice`);
+    seen.add(spec.arm);
+  }
+  if (specs.length === 0) throw new Error('--prompts needs at least one prompt version');
+  return specs;
+}
+
 function splitList(value, all, label) {
   if (value === undefined || value === 'all') return [...all];
   const items = String(value).split(',').map((s) => s.trim()).filter(Boolean);
@@ -359,22 +416,28 @@ function normalizeOptions(raw) {
   const judge = !!raw.judge;
   const judgeSample = Number(raw.judgeSample === undefined ? 30 : raw.judgeSample);
   if (!Number.isInteger(judgeSample) || judgeSample < 0) throw new Error('--judge-sample must be a whole number of 0 or more');
+  const rubricSample = Number(raw.rubricSample === undefined ? 40 : raw.rubricSample);
+  if (!Number.isInteger(rubricSample) || rubricSample < 0) throw new Error('--rubric-sample must be a whole number of 0 or more');
   const modelId = fakeModel ? 'fake-model' : bedrock.resolveModelId(raw.model);
   const judgeModelId = fakeModel ? 'fake-judge' : bedrock.resolveModelId(raw.judgeModel || judging.DEFAULT_JUDGE_MODEL);
   if (judge && !fakeModel && judgeModelId === modelId) {
     throw new Error('The judge must be a different model from the Host. Pass another one with --judge-model.');
   }
-  const prompts = splitList(raw.prompts === undefined ? engine.PROMPT_VERSION : raw.prompts, engine.PROMPT_VERSIONS, 'prompt version');
+  const armSpecs = parseArms(raw.prompts === undefined ? engine.PROMPT_VERSION : raw.prompts, raw.temperatures);
+  const prompts = armSpecs.map((spec) => spec.arm);
 
   return {
     runId,
     prompts,
     baseline: raw.baseline || null,
+    armSpecs,
+    armList: raw.baseline ? [...armSpecs, { arm: FIXED_ARM, promptVersion: FIXED_ARM, temperature: null }] : armSpecs,
     arms: raw.baseline ? [...prompts, FIXED_ARM] : prompts,
     pairs: !raw.noPairs,
     judge,
     judgeModelId,
     judgeSample,
+    rubricSample,
     judgePrices: {
       inputPerMillion: Number(raw.judgePriceIn === undefined ? judging.DEFAULT_JUDGE_PRICES.inputPerMillion : raw.judgePriceIn),
       outputPerMillion: Number(raw.judgePriceOut === undefined ? judging.DEFAULT_JUDGE_PRICES.outputPerMillion : raw.judgePriceOut),
@@ -410,10 +473,12 @@ function planOf(opts, loaded) {
   const perCase = opts.cases.map((id) => loaded[id]);
   const arms = opts.arms || opts.prompts;
   const interviews = arms.length * opts.profiles.length * opts.repeats * perCase.length;
-  const perInterview = (c) => ({
-    min: c.mains.length,
-    max: c.mains.length * (1 + engine.followUpBudget(c.config)),
-  });
+  // The model is asked after a main answer and after every follow-up answer but the last one allowed: with a follow-up
+  // budget of b, at most b calls per main question. With no follow-up budget nothing is asked (the engine decides alone).
+  const perInterview = (c) => {
+    const budget = engine.followUpBudget(c.config);
+    return { min: budget > 0 ? c.mains.length : 0, max: c.mains.length * budget };
+  };
   const total = (pick) => opts.prompts.length * opts.profiles.length * opts.repeats *
     perCase.reduce((acc, c) => acc + perInterview(c)[pick], 0);
 
@@ -427,12 +492,22 @@ function planOf(opts, loaded) {
   // The judge labels every follow-up, whatever the answer before it: at most the follow-up budget of each interview, and one per pair interview.
   const followUpsPerRound = perCase.reduce((acc, c) => acc + c.mains.length * engine.followUpBudget(c.config), 0);
   const judgeCalls = opts.judge ? arms.length * opts.profiles.length * opts.repeats * followUpsPerRound + pairInterviews : 0;
+  // Rubric check (host.v4 arms): every main answer and follow-up answer of a full interview is checked once. The answers are
+  // scripted, so the same answer in another arm or repeat is the same input and is reused: the distinct answers bound the calls.
+  const rubricArms = (opts.armSpecs || []).filter((spec) => engine.usesRubric(spec.promptVersion)).length ||
+    (opts.armSpecs ? 0 : opts.prompts.filter((p) => engine.usesRubric(String(p).split('@')[0])).length);
+  const answersPerProfile = perCase.reduce((acc, c) => acc + c.mains.length * (1 + engine.followUpBudget(c.config)), 0);
+  const rubricAnswers = opts.judge ? rubricArms * opts.profiles.length * opts.repeats * answersPerProfile : 0;
+  const rubricCalls = opts.judge && rubricArms > 0 ? opts.profiles.length * answersPerProfile : 0;
   return {
     interviews,
     minCalls: total('min') + pairCalls,
     maxCalls: total('max') + pairCalls,
     pairInterviews,
     judgeCalls,
+    rubricArms,
+    rubricAnswers,
+    rubricCalls,
   };
 }
 
@@ -449,6 +524,10 @@ async function askToProceed(question) {
 // ---------------------------------------------------------------------------------------------
 
 const JUDGE_TOKENS = { input: 800, output: 60 }; // typical size of one judge call, for the estimate
+const RUBRIC_TOKENS = { input: 600, output: 70 }; // typical size of one rubric-check call
+const HOST_TOKENS = { input: 3500, output: 120 }; // typical size of one Host call (host.v1 to host.v3)
+const HOST_V4_TOKENS = { input: 4300, output: 190 }; // host.v4: a longer prompt, the rubric in the message, a longer reply
+const REWRITE_SHARE = 0.1; // a guess: the share of Host calls that get one more call from the two-question guard
 
 /** A small seeded random generator (mulberry32), so the same seed gives the same sample. */
 function seededRandom(seed) {
@@ -488,14 +567,36 @@ async function judgeTranscripts({ entries, loaded, opts }) {
     : bedrock.converse;
   const wrapped = withRetry(converse, { calls, sleep: opts.sleep, delayMs: opts.fakeModel ? 0 : opts.delayMs, retryDelayMs: opts.retryDelayMs });
   const judge = judging.createJudge({ modelId: opts.judgeModelId, converseFn: wrapped });
+  const rubricJudge = rubricJudging.createRubricJudge({ modelId: opts.judgeModelId, converseFn: wrapped });
 
   const items = [];
+  let rubricChecks = 0;
+  let rubricUnjudged = 0;
   const seenItems = new Set();
   let judgements = 0;
   let unjudged = 0;
   for (const { transcript, file } of entries) {
     const caseData = loaded[transcript.caseId];
     const turns = transcript.turns || [];
+    // Rubric check (host.v4 arms): the second, separate judge call. It sees the question, the rubric and the answer; not the
+    // follow-up, not the code, not the Host's own check. Every main answer and follow-up answer of a full interview.
+    if (engine.usesRubric(transcript.promptVersion) && !transcript.pair) {
+      for (const turn of turns) {
+        if (turn.role !== 'student' || !turn.scripted) continue;
+        const rubric = caseData.mains[turn.scripted.mainOrdinal].rubric;
+        if (!rubric.length) continue;
+        const result = await rubricJudge.judge({ mainQuestion: caseData.mains[turn.scripted.mainOrdinal].question, rubric, answer: turn.text });
+        rubricChecks += 1;
+        if (!result.valid) rubricUnjudged += 1;
+        turn.rubricCheck = {
+          valid: result.valid,
+          ...(result.valid && { missing: result.missing, reason: result.reason }),
+          ...(result.error && { error: result.error }),
+          judgeModel: opts.judgeModelId,
+          judgePrompt: rubricJudging.RUBRIC_JUDGE_PROMPT_VERSION,
+        };
+      }
+    }
     for (let i = 1; i < turns.length; i += 1) {
       const turn = turns[i];
       const answerTurn = turns[i - 1];
@@ -520,6 +621,12 @@ async function judgeTranscripts({ entries, loaded, opts }) {
         judgeModel: opts.judgeModelId,
         judgePrompt: judging.JUDGE_PROMPT_VERSION,
       };
+      // When the two-question guard changed this follow-up, the blind judge also labels the original, so the two-part rate can be
+      // reported as if the guard were off. Only the two-part label of the original is used.
+      if (turn.guard && turn.guard.fired) {
+        const original = await judge.judge({ ...input, followUp: turn.guard.original });
+        turn.guard.originalJudgement = original.valid ? { valid: true, twoPart: original.twoPart } : { valid: false };
+      }
       const itemKey = JSON.stringify([input, answerTurn.text]);
       if (result.valid && !seenItems.has(itemKey)) {
         seenItems.add(itemKey);
@@ -550,6 +657,13 @@ async function judgeTranscripts({ entries, loaded, opts }) {
       ...usage,
       estimatedCostUsd: judging.estimateJudgeCost(usage, opts.judgePrices),
       prices: opts.judgePrices,
+      rubricCheck: {
+        promptVersion: rubricJudging.RUBRIC_JUDGE_PROMPT_VERSION,
+        answers: rubricChecks,
+        unjudged: rubricUnjudged,
+        ...rubricJudge.usage,
+        estimatedCostUsd: judging.estimateJudgeCost(rubricJudge.usage, opts.judgePrices),
+      },
     },
   };
 }
@@ -573,21 +687,37 @@ async function runEval(rawOptions) {
   log(`  arms: ${opts.arms.join(', ')} | cases: ${opts.cases.join(', ')} | profiles: ${opts.profiles.join(', ')} | repeats: ${opts.repeats}`);
   log(`  ${plan.interviews} interviews, about ${plan.minCalls}-${plan.maxCalls} model calls${opts.fakeModel ? ' (fake model, no Bedrock)' : ` to ${opts.modelId} in us-east-1`}`);
   if (opts.pairs) log(`  plus ${plan.pairInterviews} minimal-pair interviews (one decision each, already counted in the calls above); --no-pairs skips them`);
+  log('  the model is not asked when only one action is allowed (the next main question, or end); the two-question guard can add one rewrite call per follow-up that asks two things (not counted above)');
+  if (opts.armSpecs.some((spec) => spec.temperature !== bedrock.DEFAULT_TEMPERATURE)) {
+    log(`  temperatures: ${opts.armSpecs.map((spec) => `${spec.arm} = ${spec.temperature}`).join(', ')}`);
+  }
   if (!opts.fakeModel) {
     const typical = Math.round((plan.minCalls + plan.maxCalls) / 2);
-    const cost = metrics.estimateCost(typical * 3500, typical * 120, opts.prices);
-    log(`  rough cost for ${typical} calls at ~3,500 input / ~120 output tokens each: $${cost.toFixed(2)} (prices: $${opts.prices.inputPerMillion}/$${opts.prices.outputPerMillion} per million tokens, third-party figure, verify)`);
+    // The calls are shared evenly between the Host arms; the guard adds a guessed share of rewrite calls.
+    const perArm = (typical * (1 + REWRITE_SHARE)) / opts.armSpecs.length;
+    const tokens = opts.armSpecs.reduce((acc, spec) => {
+      const t = engine.usesRubric(spec.promptVersion) ? HOST_V4_TOKENS : HOST_TOKENS;
+      return { input: acc.input + perArm * t.input, output: acc.output + perArm * t.output };
+    }, { input: 0, output: 0 });
+    const cost = metrics.estimateCost(tokens.input, tokens.output, opts.prices);
+    log(`  rough cost for ${typical} calls plus ~${Math.round(typical * REWRITE_SHARE)} rewrite calls (a guess: ${REWRITE_SHARE * 100}%) at ~${HOST_TOKENS.input.toLocaleString('en-US')} input / ~${HOST_TOKENS.output} output tokens each (host.v4: ~${HOST_V4_TOKENS.input.toLocaleString('en-US')} / ~${HOST_V4_TOKENS.output}): $${cost.toFixed(2)} (prices: $${opts.prices.inputPerMillion}/$${opts.prices.outputPerMillion} per million tokens, third-party figure, verify)`);
     log(`  the code and scripted answers are sent to Bedrock; ${opts.delayMs} ms pause before each call`);
     // A guess, not a measurement: about 3 s per Host call and 2 s per judge call on top of the pause, one call at a time.
-    const seconds = typical * (opts.delayMs / 1000 + 3) + plan.judgeCalls * (opts.delayMs / 1000 + 2);
+    const seconds = typical * (1 + REWRITE_SHARE) * (opts.delayMs / 1000 + 3) + (plan.judgeCalls + plan.rubricCalls) * (opts.delayMs / 1000 + 2);
     log(`  rough time: about ${Math.round(seconds / 60)} minutes (a guess: ~3 s per Host call and ~2 s per judge call, one at a time)`);
   }
   if (opts.judge) {
-    if (opts.fakeModel) log(`  judge: fake (no Bedrock), up to ${plan.judgeCalls} judgements`);
-    else {
+    if (opts.fakeModel) {
+      log(`  judge: fake (no Bedrock), up to ${plan.judgeCalls} judgements`);
+      if (plan.rubricArms) log(`  rubric check: fake, ${plan.rubricAnswers} answers in ${plan.rubricArms} host.v4 arm(s), at most ${plan.rubricCalls} distinct calls`);
+    } else {
       const judgeCost = judging.estimateJudgeCost({ inputTokens: plan.judgeCalls * JUDGE_TOKENS.input, outputTokens: plan.judgeCalls * JUDGE_TOKENS.output }, opts.judgePrices);
       log(`  judge: ${opts.judgeModelId}, up to ${plan.judgeCalls} judgements at ~${JUDGE_TOKENS.input} input / ~${JUDGE_TOKENS.output} output tokens each: at most $${judgeCost.toFixed(2)} ($${opts.judgePrices.inputPerMillion}/$${opts.judgePrices.outputPerMillion} per million tokens; repeated inputs are reused)`);
       log(`  the judge (${judging.JUDGE_PROMPT_VERSION}) is blind to the student's answer: it sees the main question, the criteria, the gap list and the follow-up. No code.`);
+      if (plan.rubricArms) {
+        const rubricCost = judging.estimateJudgeCost({ inputTokens: plan.rubricCalls * RUBRIC_TOKENS.input, outputTokens: plan.rubricCalls * RUBRIC_TOKENS.output }, opts.judgePrices);
+        log(`  rubric check (${rubricJudging.RUBRIC_JUDGE_PROMPT_VERSION}, a separate judge call that sees the question, the rubric and the answer): ${plan.rubricAnswers} answers in ${plan.rubricArms} host.v4 arm(s), at most ${plan.rubricCalls} distinct calls at ~${RUBRIC_TOKENS.input} input / ~${RUBRIC_TOKENS.output} output tokens each: at most $${rubricCost.toFixed(2)} (identical inputs are reused; the answers are scripted, so most are)`);
+      }
       if (judging.sameProvider(opts.judgeModelId, opts.modelId)) {
         log('  warning: the judge and the Host come from the same provider, which can favour the Host\'s own style. Prefer another family.');
       }
@@ -616,17 +746,17 @@ async function runEval(rawOptions) {
     for (const caseId of opts.cases) {
       for (const profileName of opts.profiles) {
         const answers = buildProfile(loaded[caseId].studentsRaw, profileName, loaded[caseId].mains);
-        for (const promptVersion of opts.arms) {
+        for (const spec of opts.armList) {
           const transcript = await runInterview({
-            caseData: loaded[caseId], profileName, answers, promptVersion, repeat, opts,
+            caseData: loaded[caseId], profileName, answers, promptVersion: spec.promptVersion, arm: spec.arm, temperature: spec.temperature, repeat, opts,
           });
           transcripts.push(transcript);
-          const name = `${promptVersion}__${caseId}__${profileName}__r${repeat}.json`;
+          const name = `${spec.arm}__${caseId}__${profileName}__r${repeat}.json`;
           files.set(transcript, path.join(opts.out, 'transcripts', name));
           fs.writeFileSync(files.get(transcript), JSON.stringify(transcript, null, 2));
           if (transcript.status === 'error') failures.push({ file: name, error: transcript.error });
           done += 1;
-          log(`[${done}/${plan.interviews}] ${promptVersion} ${caseId} ${profileName} r${repeat}: ${transcript.status}, ${transcript.turns ? transcript.turns.filter((t) => t.role === 'host').length : 0} questions${transcript.error ? ` (${transcript.error})` : ''}`);
+          log(`[${done}/${plan.interviews}] ${spec.arm} ${caseId} ${profileName} r${repeat}: ${transcript.status}, ${transcript.turns ? transcript.turns.filter((t) => t.role === 'host').length : 0} questions${transcript.error ? ` (${transcript.error})` : ''}`);
         }
       }
     }
@@ -640,10 +770,12 @@ async function runEval(rawOptions) {
         for (let mainOrdinal = 0; mainOrdinal < caseData.mains.length; mainOrdinal += 1) {
           for (const pair of pairsFor(caseData.studentsRaw, mainOrdinal)) {
             for (const side of ['a', 'b']) {
-              for (const promptVersion of opts.arms) {
-                const transcript = await runPairInterview({ caseData, mainOrdinal, pair, side, promptVersion, repeat, opts });
+              for (const spec of opts.armList) {
+                const transcript = await runPairInterview({
+                  caseData, mainOrdinal, pair, side, promptVersion: spec.promptVersion, arm: spec.arm, temperature: spec.temperature, repeat, opts,
+                });
                 pairTranscripts.push(transcript);
-                const name = `${promptVersion}__${caseId}__q${mainOrdinal + 1}__${pair.id}${side}__r${repeat}.json`;
+                const name = `${spec.arm}__${caseId}__q${mainOrdinal + 1}__${pair.id}${side}__r${repeat}.json`;
                 files.set(transcript, path.join(opts.out, 'pairs', name));
                 fs.writeFileSync(files.get(transcript), JSON.stringify(transcript, null, 2));
                 if (transcript.status === 'error') failures.push({ file: `pairs/${name}`, error: transcript.error });
@@ -670,6 +802,7 @@ async function runEval(rawOptions) {
 
   const results = metrics.summarizeRun(transcripts, opts.prices);
   adaptive.attachAdaptive(results, transcripts, pairTranscripts);
+  rubricStats.attachRubric(results, transcripts);
   const totals = Object.values(results).map((r) => r.allCases); // calls and cost cover every case, not only the headline ones
   const notes = [];
   if (opts.cases.includes('case1') && opts.prompts.some((p) => p !== 'host.v1')) {
@@ -686,6 +819,7 @@ async function runEval(rawOptions) {
     options: {
       prompts: opts.prompts, baseline: opts.baseline, cases: opts.cases, profiles: opts.profiles, repeats: opts.repeats,
       fakeModel: opts.fakeModel, modelId: opts.modelId, answerSeconds: opts.answerSeconds, prices: opts.prices,
+      armSpecs: opts.armSpecs, rubricSample: opts.rubricSample,
       pairs: opts.pairs, judge: opts.judge, judgeModel: opts.judge ? opts.judgeModelId : null,
       judgePrompt: opts.judge ? judging.JUDGE_PROMPT_VERSION : null, headlineExcludes: HEADLINE_EXCLUDED_CASES,
     },
@@ -706,6 +840,13 @@ async function runEval(rawOptions) {
     const sample = sampleOf(judgeItems, opts.judgeSample, opts.seed);
     fs.writeFileSync(path.join(opts.out, 'judge-sample.csv'), toJudgeSampleCsv(sample));
     log(`Wrote judge-sample.csv with ${sample.length} judged follow-ups. Fill in the human_* columns to measure how often the judge agrees with a person.`);
+  }
+
+  if (opts.judge && opts.rubricSample > 0 && plan.rubricArms > 0) {
+    const sample = rubricStats.buildRubricSample({ transcripts, loaded, count: opts.rubricSample, seed: opts.seed });
+    fs.writeFileSync(path.join(opts.out, 'rubric-check-blind.csv'), rubricStats.toBlindCsv(sample));
+    fs.writeFileSync(path.join(opts.out, 'rubric-check-key.csv'), rubricStats.toKeyCsv(sample));
+    log(`Wrote rubric-check-blind.csv (${sample.length} answers; fill in human_missing with ids like "r1 r3", or "none") and rubric-check-key.csv. Then run: node scripts/eval/compare-rubric.js ${path.relative(process.cwd(), opts.out) || '.'}`);
   }
 
   log('');

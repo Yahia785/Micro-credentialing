@@ -16,21 +16,8 @@ const { BAD_LABELS, LABELS, HEADLINE_EXCLUDED_CASES } = require('./students');
 // Heuristics
 // ---------------------------------------------------------------------------------------------
 
-const YES_NO_STARTERS = ['is', 'are', 'does', 'do', 'did', 'can', 'could', 'will', 'would', 'should', 'has', 'have'];
-const JOINED_QUESTIONS = /\band\b\s+(what|how|why|when|where|which|who|does|do|did|is|are|can|could|would|will|should)\b/i;
-
-/** A follow-up that starts with Is/Are/Does/Do/Did/Can/Could/Will/Would/Should/Has/Have. */
-function isYesNo(question) {
-  const first = String(question).trim().split(/\s+/)[0] || '';
-  return YES_NO_STARTERS.includes(first.toLowerCase().replace(/[^a-z']/g, ''));
-}
-
-/** More than one question mark, or two questions joined by "and" ("... and why ...", "... and what ..."). */
-function isMultiPart(question) {
-  const text = String(question);
-  const marks = (text.match(/\?/g) || []).length;
-  return marks > 1 || JOINED_QUESTIONS.test(text);
-}
+// The text checks on a follow-up live in the shared agent folder: the engine's two-question guard uses them too.
+const { isYesNo, isMultiPart } = require('../../shared/nodejs/agent/follow-up-check');
 
 // Phrases in a reason that argue for a follow-up, and phrases that argue against one.
 const REASON_SAYS_NO_FOLLOW_UP = [
@@ -94,10 +81,11 @@ const OVERRIDE_PREFIXES = [
 ];
 const OVERRIDE_TYPES = OVERRIDE_PREFIXES.map(([, type]) => type);
 
-/** What kind of reason is this? 'followUpLimit' | 'earlyEnd' | 'nextMainNoneRemain' | 'fallback' | 'model' */
+/** What kind of reason is this? 'followUpLimit' | 'earlyEnd' | 'nextMainNoneRemain' | 'fallback' | 'engine' (decided without the model) | 'model' */
 function classifyReason(reason) {
   const text = String(reason || '');
   if (text.startsWith('fallback:')) return 'fallback';
+  if (text.startsWith('engine:')) return 'engine';
   const hit = OVERRIDE_PREFIXES.find(([prefix]) => text.startsWith(prefix));
   return hit ? hit[1] : 'model';
 }
@@ -122,6 +110,14 @@ function emptyCounters() {
     questions: 0,
     followUps: 0,
     decisions: 0,
+    engineDecisions: 0,
+    ownCodeOpportunities: 0,
+    ownCodeFollowUps: 0,
+    guardFired: 0,
+    guardFixed: 0,
+    guardKeptFirst: 0,
+    multiPartIfOff: 0,
+    hintFollowUps: 0,
     mainAnswers: zeroByLabel(LABELS),
     unnecessaryOpportunities: 0,
     unnecessary: 0,
@@ -138,6 +134,17 @@ function emptyCounters() {
     inputTokens: 0,
     outputTokens: 0,
     latencies: [],
+  };
+}
+
+/** What a decision recorded about itself: made by the engine alone, the two-question guard, the host.v4 rubric fields. */
+function decisionRecord(source) {
+  return {
+    engineDecision: !!source.engineDecision,
+    guard: source.guard || null,
+    hostMissing: Array.isArray(source.missing) ? source.missing : null, // rubric ids the Host says the answer did not show
+    target: source.target || null,
+    isHint: !!source.isHint,
   };
 }
 
@@ -158,6 +165,7 @@ function stepsOf(transcript) {
         fallback: next.fallback || null,
         modelCall: next.modelCall || null,
         judgement: next.judgement || null,
+        ...decisionRecord(next),
       };
     } else if (!next && transcript.status === 'completed' && transcript.endDetail) {
       step = {
@@ -166,6 +174,7 @@ function stepsOf(transcript) {
         reason: transcript.endDetail.reason,
         fallback: transcript.endDetail.fallback || null,
         modelCall: transcript.endModelCall || null,
+        ...decisionRecord(transcript.endDetail),
       };
     } else {
       return; // timed out or errored before the Host answered
@@ -174,6 +183,11 @@ function stepsOf(transcript) {
     steps.push({
       ...step,
       answeredMain: !!asked && asked.kind === 'main',
+      answerText: turn.text,
+      answerType: scripted.answerType,
+      source: scripted.source, // the scripted profile the answer text comes from
+      ownCode: !!scripted.ownCode,
+      rubricCheck: turn.rubricCheck || null, // the rubric-check judge's verdict on this answer (host.v4 arms, with --judge)
       label: scripted.label,
       gaps: scripted.gaps || [], // gap ids the scripted answer leaves open (empty for a good answer)
       gapCount: scripted.gapCount || 0, // how many gaps the main question has
@@ -196,7 +210,9 @@ function analyzeTranscript(transcript) {
   const followUpAllowed = (transcript.budget || 0) > 0;
 
   for (const step of stepsOf(transcript)) {
-    c.decisions += 1;
+    // Decisions the engine made alone (the only action allowed) did not ask the model: they are not model decisions.
+    if (step.engineDecision) c.engineDecisions += 1;
+    else c.decisions += 1;
     const kind = classifyReason(step.reason);
 
     if (OVERRIDE_TYPES.includes(kind)) c.overrides[kind] += 1;
@@ -209,6 +225,14 @@ function analyzeTranscript(transcript) {
     if (step.action === 'follow_up') {
       if (isYesNo(step.question)) c.yesNo += 1;
       if (isMultiPart(step.question)) c.multiPart += 1;
+      // As if the guard were off: the follow-up the model first wrote.
+      if (isMultiPart(step.guard ? step.guard.original : step.question)) c.multiPartIfOff += 1;
+      if (step.guard) {
+        c.guardFired += 1;
+        if (step.guard.fixedByRetry) c.guardFixed += 1;
+        else c.guardKeptFirst += 1;
+      }
+      if (step.isHint) c.hintFollowUps += 1;
     }
 
     // Reasons written by the model itself (not by the engine) are checked against the action.
@@ -221,8 +245,15 @@ function analyzeTranscript(transcript) {
     if (step.answeredMain && step.label && !step.fallback) {
       if (c.mainAnswers[step.label] !== undefined) c.mainAnswers[step.label] += 1; // gaming answers are counted in adaptive.js
       if (followUpAllowed && step.label === 'good') {
-        c.unnecessaryOpportunities += 1;
-        if (step.action === 'follow_up') c.unnecessary += 1;
+        // An answer marked ownCode is correct about the student's own program, which differs from the problem statement
+        // (case 5 Q1): a follow-up there is not unnecessary. It is counted on its own.
+        if (step.ownCode) {
+          c.ownCodeOpportunities += 1;
+          if (step.action === 'follow_up') c.ownCodeFollowUps += 1;
+        } else {
+          c.unnecessaryOpportunities += 1;
+          if (step.action === 'follow_up') c.unnecessary += 1;
+        }
       }
       if (followUpAllowed && BAD_LABELS.includes(step.label)) {
         c.missedOpportunities[step.label] += 1;
@@ -299,6 +330,18 @@ function summarize(counters, prices = DEFAULT_PRICES) {
     questionsPerInterview: c.interviews ? c.questions / c.interviews : null,
     followUpsPerInterview: c.interviews ? c.followUps / c.interviews : null,
     unnecessaryFollowUp: ratio(c.unnecessary, c.unnecessaryOpportunities),
+    ownCodeFollowUp: ratio(c.ownCodeFollowUps, c.ownCodeOpportunities),
+    // The two-question guard (all prompt versions): how often it fired, how often the rewrite fixed it, and the share of
+    // follow-ups that asked two things before the guard (the numbers as if it were off) and after it.
+    guard: {
+      fired: ratio(c.guardFired, c.followUps),
+      fixedByRetry: ratio(c.guardFixed, c.guardFired),
+      keptFirst: ratio(c.guardKeptFirst, c.guardFired),
+      multiPartIfOff: ratio(c.multiPartIfOff, c.followUps),
+      multiPartAfter: ratio(c.multiPart, c.followUps),
+    },
+    engineDecisions: c.engineDecisions, // model calls saved: only one action was allowed, so the model was not asked
+    hint: ratio(c.hintFollowUps, c.followUps), // follow-ups marked as a hint (host.v4)
     missedFollowUp: ratio(missedTotal, missedOpportunities),
     missedFollowUpByLabel: Object.fromEntries(BAD_LABELS.map((l) => [l, ratio(c.missed[l], c.missedOpportunities[l])])),
     overrides: {
@@ -331,6 +374,9 @@ function summarizeTranscripts(transcripts, prices) {
 
 const uniq = (values) => [...new Set(values)];
 
+/** The arm of a transcript: a prompt version at a temperature (or the fixed baseline). Older transcripts have only the prompt version. */
+const armOf = (transcript) => transcript.arm || transcript.promptVersion;
+
 /** The transcripts that feed the headline numbers: everything except the cases in HEADLINE_EXCLUDED_CASES. */
 const headlineOf = (list) => list.filter((t) => !HEADLINE_EXCLUDED_CASES.includes(t.caseId));
 
@@ -343,8 +389,8 @@ const headlineOf = (list) => list.filter((t) => !HEADLINE_EXCLUDED_CASES.include
  */
 function summarizeRun(transcripts, prices) {
   const result = {};
-  for (const promptVersion of uniq(transcripts.map((t) => t.promptVersion))) {
-    const mine = transcripts.filter((t) => t.promptVersion === promptVersion);
+  for (const promptVersion of uniq(transcripts.map(armOf))) {
+    const mine = transcripts.filter((t) => armOf(t) === promptVersion);
     const headline = headlineOf(mine).length > 0 ? headlineOf(mine) : mine;
     const excluded = headline.length === mine.length ? [] : uniq(mine.filter((t) => !headline.includes(t)).map((t) => t.caseId)).sort();
     const group = (key, list) => Object.fromEntries(
@@ -375,6 +421,7 @@ module.exports = {
   summarizeTranscripts,
   summarizeRun,
   headlineOf,
+  armOf,
   ratio,
   median,
   percentile,

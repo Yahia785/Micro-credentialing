@@ -160,28 +160,53 @@ describe('allowed actions', () => {
     for (const promptVersion of ['host.v1', 'host.v2', 'host.v3']) {
       let sent;
       await engine.decideNext({
-        config: withBudget(0), state: st(), code: 'x', turns, promptVersion,
+        config, state: st(), code: 'x', turns, promptVersion,
         converseFn: async (req) => { sent = req.messages[0].content[0].text; return nextMain()(); },
       });
-      expect(sent).toContain('Allowed actions now: next_main');
+      expect(sent).toContain('Allowed actions now: follow_up, next_main');
     }
   });
 
-  it('still calls the model when only one action is allowed, so every turn has a reason', async () => {
-    const calls = jest.fn(nextMain('only choice'));
-    const out = await run(st({ followUpCount: 1 }), calls);
-    expect(calls).toHaveBeenCalledTimes(1);
-    expect(out).toMatchObject({ action: 'next_main', reason: 'only choice' });
+  describe('when only one action is allowed the engine decides alone', () => {
+    it('does not call the model for the next main question, on any prompt version', async () => {
+      for (const promptVersion of ['host.v1', 'host.v2', 'host.v3', 'host.v4']) {
+        const calls = jest.fn(followUp('More?', 'wants detail'));
+        const out = await engine.decideNext({
+          config, state: st({ followUpCount: 1 }), code: 'x', turns, promptVersion, converseFn: calls,
+        });
+        expect(calls).not.toHaveBeenCalled();
+        expect(out).toMatchObject({
+          action: 'next_main', question: 'Main A2?', fallback: null, engineDecision: true,
+          reason: 'engine: no follow-up left for this main question; asked the next main question',
+          usage: { inputTokens: 0, outputTokens: 0, latencyMs: 0 },
+        });
+        expect(out.modelReason).toBeUndefined();
+      }
+    });
+
+    it('does not call the model to end the interview either, and says why', async () => {
+      const calls = jest.fn(nextMain());
+      const out = await run({ ...engine.initialState(), themeIndex: 1, mainIndex: 0, followUpCount: 1 }, calls);
+      expect(calls).not.toHaveBeenCalled();
+      expect(out).toMatchObject({ action: 'end', engineDecision: true, reason: 'engine: no follow-up left and no main question remains; ended' });
+    });
+
+    it('does not call the model with a budget of 0', async () => {
+      const calls = jest.fn(followUp());
+      const out = await run(st(), calls, withBudget(0));
+      expect(calls).not.toHaveBeenCalled();
+      expect(out).toMatchObject({ action: 'next_main', engineDecision: true });
+    });
+
+    it('still asks the model when a follow-up is allowed', async () => {
+      const calls = jest.fn(followUp());
+      const out = await run(st(), calls);
+      expect(calls).toHaveBeenCalledTimes(1);
+      expect(out.engineDecision).toBeUndefined();
+    });
   });
 
   describe('safety net when the model picks an action that is not allowed', () => {
-    it('follow_up with no budget: same override text, model reason kept', async () => {
-      const out = await run(st({ followUpCount: 1 }), followUp('More?', 'wants detail'));
-      expect(out.action).toBe('next_main');
-      expect(out.reason).toBe('override: follow-up limit for this main question reached; asked the next main question');
-      expect(out.modelReason).toBe('wants detail');
-    });
-
     it('next_main with none remaining: same override text', async () => {
       const out = await run(st(lastMain), nextMain('more please'));
       expect(out.action).toBe('end');
@@ -259,7 +284,7 @@ describe('follow-up budget per main question', () => {
   it('a budget of 0 never asks follow-ups', async () => {
     const out = await run(st(), followUp(), withBudget(0));
     expect(out.action).toBe('next_main');
-    expect(out.reason).toContain('follow-up limit');
+    expect(out.reason).toContain('no follow-up left');
   });
 
   it('a budget of 3 allows three follow-ups on one main question', async () => {
@@ -309,19 +334,18 @@ describe('decideNext', () => {
 describe('reasons always match the action taken', () => {
   const lastMain = () => st({ themeIndex: 1, mainIndex: 0 });
 
-  it('follow-up cap reached with main questions left', async () => {
+  it('follow-up cap reached with main questions left: the engine moves on and says so', async () => {
     const out = await run(st({ followUpCount: 1 }), followUp('One more?', 'student is vague'));
-    expect(out).toMatchObject({ action: 'next_main', question: 'Main A2?', fallback: null });
-    expect(out.reason).toBe('override: follow-up limit for this main question reached; asked the next main question');
-    expect(out.modelReason).toBe('student is vague');
+    expect(out).toMatchObject({ action: 'next_main', question: 'Main A2?', fallback: null, engineDecision: true });
+    expect(out.reason).toBe('engine: no follow-up left for this main question; asked the next main question');
     expect(out.state.fallbackCount).toBe(0);
   });
 
   it('follow-up cap reached on the last main question ends the interview and says so', async () => {
     const out = await run({ ...lastMain(), followUpCount: 1 }, followUp('One more?', 'probe deeper'));
     expect(out.action).toBe('end');
-    expect(out.reason).toBe('override: follow-up limit for this main question reached; no main questions remain, ended');
-    expect(out.modelReason).toBe('probe deeper');
+    expect(out.reason).toBe('engine: no follow-up left and no main question remains; ended');
+    expect(out.engineDecision).toBe(true);
   });
 
   it('early end while main questions remain', async () => {
