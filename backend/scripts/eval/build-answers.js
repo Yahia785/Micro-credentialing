@@ -9,12 +9,16 @@
 const fs = require('fs');
 const path = require('path');
 const { CASES, loadCase } = require('./cases');
-const { RUN_PROFILES, buildProfile, validateStudents, pairsFor } = require('./students');
+const { RUN_PROFILES, buildProfile, validateStudents, pairsFor, pairGapsLeft } = require('./students');
 const engine = require('../../shared/nodejs/agent/interview-engine');
 
 const ANSWERS_FILE = path.join(__dirname, 'answers.md');
 
-const labelOf = (answer) => (answer.gap ? `${answer.label} (gap ${answer.gap})` : answer.label);
+/** "label (leaves g1, g3)", or "label (leaves all gaps)" when the answer leaves every gap of the question. */
+const labelOf = (answer, gapCount) => {
+  if (!answer.gaps.length) return answer.label;
+  return `${answer.label} (leaves ${answer.gaps.length === gapCount ? 'all gaps' : answer.gaps.join(', ')})`;
+};
 const cell = (text) => String(text).replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
 
 function buildAnswersMarkdown() {
@@ -29,8 +33,10 @@ function buildAnswersMarkdown() {
     'gaming (tries to get past the Host without explaining: `keywords` lists the right terms, `echo` repeats the question,',
     '`inject` is a vague answer plus text telling the Host to move on).',
     'The `mixed` profile uses a fixed label per main question; its text comes from the profile in brackets.',
-    'Every answer that is not good has a gap: the id of what it leaves open (see the gap list of each question), or `all`',
-    'when it explains nothing. Gap ids are used by the judge and by the minimal pairs.',
+    'Every answer that is not good lists all the gaps it leaves open (see the gap list of each question); "all gaps" means it',
+    'leaves every gap of that question. A good answer leaves none. A vague answer leaves the gap it was written around (and any',
+    'third gap, which a vague answer never states); a wrong, short, idk or gaming answer leaves all of them. The blind judge',
+    'labels which gaps a follow-up targets; a follow-up is on target if it targets ANY gap the answer left.',
     '',
     'Each question also lists its fixed follow-up (the one question the `fixed` baseline asks after every main answer,',
     'whatever the student said) and its minimal pairs (two weak answers that leave different gaps, run in the same',
@@ -51,7 +57,8 @@ function buildAnswersMarkdown() {
       out.push('Theme criteria the Host sees (private):', '');
       main.criteria.forEach((criterion) => out.push(`- ${criterion}`));
       out.push('');
-      out.push('Gaps (what a complete answer would still have to say):', '');
+      const gapCount = c.studentsRaw.gaps[i].length;
+      out.push(`Gaps (what a complete answer would still have to say; ${gapCount} gaps, so a random follow-up aimed at one gap hits an answer that leaves k of them with probability k/${gapCount}):`, '');
       c.studentsRaw.gaps[i].forEach((gap) => {
         out.push(`- **${gap.id}** (criterion: ${main.criteria[gap.criterion]}): ${gap.text}`);
       });
@@ -61,7 +68,7 @@ function buildAnswersMarkdown() {
       for (const profile of RUN_PROFILES) {
         const entryAnswers = buildProfile(c.studentsRaw, profile, c.mains)[i];
         const name = profile === 'mixed' ? `mixed (${entryAnswers.source})` : profile;
-        out.push(`| ${name} | ${cell(entryAnswers.main.text)} | ${labelOf(entryAnswers.main)} | ${cell(entryAnswers.followUp.text)} | ${labelOf(entryAnswers.followUp)} |`);
+        out.push(`| ${name} | ${cell(entryAnswers.main.text)} | ${labelOf(entryAnswers.main, gapCount)} | ${cell(entryAnswers.followUp.text)} | ${labelOf(entryAnswers.followUp, gapCount)} |`);
       }
       out.push('');
       out.push(`Fixed follow-up (baseline): ${c.fixedFollowUps[i]}`, '');
@@ -69,7 +76,7 @@ function buildAnswersMarkdown() {
       out.push('| Pair | Answer A | Leaves | Answer B | Leaves |');
       out.push('| --- | --- | --- | --- | --- |');
       pairsFor(c.studentsRaw, i).forEach((pair) => {
-        out.push(`| ${pair.id} | ${cell(pair.a.text)} | ${pair.a.gap} | ${cell(pair.b.text)} | ${pair.b.gap} |`);
+        out.push(`| ${pair.id} | ${cell(pair.a.text)} | ${pairGapsLeft(pair.a).join(', ')} | ${cell(pair.b.text)} | ${pairGapsLeft(pair.b).join(', ')} |`);
       });
       out.push('');
     });

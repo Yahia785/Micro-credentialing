@@ -24,7 +24,7 @@ const { createFakeJudge } = require('./fake-judge');
 const { createFixedModel, ARM: FIXED_ARM } = require('./fixed-baseline');
 const judging = require('./judge');
 const { caseIds, loadCase } = require('./cases');
-const { RUN_PROFILES, GAMING_PROFILES, validateStudents, buildProfile, pairsFor } = require('./students');
+const { RUN_PROFILES, GAMING_PROFILES, HEADLINE_EXCLUDED_CASES, validateStudents, buildProfile, pairsFor, pairGapsLeft } = require('./students');
 const metrics = require('./metrics');
 const adaptive = require('./adaptive');
 const { writeReports, toJudgeSampleCsv, terminalSummary } = require('./report');
@@ -189,7 +189,10 @@ async function runInterview({ caseData, profileName, answers, promptVersion, rep
         userId, interviewId, answer: answer.text, clientTiming: {}, now: T0 + k * answerMs, converseFn,
       });
       steps.push({
-        scripted: { profile: profileName, source: entry.source, label: answer.label, gap: answer.gap, answerType, mainOrdinal },
+        scripted: {
+          profile: profileName, source: entry.source, label: answer.label, gaps: answer.gaps,
+          gapCount: caseData.studentsRaw.gaps[mainOrdinal].length, answerType, mainOrdinal,
+        },
         call: calls[callsBefore] || null,
         status: result.ended ? result.status : null,
       });
@@ -241,7 +244,9 @@ async function runPairInterview({ caseData, mainOrdinal, pair, side, promptVersi
     budget: engine.followUpBudget(caseData.config),
     mains: caseData.mains.length,
     simulatedAnswerSeconds: opts.answerSeconds,
-    pair: { pairId: pair.id, side, mainOrdinal, gap: variant.gap },
+    pair: {
+      pairId: pair.id, side, mainOrdinal, gap: variant.gap, gaps: pairGapsLeft(variant), gapCount: caseData.studentsRaw.gaps[mainOrdinal].length,
+    },
     status: 'error',
     error: null,
   };
@@ -263,7 +268,10 @@ async function runPairInterview({ caseData, mainOrdinal, pair, side, promptVersi
       userId, interviewId, answer: variant.text, clientTiming: {}, now: T0 + (mainOrdinal + 1) * answerMs, converseFn,
     });
     steps.push({
-      scripted: { profile: 'pair', pairId: pair.id, side, label: 'vague', gap: variant.gap, answerType: 'main', mainOrdinal },
+      scripted: {
+        profile: 'pair', pairId: pair.id, side, label: 'vague', gaps: pairGapsLeft(variant),
+        gapCount: caseData.studentsRaw.gaps[mainOrdinal].length, answerType: 'main', mainOrdinal,
+      },
       call: calls[0] || null,
       status: result.ended ? result.status : null,
     });
@@ -416,13 +424,9 @@ function planOf(opts, loaded) {
   const pairInterviews = pairVariants * arms.length * opts.repeats;
   const pairCalls = pairVariants * opts.prompts.length * opts.repeats;
 
-  // The judge sees every follow-up asked after a weak answer: at most one per weak main answer and one per pair interview.
-  let judgeCalls = 0;
-  if (opts.judge) {
-    const weakMains = perCase.reduce((acc, c) => acc + opts.profiles.reduce((n, profile) => n + buildProfile(c.studentsRaw, profile, c.mains)
-      .filter((entry) => entry.main.label !== 'good').length, 0), 0);
-    judgeCalls = weakMains * arms.length * opts.repeats + pairInterviews;
-  }
+  // The judge labels every follow-up, whatever the answer before it: at most the follow-up budget of each interview, and one per pair interview.
+  const followUpsPerRound = perCase.reduce((acc, c) => acc + c.mains.length * engine.followUpBudget(c.config), 0);
+  const judgeCalls = opts.judge ? arms.length * opts.profiles.length * opts.repeats * followUpsPerRound + pairInterviews : 0;
   return {
     interviews,
     minCalls: total('min') + pairCalls,
@@ -469,10 +473,13 @@ function sampleOf(items, count, seed) {
 }
 
 /**
- * Ask the judge which gap each follow-up targets, for every follow-up asked right after a scripted
- * answer that has a gap. The judgement is stored on the follow-up turn.
+ * Ask the blind judge to label every follow-up the Host asked (in the full interviews and the pair
+ * interviews), whatever the answer before it was, and store the labels on the follow-up turn. The judge
+ * input is built from the case only (main question, criteria, gap list, follow-up text): the scripted
+ * answer is not part of it. The answer and the gaps it left are kept next to the labels, for scoring and
+ * for the sample file.
  * @param {Array<{ transcript: object }>} entries
- * @returns {Promise<{ summary: object, items: object[] }>} items are the unique judged inputs, for the sample file
+ * @returns {Promise<{ summary: object, items: object[] }>} items are the unique judged follow-ups (per answer), for the sample file
  */
 async function judgeTranscripts({ entries, loaded, opts }) {
   const calls = [];
@@ -483,6 +490,7 @@ async function judgeTranscripts({ entries, loaded, opts }) {
   const judge = judging.createJudge({ modelId: opts.judgeModelId, converseFn: wrapped });
 
   const items = [];
+  const seenItems = new Set();
   let judgements = 0;
   let unjudged = 0;
   for (const { transcript, file } of entries) {
@@ -491,29 +499,41 @@ async function judgeTranscripts({ entries, loaded, opts }) {
     for (let i = 1; i < turns.length; i += 1) {
       const turn = turns[i];
       const answerTurn = turns[i - 1];
-      if (turn.role !== 'host' || turn.kind !== 'follow_up' || answerTurn.role !== 'student') continue;
-      const gap = answerTurn.scripted && answerTurn.scripted.gap;
-      if (!gap) continue;
+      if (turn.role !== 'host' || turn.kind !== 'follow_up' || answerTurn.role !== 'student' || !answerTurn.scripted) continue;
       const ordinal = answerTurn.scripted.mainOrdinal;
+      // Blind input: nothing about the student's answer.
       const input = {
         mainQuestion: caseData.mains[ordinal].question,
-        answer: answerTurn.text,
-        followUp: turn.text,
+        criteria: caseData.mains[ordinal].criteria,
         gaps: caseData.studentsRaw.gaps[ordinal],
+        followUp: turn.text,
       };
       const result = await judge.judge(input);
       judgements += 1;
       if (!result.valid) unjudged += 1;
       turn.judgement = {
         valid: result.valid,
-        target: result.target,
-        reason: result.reason,
+        ...(result.valid && {
+          targets: result.targets, reveals: result.reveals, twoPart: result.twoPart, beyondScope: result.beyondScope, reason: result.reason,
+        }),
         ...(result.error && { error: result.error }),
         judgeModel: opts.judgeModelId,
         judgePrompt: judging.JUDGE_PROMPT_VERSION,
       };
-      if (result.valid && !result.cached) {
-        items.push({ ...input, target: result.target, reason: result.reason, source: file ? path.relative(opts.out, file).split(path.sep).join('/') : '' });
+      const itemKey = JSON.stringify([input, answerTurn.text]);
+      if (result.valid && !seenItems.has(itemKey)) {
+        seenItems.add(itemKey);
+        items.push({
+          ...input,
+          answer: answerTurn.text,
+          gapsLeft: answerTurn.scripted.gaps || [],
+          targets: result.targets,
+          reveals: result.reveals,
+          twoPart: result.twoPart,
+          beyondScope: result.beyondScope,
+          reason: result.reason,
+          source: file ? path.relative(opts.out, file).split(path.sep).join('/') : '',
+        });
       }
     }
     if (file) fs.writeFileSync(file, JSON.stringify(transcript, null, 2));
@@ -558,13 +578,16 @@ async function runEval(rawOptions) {
     const cost = metrics.estimateCost(typical * 3500, typical * 120, opts.prices);
     log(`  rough cost for ${typical} calls at ~3,500 input / ~120 output tokens each: $${cost.toFixed(2)} (prices: $${opts.prices.inputPerMillion}/$${opts.prices.outputPerMillion} per million tokens, third-party figure, verify)`);
     log(`  the code and scripted answers are sent to Bedrock; ${opts.delayMs} ms pause before each call`);
+    // A guess, not a measurement: about 3 s per Host call and 2 s per judge call on top of the pause, one call at a time.
+    const seconds = typical * (opts.delayMs / 1000 + 3) + plan.judgeCalls * (opts.delayMs / 1000 + 2);
+    log(`  rough time: about ${Math.round(seconds / 60)} minutes (a guess: ~3 s per Host call and ~2 s per judge call, one at a time)`);
   }
   if (opts.judge) {
     if (opts.fakeModel) log(`  judge: fake (no Bedrock), up to ${plan.judgeCalls} judgements`);
     else {
       const judgeCost = judging.estimateJudgeCost({ inputTokens: plan.judgeCalls * JUDGE_TOKENS.input, outputTokens: plan.judgeCalls * JUDGE_TOKENS.output }, opts.judgePrices);
       log(`  judge: ${opts.judgeModelId}, up to ${plan.judgeCalls} judgements at ~${JUDGE_TOKENS.input} input / ~${JUDGE_TOKENS.output} output tokens each: at most $${judgeCost.toFixed(2)} ($${opts.judgePrices.inputPerMillion}/$${opts.judgePrices.outputPerMillion} per million tokens; repeated inputs are reused)`);
-      log('  the judge sees the main question, the scripted answer, the follow-up and the gap list. No code.');
+      log(`  the judge (${judging.JUDGE_PROMPT_VERSION}) is blind to the student's answer: it sees the main question, the criteria, the gap list and the follow-up. No code.`);
       if (judging.sameProvider(opts.judgeModelId, opts.modelId)) {
         log('  warning: the judge and the Host come from the same provider, which can favour the Host\'s own style. Prefer another family.');
       }
@@ -647,10 +670,10 @@ async function runEval(rawOptions) {
 
   const results = metrics.summarizeRun(transcripts, opts.prices);
   adaptive.attachAdaptive(results, transcripts, pairTranscripts);
-  const totals = Object.values(results).map((r) => r.overall);
+  const totals = Object.values(results).map((r) => r.allCases); // calls and cost cover every case, not only the headline ones
   const notes = [];
   if (opts.cases.includes('case1') && opts.prompts.some((p) => p !== 'host.v1')) {
-    notes.push('case1 (the linked list) shares code and wording with the examples in host.v2 and host.v3, so those prompts are advantaged there. host.v1 has no examples. Use case2 and case3 for a fair comparison.');
+    notes.push(`${HEADLINE_EXCLUDED_CASES.join(', ')} (the linked list) shares code and wording with the examples in host.v2 and host.v3, so those prompts are advantaged there. host.v1 has no examples. The headline numbers leave it out; it is reported on its own in the case 1 section.`);
   }
   if (opts.fakeModel) notes.push('Fake model: these numbers test the runner, they say nothing about a real model.');
   if (!opts.judge) notes.push('The judge was not run (--judge), so gap targeting, direction agreement and discrimination are n/a.');
@@ -664,6 +687,7 @@ async function runEval(rawOptions) {
       prompts: opts.prompts, baseline: opts.baseline, cases: opts.cases, profiles: opts.profiles, repeats: opts.repeats,
       fakeModel: opts.fakeModel, modelId: opts.modelId, answerSeconds: opts.answerSeconds, prices: opts.prices,
       pairs: opts.pairs, judge: opts.judge, judgeModel: opts.judge ? opts.judgeModelId : null,
+      judgePrompt: opts.judge ? judging.JUDGE_PROMPT_VERSION : null, headlineExcludes: HEADLINE_EXCLUDED_CASES,
     },
     plan: {
       ...plan,
@@ -681,7 +705,7 @@ async function runEval(rawOptions) {
   if (opts.judge && opts.judgeSample > 0) {
     const sample = sampleOf(judgeItems, opts.judgeSample, opts.seed);
     fs.writeFileSync(path.join(opts.out, 'judge-sample.csv'), toJudgeSampleCsv(sample));
-    log(`Wrote judge-sample.csv with ${sample.length} judged follow-ups. Fill in the human_target column to measure how often the judge agrees with a person.`);
+    log(`Wrote judge-sample.csv with ${sample.length} judged follow-ups. Fill in the human_* columns to measure how often the judge agrees with a person.`);
   }
 
   log('');

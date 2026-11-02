@@ -1,6 +1,12 @@
 {
   "caseId": "case2",
-  "mixed": ["wrong", "good", "idk", "short", "vague"],
+  "mixed": [
+    "wrong",
+    "good",
+    "idk",
+    "short",
+    "vague"
+  ],
   "gaps": [
     [
       {
@@ -36,6 +42,11 @@
         "id": "g2",
         "criterion": 0,
         "text": "Does not say that the value is read from data[top] before top is decremented, or why the order matters."
+      },
+      {
+        "id": "g3",
+        "criterion": 0,
+        "text": "Does not say that decrementing top afterwards is what removes the item from the stack."
       }
     ],
     [
@@ -54,12 +65,17 @@
       {
         "id": "g1",
         "criterion": 1,
-        "text": "Does not say that size returns 0 at the end of main because all four values were popped."
+        "text": "Does not give the result: size returns 0 at the end of main and main prints \"Size: 0\"."
       },
       {
         "id": "g2",
         "criterion": 1,
-        "text": "Does not say that top + 1 is the item count, because top is an index that starts at -1."
+        "text": "Does not say that size returns top + 1, the item count, because top is an index and one less than the number of items."
+      },
+      {
+        "id": "g3",
+        "criterion": 1,
+        "text": "Does not say that top is back at -1 after all four values were popped."
       }
     ]
   ],
@@ -121,7 +137,11 @@
         },
         "b": {
           "gap": "g2",
-          "text": "top always holds the index of the newest element in the array."
+          "text": "top always holds the index of the newest element in the array.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
         }
       },
       {
@@ -132,7 +152,11 @@
         },
         "b": {
           "gap": "g2",
-          "text": "top is the position of the last item that was pushed."
+          "text": "top is the position of the last item that was pushed.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
         }
       }
     ],
@@ -165,22 +189,38 @@
         "id": "p1",
         "a": {
           "gap": "g1",
-          "text": "size returns top + 1 which is the number of items, since top is an index."
+          "text": "size returns top + 1 which is the number of items, since top is an index.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
         },
         "b": {
           "gap": "g2",
-          "text": "At the end every value has been popped so size gives 0 and it prints Size: 0."
+          "text": "At the end every value has been popped so size gives 0 and it prints Size: 0.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
         }
       },
       {
         "id": "p2",
         "a": {
           "gap": "g1",
-          "text": "It adds one to top because indexes start at zero and the count is one more."
+          "text": "It adds one to top because indexes start at zero and the count is one more.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
         },
         "b": {
           "gap": "g2",
-          "text": "The stack is empty by then so main prints Size: 0."
+          "text": "The stack is empty by then so main prints Size: 0.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
         }
       }
     ]
@@ -212,112 +252,326 @@
   "profiles": {
     "strong": [
       {
-        "main": { "label": "good", "text": "The first thing push does is check top == CAPACITY - 1. top is the index of the last stored item, so when it equals CAPACITY - 1 the array is full, and writing to data[top + 1] would go past the end of the array. In that case push returns false, so the caller sees that the value was not stored, and neither data nor top changes." },
-        "followUp": { "label": "good", "text": "The check guards the array bounds. With CAPACITY 4 the valid indexes are 0 to 3, so once top is 3 another write would hit data[4], which is out of bounds. Returning false is how the caller learns that the push failed." }
+        "main": {
+          "label": "good",
+          "text": "The first thing push does is check top == CAPACITY - 1. top is the index of the last stored item, so when it equals CAPACITY - 1 the array is full, and writing to data[top + 1] would go past the end of the array. In that case push returns false, so the caller sees that the value was not stored, and neither data nor top changes."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "The check guards the array bounds. With CAPACITY 4 the valid indexes are 0 to 3, so once top is 3 another write would hit data[4], which is out of bounds. Returning false is how the caller learns that the push failed."
+        }
       },
       {
-        "main": { "label": "good", "text": "The loop calls push with 10, 20, 30, 40, 50 and 60. The first four succeed because top goes from -1 up to 3. The fifth and sixth find top equal to 3, so push returns false, and main prints 'Full at 5' and 'Full at 6'." },
-        "followUp": { "label": "good", "text": "So only 10 to 40 are stored. The values 50 and 60 are dropped, because a failed push does not change the stack." }
+        "main": {
+          "label": "good",
+          "text": "The loop calls push with 10, 20, 30, 40, 50 and 60. The first four succeed because top goes from -1 up to 3. The fifth and sixth find top equal to 3, so push returns false, and main prints 'Full at 5' and 'Full at 6'."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "So only 10 to 40 are stored. The values 50 and 60 are dropped, because a failed push does not change the stack."
+        }
       },
       {
-        "main": { "label": "good", "text": "top is the index of the most recent element. pop first copies data[top] into out and only then does top--. If it decremented first it would read the slot below the top, and the real top value would be lost. The old slot is just left as stale data that the next push overwrites." },
-        "followUp": { "label": "good", "text": "It is about order: read data[top] while top still points at the last item, then move top down by one. After the decrement the element is logically gone, even though the old value is still sitting in the array." }
+        "main": {
+          "label": "good",
+          "text": "top is the index of the most recent element. pop first copies data[top] into out and only then does top--. If it decremented first it would read the slot below the top, and the real top value would be lost. The old slot is just left as stale data that the next push overwrites."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "It is about order: read data[top] while top still points at the last item, then move top down by one. After the decrement the element is logically gone, even though the old value is still sitting in the array."
+        }
       },
       {
-        "main": { "label": "good", "text": "The while loop calls pop until it returns false. The stack holds 10 20 30 40 with 40 on top, so it prints 40 30 20 10, last in first out. Then pop finds top == -1 and returns false, which ends the loop." },
-        "followUp": { "label": "good", "text": "Last in, first out: 40 was pushed last so it comes out first. The loop stops cleanly because pop returns false once top is below zero." }
+        "main": {
+          "label": "good",
+          "text": "The while loop calls pop until it returns false. The stack holds 10 20 30 40 with 40 on top, so it prints 40 30 20 10, last in first out. Then pop finds top == -1 and returns false, which ends the loop."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "Last in, first out: 40 was pushed last so it comes out first. The loop stops cleanly because pop returns false once top is below zero."
+        }
       },
       {
-        "main": { "label": "good", "text": "size returns top + 1. After the four pops top is back to -1, so size() returns 0 and main prints 'Size: 0'. top + 1 works because top is an index and the number of items is one more than the last index." },
-        "followUp": { "label": "good", "text": "Since top starts at -1 for an empty stack, top + 1 is 0 when empty and 4 when full, so it always equals the number of stored items." }
+        "main": {
+          "label": "good",
+          "text": "size returns top + 1. After the four pops top is back to -1, so size() returns 0 and main prints 'Size: 0'. top + 1 works because top is an index and the number of items is one more than the last index."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "Since top starts at -1 for an empty stack, top + 1 is 0 when empty and 4 when full, so it always equals the number of stored items."
+        }
       }
     ],
     "vague": [
       {
-        "main": { "label": "vague", "gap": "g1", "text": "It checks if the stack is full before adding." },
-        "followUp": { "label": "vague", "gap": "g1", "text": "It makes sure there is room, so it doesn't break things." }
+        "main": {
+          "label": "vague",
+          "text": "It checks if the stack is full before adding.",
+          "gaps": [
+            "g1"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "It makes sure there is room, so it doesn't break things.",
+          "gaps": [
+            "g1"
+          ]
+        }
       },
       {
-        "main": { "label": "vague", "gap": "g1", "text": "Some of them get added and some don't." },
-        "followUp": { "label": "vague", "gap": "g2", "text": "The ones at the end don't fit, I think." }
+        "main": {
+          "label": "vague",
+          "text": "Some of them get added and some don't.",
+          "gaps": [
+            "g1"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "The ones at the end don't fit, I think.",
+          "gaps": [
+            "g2"
+          ]
+        }
       },
       {
-        "main": { "label": "vague", "gap": "g2", "text": "It takes the value off the top and moves things around." },
-        "followUp": { "label": "vague", "gap": "g2", "text": "It does the top part and then updates top." }
+        "main": {
+          "label": "vague",
+          "text": "It takes the value off the top and moves things around.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "It does the top part and then updates top.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        }
       },
       {
-        "main": { "label": "vague", "gap": "g1", "text": "It prints the numbers from the stack." },
-        "followUp": { "label": "vague", "gap": "g1", "text": "They come out in some order, probably the stack order." }
+        "main": {
+          "label": "vague",
+          "text": "It prints the numbers from the stack.",
+          "gaps": [
+            "g1"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "They come out in some order, probably the stack order.",
+          "gaps": [
+            "g1"
+          ]
+        }
       },
       {
-        "main": { "label": "vague", "gap": "g1", "text": "It returns how big the stack is." },
-        "followUp": { "label": "vague", "gap": "g2", "text": "It works out the count from top." }
+        "main": {
+          "label": "vague",
+          "text": "It returns how big the stack is.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "It works out the count from top.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        }
       }
     ],
     "wrong": [
       {
-        "main": { "label": "wrong", "gap": "g2", "text": "The check makes push wait until another thread frees a slot, so push blocks and then stores the value once there is space." },
-        "followUp": { "label": "wrong", "gap": "g2", "text": "Yes, push blocks, it never returns false, the false is only for invalid values." }
+        "main": {
+          "label": "wrong",
+          "text": "The check makes push wait until another thread frees a slot, so push blocks and then stores the value once there is space.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "Yes, push blocks, it never returns false, the false is only for invalid values.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "wrong", "gap": "g2", "text": "All six pushes succeed because the array grows automatically when it is full, so main never prints Full." },
-        "followUp": { "label": "wrong", "gap": "g2", "text": "I am sure it grows, data is resized by the compiler as needed." }
+        "main": {
+          "label": "wrong",
+          "text": "All six pushes succeed because the array grows automatically when it is full, so main never prints Full.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "I am sure it grows, data is resized by the compiler as needed.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "wrong", "gap": "g1", "text": "pop decrements top first so it points to the next element, and then it returns the element below, which is the one being removed." },
-        "followUp": { "label": "wrong", "gap": "g2", "text": "The order does not matter, either way the same element comes out." }
+        "main": {
+          "label": "wrong",
+          "text": "pop decrements top first so it points to the next element, and then it returns the element below, which is the one being removed.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "The order does not matter, either way the same element comes out.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "wrong", "gap": "g2", "text": "It prints 10 20 30 40, because a stack returns values in the order they were pushed, first in first out." },
-        "followUp": { "label": "wrong", "gap": "g2", "text": "Definitely 10 first, a stack is a queue, the oldest value comes out first." }
+        "main": {
+          "label": "wrong",
+          "text": "It prints 10 20 30 40, because a stack returns values in the order they were pushed, first in first out.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "Definitely 10 first, a stack is a queue, the oldest value comes out first.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "wrong", "gap": "g1", "text": "size returns CAPACITY, which is 4, since the array always has four slots, so main prints 'Size: 4'." },
-        "followUp": { "label": "wrong", "gap": "g1", "text": "It is always 4 because the capacity never changes." }
+        "main": {
+          "label": "wrong",
+          "text": "size returns CAPACITY, which is 4, since the array always has four slots, so main prints 'Size: 4'.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "It is always 4 because the capacity never changes.",
+          "gaps": "all"
+        }
       }
     ],
     "short": [
       {
-        "main": { "label": "short", "gap": "all", "text": "Checks if full." },
-        "followUp": { "label": "short", "gap": "all", "text": "Returns false." }
+        "main": {
+          "label": "short",
+          "text": "Checks if full.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "short",
+          "text": "Returns false.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "short", "gap": "all", "text": "Four succeed." },
-        "followUp": { "label": "short", "gap": "all", "text": "Rest fail." }
+        "main": {
+          "label": "short",
+          "text": "Four succeed.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "short",
+          "text": "Rest fail.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "short", "gap": "all", "text": "Reads then decrements." },
-        "followUp": { "label": "short", "gap": "all", "text": "Order matters." }
+        "main": {
+          "label": "short",
+          "text": "Reads then decrements.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "short",
+          "text": "Order matters.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "short", "gap": "all", "text": "40 30 20 10." },
-        "followUp": { "label": "short", "gap": "all", "text": "Last in first out." }
+        "main": {
+          "label": "short",
+          "text": "40 30 20 10.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "short",
+          "text": "Last in first out.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "short", "gap": "all", "text": "Zero." },
-        "followUp": { "label": "short", "gap": "all", "text": "top plus one." }
+        "main": {
+          "label": "short",
+          "text": "Zero.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "short",
+          "text": "top plus one.",
+          "gaps": "all"
+        }
       }
     ],
     "idk": [
       {
-        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
-        "followUp": { "label": "idk", "gap": "all", "text": "I really don't know." }
+        "main": {
+          "label": "idk",
+          "text": "I don't know.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "I really don't know.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "idk", "gap": "all", "text": "I don't know, I'm not sure what it prints." },
-        "followUp": { "label": "idk", "gap": "all", "text": "Sorry, I don't know." }
+        "main": {
+          "label": "idk",
+          "text": "I don't know, I'm not sure what it prints.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "Sorry, I don't know.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
-        "followUp": { "label": "idk", "gap": "all", "text": "I'm not sure, I don't know." }
+        "main": {
+          "label": "idk",
+          "text": "I don't know.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "I'm not sure, I don't know.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "idk", "gap": "all", "text": "I don't know the order." },
-        "followUp": { "label": "idk", "gap": "all", "text": "I don't know." }
+        "main": {
+          "label": "idk",
+          "text": "I don't know the order.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "I don't know.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
-        "followUp": { "label": "idk", "gap": "all", "text": "No idea, I don't know." }
+        "main": {
+          "label": "idk",
+          "text": "I don't know.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "No idea, I don't know.",
+          "gaps": "all"
+        }
       }
     ]
   }

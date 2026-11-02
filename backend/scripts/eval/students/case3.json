@@ -1,6 +1,12 @@
 {
   "caseId": "case3",
-  "mixed": ["short", "vague", "good", "wrong", "idk"],
+  "mixed": [
+    "short",
+    "vague",
+    "good",
+    "wrong",
+    "idk"
+  ],
   "gaps": [
     [
       {
@@ -11,7 +17,12 @@
       {
         "id": "g2",
         "criterion": 0,
-        "text": "Does not say that one is added to the space count, which gives 4 for the string a with three spaces."
+        "text": "Does not say that one is added to the space count (the first word has no space in front of it)."
+      },
+      {
+        "id": "g3",
+        "criterion": 0,
+        "text": "Does not say that the string a with three spaces gives 4."
       }
     ],
     [
@@ -59,7 +70,12 @@
       {
         "id": "g2",
         "criterion": 0,
-        "text": "Does not say that countLetters adds one for each such character and so ignores spaces."
+        "text": "Does not say that countLetters adds one for each character that isLetter accepts."
+      },
+      {
+        "id": "g3",
+        "criterion": 0,
+        "text": "Does not say that spaces (and other characters that are not letters) are therefore not counted."
       }
     ]
   ],
@@ -73,7 +89,11 @@
         },
         "b": {
           "gap": "g2",
-          "text": "It checks every character and increases the counter whenever the character is a space."
+          "text": "It checks every character and increases the counter whenever the character is a space.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
         }
       },
       {
@@ -84,7 +104,11 @@
         },
         "b": {
           "gap": "g2",
-          "text": "words++ only happens when text[i] is a space, other characters are skipped."
+          "text": "words++ only happens when text[i] is a space, other characters are skipped.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
         }
       }
     ],
@@ -169,7 +193,11 @@
         },
         "b": {
           "gap": "g2",
-          "text": "isLetter compares the character with 'a' to 'z' and 'A' to 'Z'."
+          "text": "isLetter compares the character with 'a' to 'z' and 'A' to 'Z'.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
         }
       },
       {
@@ -180,7 +208,11 @@
         },
         "b": {
           "gap": "g2",
-          "text": "isLetter is true when the char lies between the lowercase or uppercase letter ranges."
+          "text": "isLetter is true when the char lies between the lowercase or uppercase letter ranges.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
         }
       }
     ]
@@ -212,112 +244,326 @@
   "profiles": {
     "strong": [
       {
-        "main": { "label": "good", "text": "The loop visits each character and adds one to words every time it sees a space. For 'the quick brown fox' there are three spaces and words starts at 1, so the result is 4. It counts the separators and adds one for the first word." },
-        "followUp": { "label": "good", "text": "It never looks at the letters themselves, only the spaces. With three spaces between four words that gives 1 + 3 = 4, which is correct for this input." }
+        "main": {
+          "label": "good",
+          "text": "The loop visits each character and adds one to words every time it sees a space. For 'the quick brown fox' there are three spaces and words starts at 1, so the result is 4. It counts the separators and adds one for the first word."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "It never looks at the letters themselves, only the spaces. With three spaces between four words that gives 1 + 3 = 4, which is correct for this input."
+        }
       },
       {
-        "main": { "label": "good", "text": "words starts at 1 because a sentence with n words has n - 1 separating spaces, so counting the spaces and adding one gives n. Starting at 0 would give 3 for the four-word sentence, one too few." },
-        "followUp": { "label": "good", "text": "The extra 1 stands for the first word, which has no space in front of it. That only holds when the text is not empty and the words are separated by single spaces." }
+        "main": {
+          "label": "good",
+          "text": "words starts at 1 because a sentence with n words has n - 1 separating spaces, so counting the spaces and adding one gives n. Starting at 0 would give 3 for the four-word sentence, one too few."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "The extra 1 stands for the first word, which has no space in front of it. That only holds when the text is not empty and the words are separated by single spaces."
+        }
       },
       {
-        "main": { "label": "good", "text": "countWords(b) sees two spaces in 'hello  world', so it returns 3, but there are only two words, so that is wrong. countWords(c) on the empty string has no spaces and returns 1, but the correct answer is 0. So the function has a bug: it does not handle repeated spaces or empty input." },
-        "followUp": { "label": "good", "text": "I would say the function does not handle those cases. It would need to count transitions from a space to a letter, or skip repeated spaces, and return 0 for an empty string." }
+        "main": {
+          "label": "good",
+          "text": "countWords(b) sees two spaces in 'hello  world', so it returns 3, but there are only two words, so that is wrong. countWords(c) on the empty string has no spaces and returns 1, but the correct answer is 0. So the function has a bug: it does not handle repeated spaces or empty input."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "I would say the function does not handle those cases. It would need to count transitions from a space to a letter, or skip repeated spaces, and return 0 for an empty string."
+        }
       },
       {
-        "main": { "label": "good", "text": "With a leading space, for example ' hello', the loop counts that space, so words becomes 2 even though there is one word. Every space is counted wherever it appears, so leading or trailing spaces add an extra word." },
-        "followUp": { "label": "good", "text": "It is the same reason as the double space: the code counts spaces, not words. A trailing space would add one too." }
+        "main": {
+          "label": "good",
+          "text": "With a leading space, for example ' hello', the loop counts that space, so words becomes 2 even though there is one word. Every space is counted wherever it appears, so leading or trailing spaces add an extra word."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "It is the same reason as the double space: the code counts spaces, not words. A trailing space would add one too."
+        }
       },
       {
-        "main": { "label": "good", "text": "isLetter returns true for a character between a and z or between A and Z. countLetters loops over each char in the string and increments letters when isLetter is true, so spaces and digits are skipped. For 'the quick brown fox' that counts 16 letters." },
-        "followUp": { "label": "good", "text": "The range comparisons use the ASCII values of the characters, so punctuation and digits are not counted either, only the 52 letters." }
+        "main": {
+          "label": "good",
+          "text": "isLetter returns true for a character between a and z or between A and Z. countLetters loops over each char in the string and increments letters when isLetter is true, so spaces and digits are skipped. For 'the quick brown fox' that counts 16 letters."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "The range comparisons use the ASCII values of the characters, so punctuation and digits are not counted either, only the 52 letters."
+        }
       }
     ],
     "vague": [
       {
-        "main": { "label": "vague", "gap": "g1", "text": "It goes through the text and counts things to get the number of words." },
-        "followUp": { "label": "vague", "gap": "g1", "text": "It looks at the characters and keeps a count." }
+        "main": {
+          "label": "vague",
+          "text": "It goes through the text and counts things to get the number of words.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "It looks at the characters and keeps a count.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        }
       },
       {
-        "main": { "label": "vague", "gap": "g1", "text": "It needs to start with something, so it starts at 1 for some reason." },
-        "followUp": { "label": "vague", "gap": "g1", "text": "I think it is so the count works out at the end." }
+        "main": {
+          "label": "vague",
+          "text": "It needs to start with something, so it starts at 1 for some reason.",
+          "gaps": [
+            "g1"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "I think it is so the count works out at the end.",
+          "gaps": [
+            "g1"
+          ]
+        }
       },
       {
-        "main": { "label": "vague", "gap": "g1", "text": "They return some numbers, probably about right." },
-        "followUp": { "label": "vague", "gap": "g2", "text": "I think they are mostly fine, maybe slightly off." }
+        "main": {
+          "label": "vague",
+          "text": "They return some numbers, probably about right.",
+          "gaps": [
+            "g1"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "I think they are mostly fine, maybe slightly off.",
+          "gaps": [
+            "g2"
+          ]
+        }
       },
       {
-        "main": { "label": "vague", "gap": "g1", "text": "It might give a slightly different number." },
-        "followUp": { "label": "vague", "gap": "g2", "text": "The space would matter somehow." }
+        "main": {
+          "label": "vague",
+          "text": "It might give a slightly different number.",
+          "gaps": [
+            "g1"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "The space would matter somehow.",
+          "gaps": [
+            "g2"
+          ]
+        }
       },
       {
-        "main": { "label": "vague", "gap": "g1", "text": "It checks the letters and counts them up." },
-        "followUp": { "label": "vague", "gap": "g1", "text": "It uses isLetter to decide, I think." }
+        "main": {
+          "label": "vague",
+          "text": "It checks the letters and counts them up.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "It uses isLetter to decide, I think.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        }
       }
     ],
     "wrong": [
       {
-        "main": { "label": "wrong", "gap": "g1", "text": "The loop splits the string into words using a built-in tokenizer and then counts how many tokens it found, which is 4 for the string a." },
-        "followUp": { "label": "wrong", "gap": "g1", "text": "Yes, it tokenizes first, that is why it works for every sentence." }
+        "main": {
+          "label": "wrong",
+          "text": "The loop splits the string into words using a built-in tokenizer and then counts how many tokens it found, which is 4 for the string a.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "Yes, it tokenizes first, that is why it works for every sentence.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "wrong", "gap": "g1", "text": "It starts at 1 to skip the first character of the string, because the first character is never a space." },
-        "followUp": { "label": "wrong", "gap": "g1", "text": "I am sure it is about skipping the first character, nothing to do with the number of words." }
+        "main": {
+          "label": "wrong",
+          "text": "It starts at 1 to skip the first character of the string, because the first character is never a space.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "I am sure it is about skipping the first character, nothing to do with the number of words.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "wrong", "gap": "g2", "text": "Both calls return the right answers: b gives 2 and c gives 0, the function handles those cases correctly." },
-        "followUp": { "label": "wrong", "gap": "g2", "text": "Yes it is correct, it handles repeated spaces and empty strings without any problem." }
+        "main": {
+          "label": "wrong",
+          "text": "Both calls return the right answers: b gives 2 and c gives 0, the function handles those cases correctly.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "Yes it is correct, it handles repeated spaces and empty strings without any problem.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "wrong", "gap": "g1", "text": "A leading space is ignored by the loop, so the function would return the same count as without it." },
-        "followUp": { "label": "wrong", "gap": "g2", "text": "I am confident spaces at the start are skipped automatically by the string class." }
+        "main": {
+          "label": "wrong",
+          "text": "A leading space is ignored by the loop, so the function would return the same count as without it.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "I am confident spaces at the start are skipped automatically by the string class.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "wrong", "gap": "g2", "text": "countLetters counts every character in the string, including the spaces, so it returns 19 for the string a." },
-        "followUp": { "label": "wrong", "gap": "g2", "text": "It counts all characters, isLetter always returns true for printable characters." }
+        "main": {
+          "label": "wrong",
+          "text": "countLetters counts every character in the string, including the spaces, so it returns 19 for the string a.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "It counts all characters, isLetter always returns true for printable characters.",
+          "gaps": "all"
+        }
       }
     ],
     "short": [
       {
-        "main": { "label": "short", "gap": "all", "text": "Counts the spaces." },
-        "followUp": { "label": "short", "gap": "all", "text": "Plus one." }
+        "main": {
+          "label": "short",
+          "text": "Counts the spaces.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "short",
+          "text": "Plus one.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "short", "gap": "all", "text": "Words are spaces plus one." },
-        "followUp": { "label": "short", "gap": "all", "text": "First word." }
+        "main": {
+          "label": "short",
+          "text": "Words are spaces plus one.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "short",
+          "text": "First word.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "short", "gap": "all", "text": "3 and 1, both wrong." },
-        "followUp": { "label": "short", "gap": "all", "text": "Not handled." }
+        "main": {
+          "label": "short",
+          "text": "3 and 1, both wrong.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "short",
+          "text": "Not handled.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "short", "gap": "all", "text": "One extra." },
-        "followUp": { "label": "short", "gap": "all", "text": "Counts the space." }
+        "main": {
+          "label": "short",
+          "text": "One extra.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "short",
+          "text": "Counts the space.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "short", "gap": "all", "text": "Checks letter ranges." },
-        "followUp": { "label": "short", "gap": "all", "text": "Skips spaces." }
+        "main": {
+          "label": "short",
+          "text": "Checks letter ranges.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "short",
+          "text": "Skips spaces.",
+          "gaps": "all"
+        }
       }
     ],
     "idk": [
       {
-        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
-        "followUp": { "label": "idk", "gap": "all", "text": "I really don't know." }
+        "main": {
+          "label": "idk",
+          "text": "I don't know.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "I really don't know.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "idk", "gap": "all", "text": "I don't know, I'm not sure why." },
-        "followUp": { "label": "idk", "gap": "all", "text": "Sorry, I don't know." }
+        "main": {
+          "label": "idk",
+          "text": "I don't know, I'm not sure why.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "Sorry, I don't know.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "idk", "gap": "all", "text": "I don't know what they return." },
-        "followUp": { "label": "idk", "gap": "all", "text": "I'm not sure, I don't know." }
+        "main": {
+          "label": "idk",
+          "text": "I don't know what they return.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "I'm not sure, I don't know.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
-        "followUp": { "label": "idk", "gap": "all", "text": "No idea, I don't know." }
+        "main": {
+          "label": "idk",
+          "text": "I don't know.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "No idea, I don't know.",
+          "gaps": "all"
+        }
       },
       {
-        "main": { "label": "idk", "gap": "all", "text": "I don't know." },
-        "followUp": { "label": "idk", "gap": "all", "text": "I don't know how it decides." }
+        "main": {
+          "label": "idk",
+          "text": "I don't know.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "I don't know how it decides.",
+          "gaps": "all"
+        }
       }
     ]
   }

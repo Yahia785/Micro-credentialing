@@ -1,0 +1,64 @@
+{
+  "enabled": true,
+  "timeLimitMinutes": 10,
+  "maxFollowUpsPerMainQuestion": 1,
+  "themes": [
+    {
+      "id": "transitions",
+      "title": "State transitions",
+      "mainQuestions": [
+        "With settings 20, 80, 100, walk me through what your controller does for the readings 50, 18, 40, 85, 70, 15, and how many times the pump starts."
+      ],
+      "criteria": [
+        "The student traces each reading to the correct state and explains why the state holds between the two levels."
+      ]
+    },
+    {
+      "id": "design",
+      "title": "Design reasoning",
+      "mainQuestions": [
+        "Why does the controller use two levels, 20 and 80, instead of switching the pump at a single level like 50?"
+      ],
+      "criteria": [
+        "The student explains the purpose of the gap between the levels (hysteresis) and its effect on the pump."
+      ]
+    },
+    {
+      "id": "edge-cases",
+      "title": "Edge cases",
+      "mainQuestions": [
+        "Suppose the controller is FILLING and the next reading is -5. What happens, and what happens with the readings after that?"
+      ],
+      "criteria": [
+        "The student explains how an invalid reading is detected and what the alarm state does to later readings."
+      ]
+    },
+    {
+      "id": "boundaries",
+      "title": "Boundaries and fault injection",
+      "mainQuestions": [
+        "If the check `reading >= s.high` were changed to `reading > s.high`, what would change in the output?"
+      ],
+      "criteria": [
+        "The student identifies the boundary case the change affects and its consequence."
+      ]
+    },
+    {
+      "id": "functions",
+      "title": "Functions and state",
+      "mainQuestions": [
+        "Your `step` function takes the current state and returns the next one, instead of changing a global variable. Why is that a useful way to write it?"
+      ],
+      "criteria": [
+        "The student explains the benefit of a pure function for a state machine."
+      ]
+    }
+  ],
+  "fixedFollowUps": [
+    "What does your controller print for the reading 70 right after the reading 85?",
+    "What would the pump do if the readings kept going 49, 51, 49, 51 with a single level at 50?",
+    "What does step return for a reading of 50 when current is ALARM?",
+    "What does your controller print for a reading of exactly 80 after a reading of 10?",
+    "How would you test step on its own, without running main?"
+  ]
+}

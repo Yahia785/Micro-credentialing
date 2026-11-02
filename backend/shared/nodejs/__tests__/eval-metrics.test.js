@@ -287,7 +287,7 @@ describe('summarizeRun', () => {
   const make = (promptVersion, caseId, profile, label, action) =>
     transcript([{ label, action }], { promptVersion, caseId, profile });
 
-  it('groups by prompt version, then overall, by case and by profile', () => {
+  it('groups by prompt version, then overall (headline, without case1), by case and by profile', () => {
     const results = m.summarizeRun([
       make('host.v2', 'case1', 'strong', 'good', 'follow_up'),
       make('host.v2', 'case2', 'vague', 'vague', 'next_main'),
@@ -295,16 +295,44 @@ describe('summarizeRun', () => {
       make('host.v3', 'case2', 'vague', 'vague', 'follow_up'),
     ]);
     expect(Object.keys(results)).toEqual(['host.v2', 'host.v3']);
-    expect(results['host.v2'].overall.interviews).toBe(2);
+    expect(results['host.v2'].overall.interviews).toBe(1); // case1 is not in the headline
+    expect(results['host.v2'].allCases.interviews).toBe(2);
     expect(Object.keys(results['host.v2'].byCase)).toEqual(['case1', 'case2']);
-    expect(Object.keys(results['host.v2'].byProfile)).toEqual(['strong', 'vague']);
+    expect(Object.keys(results['host.v2'].byProfile)).toEqual(['vague']);
 
-    expect(results['host.v2'].overall.unnecessaryFollowUp.rate).toBe(1);
-    expect(results['host.v3'].overall.unnecessaryFollowUp.rate).toBe(0);
+    expect(results['host.v2'].byCase.case1.unnecessaryFollowUp.rate).toBe(1); // case1 is still reported on its own
+    expect(results['host.v3'].byCase.case1.unnecessaryFollowUp.rate).toBe(0);
+    expect(results['host.v2'].overall.unnecessaryFollowUp.rate).toBeNull(); // the only good answer was in case1
     expect(results['host.v2'].byProfile.vague.missedFollowUp.rate).toBe(1);
     expect(results['host.v3'].byProfile.vague.missedFollowUp.rate).toBe(0);
-    // a profile with no answers to measure has no rate, not 0%
-    expect(results['host.v3'].byProfile.strong.missedFollowUp.rate).toBeNull();
+  });
+
+  describe('case 1 exclusion', () => {
+    const runs = [
+      make('host.v3', 'case1', 'vague', 'vague', 'next_main'),
+      make('host.v3', 'case2', 'vague', 'vague', 'follow_up'),
+      make('host.v3', 'case3', 'vague', 'vague', 'follow_up'),
+    ];
+
+    it('leaves case1 out of overall and byProfile, keeps it in byCase and allCases, and says what was left out', () => {
+      const r = m.summarizeRun(runs)['host.v3'];
+      expect(r.overall.interviews).toBe(2);
+      expect(r.overall.missedFollowUp).toMatchObject({ num: 0, den: 2 });
+      expect(r.byProfile.vague.interviews).toBe(2);
+      expect(r.byCase.case1.missedFollowUp).toMatchObject({ num: 1, den: 1 });
+      expect(r.allCases.interviews).toBe(3);
+      expect(r.headlineExcludes).toEqual(['case1']);
+    });
+
+    it('headlineOf filters the transcripts the same way', () => {
+      expect(m.headlineOf(runs).map((t) => t.caseId)).toEqual(['case2', 'case3']);
+    });
+
+    it('a run of case1 alone has nothing to leave out: overall is case1', () => {
+      const r = m.summarizeRun([runs[0]])['host.v3'];
+      expect(r.overall.interviews).toBe(1);
+      expect(r.headlineExcludes).toEqual([]);
+    });
   });
 
   it('merging counters adds numbers, objects and latency lists', () => {

@@ -10,7 +10,7 @@
  * A "step" is one decision of the Host: the student answered, and the Host then asked a follow-up,
  * asked the next main question, or ended the interview.
  */
-const { BAD_LABELS, LABELS } = require('./students');
+const { BAD_LABELS, LABELS, HEADLINE_EXCLUDED_CASES } = require('./students');
 
 // ---------------------------------------------------------------------------------------------
 // Heuristics
@@ -175,7 +175,8 @@ function stepsOf(transcript) {
       ...step,
       answeredMain: !!asked && asked.kind === 'main',
       label: scripted.label,
-      gap: scripted.gap || null,
+      gaps: scripted.gaps || [], // gap ids the scripted answer leaves open (empty for a good answer)
+      gapCount: scripted.gapCount || 0, // how many gaps the main question has
       mainOrdinal: scripted.mainOrdinal,
     });
   });
@@ -330,21 +331,31 @@ function summarizeTranscripts(transcripts, prices) {
 
 const uniq = (values) => [...new Set(values)];
 
+/** The transcripts that feed the headline numbers: everything except the cases in HEADLINE_EXCLUDED_CASES. */
+const headlineOf = (list) => list.filter((t) => !HEADLINE_EXCLUDED_CASES.includes(t.caseId));
+
 /**
- * Per prompt version: overall, by case and by profile.
- * @returns {{ [promptVersion: string]: { overall, byCase: object, byProfile: object } }}
+ * Per prompt version: overall, byCase and byProfile. `overall` and `byProfile` are the headline numbers
+ * and leave out the excluded cases (case1: its code is reused in the v2/v3 prompt examples); `byCase` has
+ * every case, so case 1 is still reported on its own, and `allCases` is the overall over every case. When
+ * only excluded cases were run, there is nothing to leave out and `overall` is everything.
+ * @returns {{ [promptVersion: string]: { overall, allCases, headlineExcludes: string[], byCase: object, byProfile: object } }}
  */
 function summarizeRun(transcripts, prices) {
   const result = {};
   for (const promptVersion of uniq(transcripts.map((t) => t.promptVersion))) {
     const mine = transcripts.filter((t) => t.promptVersion === promptVersion);
-    const group = (key) => Object.fromEntries(
-      uniq(mine.map((t) => t[key])).sort().map((value) => [value, summarizeTranscripts(mine.filter((t) => t[key] === value), prices)])
+    const headline = headlineOf(mine).length > 0 ? headlineOf(mine) : mine;
+    const excluded = headline.length === mine.length ? [] : uniq(mine.filter((t) => !headline.includes(t)).map((t) => t.caseId)).sort();
+    const group = (key, list) => Object.fromEntries(
+      uniq(list.map((t) => t[key])).sort().map((value) => [value, summarizeTranscripts(list.filter((t) => t[key] === value), prices)])
     );
     result[promptVersion] = {
-      overall: summarizeTranscripts(mine, prices),
-      byCase: group('caseId'),
-      byProfile: group('profile'),
+      overall: summarizeTranscripts(headline, prices),
+      allCases: summarizeTranscripts(mine, prices),
+      headlineExcludes: excluded,
+      byCase: group('caseId', mine),
+      byProfile: group('profile', headline),
     };
   }
   return result;
@@ -363,6 +374,7 @@ module.exports = {
   summarize,
   summarizeTranscripts,
   summarizeRun,
+  headlineOf,
   ratio,
   median,
   percentile,

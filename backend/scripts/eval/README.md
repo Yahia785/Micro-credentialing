@@ -9,7 +9,18 @@ the code and the scripted answers are sent to Bedrock in `us-east-1`.
 
 ## Run it
 
-From `backend/`, with the npm scripts:
+Run it with node directly, from `backend/`. This is the main way: PowerShell sometimes drops flags that are passed through
+`npm run` (for example `--baseline fixed` or `--judge` go missing), and a run without them silently measures something else.
+Check the printed header (arms, cases, "judge: ...") before you confirm.
+
+```
+node scripts/eval/run-eval.js --fake-model --baseline fixed --judge --repeats 1 --yes
+node scripts/eval/run-eval.js --prompts host.v3,host.v1 --baseline fixed --judge --repeats 2
+node scripts/eval/run-eval.js --prompts host.v3 --cases case2 --profiles strong,vague --repeats 1
+node scripts/eval/compare.js eval-results/<folderA> eval-results/<folderB>
+```
+
+The npm scripts are a shortcut for the common runs (use them where flags survive, and compare the printed header with what you meant):
 
 ```
 npm run eval:check      # fake model, fake judge, fixed baseline, all cases and profiles, 1 repeat. Free, no Bedrock.
@@ -18,31 +29,19 @@ npm run eval:full       # host.v1, v2, v3 + the fixed baseline, all cases and pr
 npm run eval:compare -- eval-results/<folderA> eval-results/<folderB>
 ```
 
-Anything after `--` is passed on, so `npm run eval:quick -- --judge` adds the judge, and
-`npm run eval:full -- --judge --judge-model deepseek.v3.2` uses another judge model.
-
-Every run ends by printing a summary table (one row per arm) and the results folder path.
-
-The same thing without npm:
-
-```
-node scripts/eval/run-eval.js --fake-model --prompts host.v2,host.v3 --yes
-node scripts/eval/run-eval.js --prompts host.v3 --cases case1 --profiles strong,vague --repeats 1
-node scripts/eval/run-eval.js --prompts host.v1,host.v2,host.v3 --baseline fixed --judge --repeats 3
-```
-
-It prints the number of interviews, an estimated number of model calls and (with `--judge`) the judge's possible
-cost first, and asks to confirm unless `--yes` is given.
+Anything after `--` is passed on, so `npm run eval:quick -- --judge` adds the judge. Every run ends by printing a summary
+table (one row per arm) and the results folder path. It prints the number of interviews, an estimated number of model calls
+and (with `--judge`) the judge's possible cost first, and asks to confirm unless `--yes` is given.
 
 | Option | Meaning | Default |
 | --- | --- | --- |
 | `--prompts` | comma-separated prompt versions (`host.v1`, `host.v2`, `host.v3`) | the current default |
 | `--baseline fixed` | also run the fixed-survey baseline as an extra arm named `fixed` (see below) | off |
-| `--cases` | `all` or a list: `case1`, `case2`, `case3` | `all` |
+| `--cases` | `all` or a list: `case1` to `case5` | `all` |
 | `--profiles` | `all` or a list: `strong`, `vague`, `wrong`, `short`, `idk`, `mixed`, `keywords`, `echo`, `inject` | `all` |
 | `--repeats` | how many times each combination runs | 1 |
 | `--no-pairs` | skip the minimal-pair interviews | pairs run |
-| `--judge` | after the interviews, ask the judge model which gap each follow-up targets | off |
+| `--judge` | after the interviews, have the blind judge label every follow-up (see "The judge") | off |
 | `--judge-model` | Bedrock model ID of the judge. Must differ from the Host model; a direct model ID, no inference profile | `mistral.mistral-large-3-675b-instruct` |
 | `--judge-sample` | with `--judge`: write `judge-sample.csv` with this many random judged follow-ups (0 = none) | 30 |
 | `--judge-price-in`, `--judge-price-out` | USD per million tokens for the judge's cost estimate | 0.50 / 1.50 |
@@ -71,8 +70,8 @@ those two are compared. `--arm host.v3` picks one arm in both folders, `--arm ho
 
 - `transcripts/<arm>__<case>__<profile>__r<N>.json`: one per interview. Host turns have `kind`, `reason`,
   `modelReason`, `fallback`, `modelCall` (attempts, retries, whether it failed because of throttling, tokens,
-  latency) and, after a judged run, `judgement` on follow-ups (`target`, `reason`, `valid`, judge model and prompt).
-  Student turns have `scripted`: `{ profile, source, label, gap, answerType, mainOrdinal }`.
+  latency) and, after a judged run, `judgement` on follow-ups (`targets`, `reveals`, `twoPart`, `beyondScope`, `reason`, `valid`, judge model and prompt version).
+  Student turns have `scripted`: `{ profile, source, label, gaps, gapCount, answerType, mainOrdinal }`.
 - `pairs/<arm>__<case>__q<N>__<pair><a|b>__r<N>.json`: one per minimal-pair interview (see below).
 - `summary.json`: all numbers, per arm: `overall`, `byCase`, `byProfile`, each with an `adaptive` part.
 - `summary.csv`: the same as one row per arm and scope.
@@ -81,11 +80,11 @@ those two are compared. `--arm host.v3` picks one arm in both folders, `--arm ho
 
 ## Test cases and students
 
-- `cases/` and `../sample.cpp`: three programs (linked list, array stack, word counter with a bug), each with an
+- `cases/` and `../sample.cpp`: five programs (linked list, array stack, word counter with a bug, tank controller, tank controller with a bug), each with an
   interview config in the same format as an assessment's `interview` field, plus `fixedFollowUps` (the engine and
   the mock interview script ignore that key).
 - `students/case<N>.json`: five profiles per case (strong, vague, wrong, short, idk), each with a main answer
-  and a follow-up answer per main question, and a label per answer. The follow-up answer is used for whatever
+  and a follow-up answer per main question, a label per answer and the list of gaps it leaves open. The follow-up answer is used for whatever
   follow-up the Host asks about that main question. `mixed` is a fixed list of labels, one per main question, so it is
   the same in every prompt and repeat. The same file holds the gaps, the minimal pairs and the keyword answers.
 - `answers.md`: every question with every scripted answer, label and gap, its gap list, its fixed follow-up and its
@@ -93,13 +92,50 @@ those two are compared. `--arm host.v3` picks one arm in both folders, `--arm ho
   `node scripts/eval/build-answers.js` (a Jest test fails if it is stale).
 
 Case 1 shares code and wording with the examples inside `host.v2` and `host.v3`, so those two are advantaged on
-that case; `host.v1` has no examples. Judge prompts mainly on case 2 and case 3.
+that case; `host.v1` has no examples. Judge prompts mainly on cases 2 to 5.
+
+### Cases 4 and 5: tank fill controller
+
+Case 4 is a state machine (intro C++, 20 minutes of coding time in the course): `cases/tank-controller.cpp` is the starter code with
+the reference `isValid` and `step` filled in. Case 5 (`cases/tank-controller-bug.cpp`) is the same program with one different line:
+the end of `step` is `return TankState::IDLE;` instead of `return current;` (the student forgot to hold the state between the
+levels). It prints `40 -> IDLE` and `70 -> IDLE` on the example but still `Pump starts: 2`, so a check of only the final count
+would pass it. Both use `cases/tank-controller.json` (5 main questions, word for word from the instructor, one theme and one
+criterion per question, 3 gaps each, 10 minutes, 1 follow-up per main question) and the 7 tests in `cases/tank-controller.tests.json`
+(`id`, `input`, `expected` lines). Nothing runs the tests yet; they are loaded into `loadCase(...).tests` for later. No C++ compiler was
+available when the cases were added, so the two programs were checked by running a line-by-line JavaScript transcription of
+`isValid` and `step` against the 7 tests: case 4 passes all seven, case 5 fails T1, T2 and T7.
+
+Their scripted students are written the way an intro student types in a chat (short sentences, informal), and unlike cases 1 to 3
+the `wrong` and `short` answers **state some correct facts and leave only one or two of the three gaps** (spread so that each gap
+is the missing one somewhere), so they have a chance level below 100%. `vague` also leaves one or two. `idk` and the gaming
+profiles still leave all three.
+
+In case 5 the students answer as the person who wrote *that* code. For Q1, every profile that traces describes its own program's
+output, so even the strong answer says IDLE at 40 and 70; the gaps come from the problem statement, so those answers leave g1 and g2.
+That strong answer is `good` but marked `"ownCode": true`, the only case where a good answer lists gaps. Q2 to Q5 are identical to
+case 4. The report has a "case 5: answer vs own code" section: after the Q1 main answer, how often the Host's follow-up targets g1 or g2.
 
 ### Gaps
 
-Every answer that is not `good` has a `gap`: the id of the thing it leaves open (one sentence in `gaps`, tied to a
-criterion of the theme), or `all` when it explains nothing (short, idk, keywords, echo). Each main question has at
-least 2 gaps. Gaps are what the judge chooses between.
+Every main question has 2 or 3 gaps: things a complete answer would still have to say, each tied to a criterion of the theme
+(`gaps` in the students file). Every answer that is not `good` lists **all** the gaps it leaves open (`gaps`), in the file as a
+list of ids or `"all"` and in the transcripts as an array of ids; a good answer leaves none. The rule used for the labels:
+
+- `strong` (good): leaves none.
+- `vague`: leaves the gap it was written around, plus the third gap where a question has one (a vague answer never states it).
+- `wrong`, `short`, `idk` and the gaming profiles: leave every gap of the question (cases 1 to 3). A wrong answer contradicts or
+  ignores all of them; a `short` answer is a few words and does not count as explaining (even where it names a fact, like "Counts the
+  spaces."). In cases 4 and 5 `wrong` and `short` leave one or two gaps instead (see above); `idk` and the gaming profiles still leave all.
+
+Because in cases 1 to 3 most weak answers leave every gap, **any** gap-specific follow-up is on target for them (chance level 100%); about 28% of
+the weak main answers in those cases have a chance level below 100%, against about 60% in cases 4 and 5. The
+informative rows are the *partial answers* (answers that leave some but not all gaps: vague answers, the `inject` profile and the
+minimal pairs); the report shows them separately.
+
+Three-gap questions (where the criteria support a third part): case 2 Q3 (`g3`: top is decremented afterwards, which removes the
+item), case 2 Q5 (`g3`: top is back at -1 after four pops; `g1`/`g2` reworded so they do not overlap), case 3 Q1 (`g2` adds one,
+`g3` three spaces give 4) and case 3 Q5 (`g2` adds one per letter, `g3` spaces are not counted). All other questions have 2 gaps.
 
 ### Gaming profiles
 
@@ -115,7 +151,7 @@ directly comparable with runs made before they existed.
 ### Minimal pairs
 
 For each main question there are at least 2 pairs of weak answers that leave different gaps (answer A misses
-`a.gap` and covers the other, answer B the reverse). A pair interview seeds the earlier questions with the strong
+`a.gap` and covers the other, answer B the reverse; on a three-gap question a variant may also leave the third gap, `gaps`). A pair is discriminated when each follow-up targets its own variant's gap and not the other variant's gap. A pair interview seeds the earlier questions with the strong
 student's answers and a fixed Host reply (no model call), so both variants reach the question with exactly the same
 history. Then the real arm decides after the pair answer, and the interview stops. Each pair is run once per arm and
 repeat, so they cost one model call each. Pair interviews feed only the discrimination columns; every other metric
@@ -127,7 +163,16 @@ comes from the full interviews. The earlier turns are scripted, not produced by 
 instead of a model it asks the one `fixedFollowUps` question of the current main question after every main answer,
 whatever the student said, then moves on. It sends nothing to Bedrock and costs nothing. The questions are written
 as a teacher would ask them (specific to the code, one question, no yes/no), and are listed in `answers.md`. Every
-adaptive-behaviour number appears for `fixed` too, as the non-adaptive comparison.
+adaptive-behaviour number appears for `fixed` too, as the non-adaptive comparison. Its follow-ups go through the same blind
+judge in the same way as every other arm (every follow-up is judged, also after a good answer, and the pair interviews too).
+
+## Headline numbers and case 1
+
+Case 1 shares its code and wording with the examples inside the `host.v2` and `host.v3` prompts, so those prompts are advantaged
+there. The headline numbers (`overall` in `summary.json`, the "Comparison (overall, without case1)" table, the terminal summary
+and `eval:compare`) therefore **leave case 1 out** (they cover cases 2 to 5), and so do the per-profile numbers. Case 1 is still reported on its own: `byCase.case1`
+in `summary.json`, a "case1 on its own" section in `summary.md`, and its rows in the by-case tables. `allCases` in `summary.json` is
+the overall over every case; calls and cost cover every case. A run of case 1 alone has nothing to leave out, so its overall is case 1.
 
 ## Metrics
 
@@ -156,29 +201,64 @@ choose the action. The checks are text heuristics: use them to compare prompts, 
 
 | Metric | Meaning | Needs |
 | --- | --- | --- |
-| Gap targeting | Of the follow-ups asked after a weak answer (main or follow-up answer with a gap), the share the judge says target the gap that answer left open. For an answer with gap `all`, any listed gap counts. Also shown: the share judged `none` (generic, points at nothing specific) and `other` (a specific thing that is not a listed gap), and the rate by answer label. Higher is better. | `--judge` |
+| Gap targeting | Of the follow-ups asked after an answer that left at least one gap, the share the judge says target ANY gap that answer left. Higher is better. Always read it with the chance level. | `--judge` |
+| Chance level | The hit rate a random follow-up would get on exactly the same answers: it picks one gap uniformly from the question's gaps, so for an answer that leaves k of N gaps the chance is k/N, averaged over the same answers. 100% for answers that leave every gap. Shown next to gap targeting, per answer label, for the partial answers and (1/N² per pair) for discrimination. | `--judge` |
+| Partial answers | Gap targeting and its chance level, only for answers that leave some but not all gaps. This is where a hit says something. | `--judge` |
+| Generic (none) | Of the same follow-ups, the share judged to point at nothing specific. | `--judge` |
+| Targets a gap already shown | Of ALL judged follow-ups (also after good answers), the share that target a gap the answer did not leave, that is, ask about something the student already showed. Lower is better. | `--judge` |
 | Action agreement | Across repeats of the same arm, case, profile and main question: the share of pairs of repeats that made the same choice (follow-up or move on) after the main answer. | 2+ repeats |
-| Direction agreement | Across repeats, among follow-ups that were asked and judged: the share of pairs of repeats whose follow-ups the judge says target the same gap (`none` and `other` count as values). | `--judge`, 2+ repeats |
-| Discrimination | Of all minimal pairs run, the share where variant A's follow-up targets A's gap and variant B's follow-up targets B's gap. A pair where either variant got no follow-up counts as not discriminating. Also shown: pairs where both got a follow-up, and how many of those follow-ups were identical (all of them, for `fixed`). | `--judge` (the other two do not) |
+| Direction agreement | Across repeats, among follow-ups that were asked and judged: the share of pairs of repeats whose follow-ups the judge says target the same gaps (`none` counts as a value). | `--judge`, 2+ repeats |
+| Discrimination | Of all minimal pairs run, the share where variant A's follow-up targets A's gap and not B's, and B's targets B's gap and not A's. A pair where either variant got no follow-up counts as not discriminating. Also shown: pairs where both got a follow-up, how many of those follow-ups were identical (all of them, for `fixed`), and the chance level. | `--judge` (the other two do not) |
 | Gaming skip | Main answers from the gaming profiles that got no follow-up although one was allowed, with a breakdown by profile. Lower is better. | nothing |
+
+### Checks on every follow-up (per prompt version and per student profile)
+
+The judge labels each follow-up on three more things, reported as separate fields, per arm and per profile, over the judged
+follow-ups (`Follow-up checks` tables in `summary.md`, columns in `summary.csv`):
+
+| Check | Meaning |
+| --- | --- |
+| Reveals the answer | The follow-up states part of the expected answer that the student has not said yet. The judge returns the gap ids whose content the follow-up gives away (`reveals`); it counts here when one of them is a gap this answer left open. Restating something the student already said is not counted. Lower is better. |
+| Two-part | The follow-up asks two things in one turn. Reported twice: the judge's label, and the simple text check from `metrics.js` (more than one `?`, or two questions joined by "and"), on the same judged follow-ups. The established "Multi-part questions" column is unchanged. |
+| Beyond scope | The follow-up asks about something outside the instructor's criteria for that question. Lower is better. |
 
 Expect action agreement below 100% for a real model: the Host runs at temperature 0.2. Fallbacks are left out of the
 consistency numbers. In a repeat the earlier follow-ups may differ, so the history before a question is not always
 identical; the pair interviews are the controlled version of the comparison.
 
+### The judge
+
+The judge is a second model that labels each follow-up **blind**. It is given only the main question, the criteria (the instructor's
+scope), the gap list of that question and the follow-up text. It is **not** given the student's answer, the code, the interview
+setup or any identifier, so it cannot be swayed by what the student said. One call per follow-up, temperature 0, JSON reply:
+
+```
+{"targets": ["g1"], "reveals": [], "two_part": false, "beyond_scope": false, "reason": "..."}
+```
+
+`targets` lists the gap ids the follow-up asks about (or `["none"]` when it is generic); `reveals` the gap ids whose content the
+follow-up gives away; `two_part` and `beyond_scope` are yes/no. Whether a label is a hit, a reveal or an "already shown" gap is decided
+afterwards by comparing the labels with the gaps the scripted answer left (`adaptive.js`). Identical inputs are judged once and reused
+(the answer is not part of the input, so the same question and follow-up are judged once for every profile). An unreadable reply is
+asked for once more, then the follow-up stays unjudged (counted in the report). The prompt is `judge-prompt.v2.md`; the version
+(`judge.v2`) is recorded on every judged turn, in `summary.json` (`judge.promptVersion`, `options.judgePrompt`) and in `summary.md`.
+`judge-prompt.v1.md` is the earlier prompt (it saw the answer and chose a single gap); it is kept for comparison and is not used.
+With `--fake-model` a deterministic fake judge is used, so the whole path can be run without AWS.
+
 ### Checking the judge against a person
 
-The judge is a second model, so its choices have to be checked. With `--judge`, `judge-sample.csv` lists
-`--judge-sample` (default 30) random judged follow-ups, one per distinct input: `main_question`, `student_answer`,
-`gap_list`, `follow_up`, `judge_target`, `judge_reason`, an empty `human_target`, and `source` (which transcript it
-came from). Fill `human_target` yourself with a gap id from `gap_list`, `none` or `other`, without looking at
-`judge_target` first, and the share of rows where the two match is how often the judge agrees with a person. The
-sample is the same for the same `--seed`.
+With `--judge`, `judge-sample.csv` lists `--judge-sample` (default 30) random judged follow-ups, one per distinct follow-up and answer.
+Columns: `main_question`, `student_answer`, `gap_list`, `gaps_left_by_answer` (what the scripted answer left open), `follow_up`, the
+judge's labels (`judge_target`, `judge_reveals` = gap ids it says are given away, `judge_two_part`, `judge_beyond_scope`),
+`judge_reason`, four empty human columns and `source` (the transcript). Fill the human columns yourself, without looking at the judge
+columns first:
 
-What the judge sees: the main question, the scripted answer, the follow-up and the gap list. No code, no interview
-setup, no names or identifiers. Temperature 0, JSON output. An unreadable reply is asked for once more, then the
-follow-up stays unjudged (counted in the report). Its prompt is `judge-prompt.v1.md`. With `--fake-model` a
-deterministic fake judge is used, so the whole path can be run without AWS.
+- `human_target`: the gap id(s) the follow-up asks about, joined with `+`, or `none`.
+- `human_reveals`: `yes` if the follow-up states something the student had not said yet (use `gaps_left_by_answer`), else `no`.
+- `human_two_part`: `yes` or `no`.
+- `human_scope`: `beyond` if it asks outside the criteria, else `within`.
+
+The share of rows where a human and the judge agree is how often the judge agrees with a person. The sample is the same for the same `--seed`.
 
 Choosing a judge: it should be larger than the Host and from a different family, so it does not favour the Host's
 style. Claude models cannot be used here because they are only available through inference profiles, which this
@@ -196,5 +276,10 @@ Check the current price and availability on the Bedrock pricing page.
   matches words, so its numbers only test the plumbing.
 - The judge is a model, not ground truth. Gap targeting is only as good as its agreement with a person
   (`judge-sample.csv`), and the gap texts are written by us.
-- Each main question has only 2 gaps, so "targets the right gap" is a coin flip for a random follow-up. The `fixed`
-  arm and the `none`/`other` shares show how much of a score is chance.
+- In cases 1 to 3 most weak answers leave every gap (see "Gaps"), so for them gap targeting is trivially high and its chance level is 100%.
+  Read targeting against the chance level, and look at the partial-answer rows, the minimal pairs and "Targets a gap already shown".
+- The blind judge cannot know what the student said, so "reveals the answer" is measured through the gap list: a follow-up reveals
+  when it states the content of a gap that the answer left open. Content of the criteria that is not in any gap is not covered.
+- In cases 1 to 3, `short` answers that name a fact ("Counts the spaces.") still count as leaving every gap: they are a few words, not an explanation.
+- Case 5 keeps the case 4 answers for Q2 to Q5. In Q4 the strong answer says `80 -> FILLING` for the input `10 80` (the statement's
+  example); with the `return IDLE` bug the program would print `80 -> IDLE` there. Gaps always come from the problem statement.

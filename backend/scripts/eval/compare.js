@@ -19,7 +19,7 @@ const COMPARE_IDS = [
   'interviews', 'completed', 'timed_out', 'errored', 'questions_per_interview',
   'unnecessary_follow_up', 'missed_follow_up', 'missed_vague', 'missed_wrong', 'missed_short', 'missed_idk',
   'overrides', 'fallbacks', 'yes_no', 'multi_part', 'reason_contradiction',
-  'gap_targeting', 'gap_none', 'gap_other', 'action_agreement', 'direction_agreement', 'discrimination',
+  'gap_targeting', 'gap_chance', 'gap_partial', 'gap_partial_chance', 'gap_none', 'off_target', 'reveals', 'two_part_judge', 'two_part_simple', 'beyond_scope', 'action_agreement', 'direction_agreement', 'discrimination', 'discrimination_chance',
   'pairs_both_follow_up', 'pairs_identical', 'gaming_skip',
   'latency_median_ms', 'latency_p95_ms', 'estimated_cost_usd',
 ];

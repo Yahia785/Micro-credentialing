@@ -4,12 +4,15 @@
  * should not get one. The fixed-survey baseline gives the non-adaptive comparison for every number.
  *
  * Input is the saved transcripts (see README.md): the interviews, and the minimal-pair interviews.
- * Judgements (which gap a follow-up targets) are attached to host follow-up turns by the judge step;
- * without them the judge-based metrics are n/a.
+ * Judgements are attached to host follow-up turns by the judge step (see judge.js): the blind judge
+ * labels the follow-up alone (`targets`, `reveals`, `twoPart`, `beyondScope`) and this file compares those
+ * labels with the gaps the scripted answer left open (`step.gaps`). Without judgements the judge-based
+ * metrics are n/a.
  */
 const { BAD_LABELS } = require('./students');
 const { GAMING_LABEL, GAMING_PROFILES } = require('./students');
-const { stepsOf, ratio } = require('./metrics');
+const { stepsOf, ratio, isMultiPart, headlineOf } = require('./metrics');
+const { NONE } = require('./judge');
 
 const GAP_LABELS = [...BAD_LABELS, GAMING_LABEL];
 
@@ -17,12 +20,28 @@ const asksFollowUp = (step) => step.action === 'follow_up' && !step.fallback;
 const hasJudgement = (step) => !!step.judgement && step.judgement.valid;
 const actionOf = (step) => (step.action === 'follow_up' ? 'follow_up' : 'move_on');
 
-/** Did the judged target match the gap the scripted answer left open? "all" accepts any listed gap. */
+const isGeneric = (step) => step.judgement.targets.length === 1 && step.judgement.targets[0] === NONE;
+/** The gap ids a judged follow-up targets (without "none"). */
+const targetedGaps = (step) => step.judgement.targets.filter((id) => id !== NONE);
+
+/** Is the follow-up on target? It targets ANY gap the scripted answer actually left open. */
 function hitsGap(step) {
-  const { target } = step.judgement;
-  if (target === 'none' || target === 'other') return false;
-  return step.gap === 'all' || target === step.gap;
+  return targetedGaps(step).some((id) => step.gaps.includes(id));
 }
+
+/** Does the follow-up ask about a gap the scripted answer did NOT leave (something the student already showed)? */
+function targetsShownGap(step) {
+  return targetedGaps(step).some((id) => !step.gaps.includes(id));
+}
+
+/**
+ * Chance level for one answer: the probability that a follow-up aimed at one gap picked uniformly at
+ * random from the question's gaps lands on a gap the answer left open (gaps left / gaps of the question).
+ */
+const chanceOf = (step) => step.gaps.length / step.gapCount;
+
+/** A mean of probabilities shown like a rate: `num` is the sum of the chances, `den` how many were summed. */
+const meanOf = (sumOfChances, count) => ({ num: sumOfChances, den: count, rate: count > 0 ? sumOfChances / count : null });
 
 /** Pairwise agreement of the values in each group: 1 point per pair of repeats that match. */
 function pairwiseAgreement(groups) {
@@ -44,39 +63,90 @@ function addTo(map, key, value) {
   map.get(key).push(value);
 }
 
-/** How the follow-ups of the interviews matched the scripted gaps. */
+/**
+ * How the follow-ups of the interviews matched the gaps the scripted answers left.
+ * - hit: of the follow-ups asked after an answer that left at least one gap, the share that target ANY gap it left.
+ * - chance: the hit rate a random follow-up (one gap picked uniformly from the question's gaps) would get on
+ *   exactly the same answers. An answer that leaves every gap has a chance of 100%: compare hit with chance.
+ * - partial: the same two numbers for answers that left some but not all gaps (where a hit says something).
+ * - none: the share judged generic. offTarget: of ALL judged follow-ups (also after good answers), the share
+ *   that target a gap the answer did not leave, that is, ask about something the student already showed.
+ */
 function gapTargeting(transcripts) {
+  const blank = () => ({ judged: 0, hit: 0, chance: 0 });
   const out = {
-    eligible: 0, judged: 0, hit: 0, none: 0, other: 0,
-    byLabel: Object.fromEntries(GAP_LABELS.map((l) => [l, { judged: 0, hit: 0 }])),
+    eligible: 0, all: blank(), partial: blank(), none: 0, judgedAny: 0, offTarget: 0,
+    byLabel: Object.fromEntries(GAP_LABELS.map((l) => [l, blank()])),
+  };
+  const add = (bucket, step) => {
+    bucket.judged += 1;
+    bucket.chance += chanceOf(step);
+    if (hitsGap(step)) bucket.hit += 1;
   };
   for (const transcript of transcripts) {
     for (const step of stepsOf(transcript)) {
-      if (!asksFollowUp(step) || !step.gap) continue;
+      if (!asksFollowUp(step) || !step.gapCount) continue;
+      if (hasJudgement(step)) {
+        out.judgedAny += 1;
+        if (targetsShownGap(step)) out.offTarget += 1;
+      }
+      if (step.gaps.length === 0) continue;
       out.eligible += 1;
       if (!hasJudgement(step)) continue;
-      out.judged += 1;
-      const bucket = out.byLabel[step.label];
-      if (bucket) bucket.judged += 1;
-      if (step.judgement.target === 'none') out.none += 1;
-      else if (step.judgement.target === 'other') out.other += 1;
-      if (hitsGap(step)) {
-        out.hit += 1;
-        if (bucket) bucket.hit += 1;
-      }
+      add(out.all, step);
+      if (step.gaps.length < step.gapCount) add(out.partial, step);
+      if (out.byLabel[step.label]) add(out.byLabel[step.label], step);
+      if (isGeneric(step)) out.none += 1;
     }
   }
   return {
-    unjudged: out.eligible - out.judged,
-    judged: out.judged,
-    hit: ratio(out.hit, out.judged),
-    none: ratio(out.none, out.judged),
-    other: ratio(out.other, out.judged),
-    byLabel: Object.fromEntries(GAP_LABELS.map((l) => [l, ratio(out.byLabel[l].hit, out.byLabel[l].judged)])),
+    unjudged: out.eligible - out.all.judged,
+    judged: out.all.judged,
+    hit: ratio(out.all.hit, out.all.judged),
+    chance: meanOf(out.all.chance, out.all.judged),
+    none: ratio(out.none, out.all.judged),
+    partial: { hit: ratio(out.partial.hit, out.partial.judged), chance: meanOf(out.partial.chance, out.partial.judged) },
+    offTarget: ratio(out.offTarget, out.judgedAny),
+    byLabel: Object.fromEntries(GAP_LABELS.map((l) => [l, {
+      hit: ratio(out.byLabel[l].hit, out.byLabel[l].judged),
+      chance: meanOf(out.byLabel[l].chance, out.byLabel[l].judged),
+    }])),
   };
 }
 
-/** Across repeats of the same interview: same action, and same judged gap when a follow-up was asked. */
+/**
+ * Checks on every judged follow-up (the judge's labels, plus the simple text check for comparison):
+ * - reveals: the follow-up states part of the expected answer that the student has not said yet, i.e. it
+ *   gives away a gap that this answer left open (restating something the student already said is fine).
+ * - twoPart (judge) and twoPartSimple (the `?` / "and why" text check, on the same follow-ups).
+ * - beyondScope: asks about something outside the instructor's criteria.
+ */
+function followUpChecks(transcripts) {
+  let judged = 0;
+  let reveals = 0;
+  let twoPart = 0;
+  let twoPartSimple = 0;
+  let beyondScope = 0;
+  for (const transcript of transcripts) {
+    for (const step of stepsOf(transcript)) {
+      if (!asksFollowUp(step) || !hasJudgement(step)) continue;
+      judged += 1;
+      if (step.judgement.reveals.some((id) => step.gaps.includes(id))) reveals += 1;
+      if (step.judgement.twoPart) twoPart += 1;
+      if (isMultiPart(step.question)) twoPartSimple += 1;
+      if (step.judgement.beyondScope) beyondScope += 1;
+    }
+  }
+  return {
+    judged,
+    reveals: ratio(reveals, judged),
+    twoPart: ratio(twoPart, judged),
+    twoPartSimple: ratio(twoPartSimple, judged),
+    beyondScope: ratio(beyondScope, judged),
+  };
+}
+
+/** Across repeats of the same interview: same action, and same judged gaps when a follow-up was asked. */
 function consistency(transcripts) {
   const actions = new Map();
   const directions = new Map();
@@ -85,7 +155,7 @@ function consistency(transcripts) {
       if (!step.answeredMain || step.fallback) continue;
       const key = [transcript.promptVersion, transcript.caseId, transcript.profile, step.mainOrdinal].join('|');
       addTo(actions, key, actionOf(step));
-      if (step.action === 'follow_up' && hasJudgement(step)) addTo(directions, key, step.judgement.target);
+      if (step.action === 'follow_up' && hasJudgement(step)) addTo(directions, key, [...step.judgement.targets].sort().join('+'));
     }
   }
   return { action: pairwiseAgreement(actions), direction: pairwiseAgreement(directions) };
@@ -119,7 +189,8 @@ const normalise = (text) => String(text).toLowerCase().replace(/\s+/g, ' ').trim
 
 /**
  * Minimal pairs: two weak answers to the same question that leave different gaps, each run in the
- * same interview position. The pair discriminates when each variant's follow-up targets its own gap.
+ * same interview position. The pair discriminates when each variant's follow-up targets its own gap and
+ * not the other variant's gap.
  */
 function discrimination(pairTranscripts) {
   const groups = new Map();
@@ -128,7 +199,8 @@ function discrimination(pairTranscripts) {
     const key = [transcript.promptVersion, transcript.caseId, mainOrdinal, pairId, transcript.repeat].join('|');
     if (!groups.has(key)) groups.set(key, {});
     const steps = stepsOf(transcript);
-    groups.get(key)[side] = { step: steps[steps.length - 1], gap: transcript.pair.gap }; // the decision after the pair answer
+    // the decision after the pair answer
+    groups.get(key)[side] = { step: steps[steps.length - 1], gap: transcript.pair.gap, gapCount: transcript.pair.gapCount };
   }
 
   let pairs = 0;
@@ -137,17 +209,21 @@ function discrimination(pairTranscripts) {
   let judged = 0;
   let discriminated = 0;
   let judgeRan = false;
+  let chance = 0;
   for (const group of groups.values()) {
     if (!group.a || !group.b || !group.a.step || !group.b.step) continue;
     pairs += 1;
     const { a, b } = group;
     if (a.step.judgement || b.step.judgement) judgeRan = true;
+    if (a.gapCount && b.gapCount) chance += 1 / (a.gapCount * b.gapCount); // both random follow-ups land on their own gap
     if (!asksFollowUp(a.step) || !asksFollowUp(b.step)) continue;
     bothAsked += 1;
     if (normalise(a.step.question) === normalise(b.step.question)) identical += 1;
     if (hasJudgement(a.step) && hasJudgement(b.step)) {
       judged += 1;
-      if (a.step.judgement.target === a.gap && b.step.judgement.target === b.gap) discriminated += 1;
+      const ta = targetedGaps(a.step);
+      const tb = targetedGaps(b.step);
+      if (ta.includes(a.gap) && !ta.includes(b.gap) && tb.includes(b.gap) && !tb.includes(a.gap)) discriminated += 1;
     }
   }
   return {
@@ -157,15 +233,56 @@ function discrimination(pairTranscripts) {
     // Pairs where a variant got no follow-up count as not discriminating, so judged pairs are compared with all pairs.
     judgedPairs: judged,
     discrimination: judgeRan ? ratio(discriminated, pairs) : ratio(0, 0),
+    // The rate a random follow-up (one gap picked at random for each variant) would get on the same pairs.
+    discriminationChance: judgeRan ? meanOf(chance, pairs) : meanOf(0, 0),
+  };
+}
+
+/**
+ * Case 5 (the student's step returns IDLE between the levels, so their own output disagrees with the
+ * problem statement): for Q1, how often the follow-up the Host asks after the main answer targets g1 or g2,
+ * the gaps about the middle readings 40 and 70. Reported for every profile and for the strong profile alone
+ * (a correct trace of the student's own code is where the answer and the code disagree), with case 4's
+ * strong Q1 (same question, correct code, a strong answer leaves no gaps) as the comparison.
+ */
+const OWN_CODE_CASE = 'case5';
+const OWN_CODE_COMPARISON = 'case4';
+const MIDDLE_GAPS = ['g1', 'g2'];
+
+function ownCodeCheck(transcripts) {
+  const tally = (caseId, profile) => {
+    let answered = 0;
+    let asked = 0;
+    let judged = 0;
+    let targets = 0;
+    for (const transcript of transcripts) {
+      if (transcript.caseId !== caseId || transcript.pair || (profile && transcript.profile !== profile)) continue;
+      for (const step of stepsOf(transcript)) {
+        if (!step.answeredMain || step.mainOrdinal !== 0 || step.fallback) continue;
+        answered += 1;
+        if (!asksFollowUp(step)) continue;
+        asked += 1;
+        if (!hasJudgement(step)) continue;
+        judged += 1;
+        if (targetedGaps(step).some((id) => MIDDLE_GAPS.includes(id))) targets += 1;
+      }
+    }
+    return { answered, asked: ratio(asked, answered), judged, targetsMiddle: ratio(targets, judged) };
+  };
+  return {
+    caseId: OWN_CODE_CASE,
+    all: tally(OWN_CODE_CASE),
+    strong: tally(OWN_CODE_CASE, 'strong'),
+    comparison: { caseId: OWN_CODE_COMPARISON, strong: tally(OWN_CODE_COMPARISON, 'strong') },
   };
 }
 
 /** All adaptive-behaviour numbers for one list of interviews and one list of pair interviews. */
 function summarizeAdaptive(transcripts, pairTranscripts = []) {
-  const targeting = gapTargeting(transcripts);
   const agreement = consistency(transcripts);
   return {
-    gapTargeting: targeting,
+    gapTargeting: gapTargeting(transcripts),
+    followUpChecks: followUpChecks(transcripts),
     actionAgreement: agreement.action,
     directionAgreement: agreement.direction,
     gamingSkip: gamingSkip(transcripts),
@@ -173,12 +290,20 @@ function summarizeAdaptive(transcripts, pairTranscripts = []) {
   };
 }
 
-/** Attach `adaptive` to every summary in a `summarizeRun` result (overall, byCase and byProfile). */
+/**
+ * Attach `adaptive` to every summary in a `summarizeRun` result: the headline `overall` and `byProfile`
+ * leave out the excluded cases (like metrics.summarizeRun), `allCases` and `byCase` do not.
+ */
 function attachAdaptive(results, transcripts, pairTranscripts = []) {
   for (const arm of Object.keys(results)) {
     const mine = transcripts.filter((t) => t.promptVersion === arm);
     const minePairs = pairTranscripts.filter((t) => t.promptVersion === arm);
-    results[arm].overall.adaptive = summarizeAdaptive(mine, minePairs);
+    const onlyExcluded = headlineOf(mine).length === 0;
+    const headline = onlyExcluded ? mine : headlineOf(mine);
+    const headlinePairs = onlyExcluded ? minePairs : headlineOf(minePairs);
+    results[arm].overall.adaptive = summarizeAdaptive(headline, headlinePairs);
+    results[arm].allCases.adaptive = summarizeAdaptive(mine, minePairs);
+    if (mine.some((t) => t.caseId === OWN_CODE_CASE)) results[arm].ownCode = ownCodeCheck(mine);
     for (const caseId of Object.keys(results[arm].byCase)) {
       results[arm].byCase[caseId].adaptive = summarizeAdaptive(
         mine.filter((t) => t.caseId === caseId),
@@ -186,12 +311,13 @@ function attachAdaptive(results, transcripts, pairTranscripts = []) {
       );
     }
     for (const profile of Object.keys(results[arm].byProfile)) {
-      results[arm].byProfile[profile].adaptive = summarizeAdaptive(mine.filter((t) => t.profile === profile), []);
+      results[arm].byProfile[profile].adaptive = summarizeAdaptive(headline.filter((t) => t.profile === profile), []);
     }
   }
   return results;
 }
 
 module.exports = {
-  summarizeAdaptive, attachAdaptive, gapTargeting, consistency, gamingSkip, discrimination, hitsGap, GAP_LABELS,
+  summarizeAdaptive, attachAdaptive, gapTargeting, followUpChecks, consistency, gamingSkip, discrimination,
+  hitsGap, targetsShownGap, chanceOf, ownCodeCheck, GAP_LABELS,
 };

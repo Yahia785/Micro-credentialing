@@ -46,17 +46,25 @@ const COLUMNS = [
   // Adaptive behaviour (n/a when the judge did not run, or the scope has no pair interviews)
   ...[
     ['gap_targeting', 'Gap targeting', (a) => a.gapTargeting.hit],
+    ['gap_chance', 'Gap targeting: chance level', (a) => a.gapTargeting.chance, 'pct'],
+    ['gap_partial', 'Gap targeting (partial answers)', (a) => a.gapTargeting.partial.hit],
+    ['gap_partial_chance', 'Partial answers: chance level', (a) => a.gapTargeting.partial.chance, 'pct'],
     ['gap_none', 'Judged generic (none)', (a) => a.gapTargeting.none],
-    ['gap_other', 'Judged other', (a) => a.gapTargeting.other],
+    ['off_target', 'Targets a gap already shown', (a) => a.gapTargeting.offTarget],
+    ['reveals', 'Reveals the answer', (a) => a.followUpChecks.reveals],
+    ['two_part_judge', 'Two-part (judge)', (a) => a.followUpChecks.twoPart],
+    ['two_part_simple', 'Two-part (simple check, same follow-ups)', (a) => a.followUpChecks.twoPartSimple],
+    ['beyond_scope', 'Beyond scope', (a) => a.followUpChecks.beyondScope],
     ['action_agreement', 'Action agreement', (a) => a.actionAgreement],
     ['direction_agreement', 'Direction agreement', (a) => a.directionAgreement],
     ['discrimination', 'Discrimination', (a) => a.pairs.discrimination],
+    ['discrimination_chance', 'Discrimination: chance level', (a) => a.pairs.discriminationChance, 'pct'],
     ['pairs_both_follow_up', 'Pairs: both got a follow-up', (a) => a.pairs.bothAsked],
     ['pairs_identical', 'Pairs: identical follow-ups', (a) => a.pairs.identical],
     ['gaming_skip', 'Gaming skip', (a) => a.gamingSkip.total],
-  ].map(([id, label, pick]) => [
+  ].map(([id, label, pick, style]) => [
     id, label,
-    (s) => (s.adaptive ? frac(pick(s.adaptive)) : 'n/a'),
+    (s) => (s.adaptive ? (style === 'pct' ? pct(pick(s.adaptive)) : frac(pick(s.adaptive))) : 'n/a'),
     (s) => (s.adaptive ? pick(s.adaptive).rate : null),
   ]),
 ];
@@ -65,7 +73,8 @@ const COLUMNS = [
 const RATE_COLUMNS = new Set([
   'unnecessary_follow_up', 'missed_follow_up', 'missed_vague', 'missed_wrong', 'missed_short', 'missed_idk',
   'overrides', 'fallbacks', 'yes_no', 'multi_part', 'reason_contradiction',
-  'gap_targeting', 'gap_none', 'gap_other', 'action_agreement', 'direction_agreement', 'discrimination',
+  'gap_targeting', 'gap_chance', 'gap_partial', 'gap_partial_chance', 'gap_none', 'off_target', 'reveals', 'two_part_judge',
+  'two_part_simple', 'beyond_scope', 'action_agreement', 'direction_agreement', 'discrimination', 'discrimination_chance',
   'pairs_both_follow_up', 'pairs_identical', 'gaming_skip',
 ]);
 
@@ -108,51 +117,94 @@ const GAP_LABELS = [...BAD_LABELS, 'gaming'];
 function adaptiveSection({ results, judge, options, pairInterviews }) {
   const arms = Object.keys(results);
   const ad = (arm) => results[arm].overall.adaptive;
+  const rate = (r) => frac(r);
   const out = [];
   out.push('## Adaptive behaviour', '');
-  out.push('Does the Host follow the answer? The `fixed` arm (when present) asks one fixed question after every main answer, whatever the student said: it is the non-adaptive comparison for every row.', '');
-  out.push('- **Gap targeting**: of the follow-ups asked after a weak answer, the share the judge says aim at the gap that answer left open. "Generic" is the share judged as pointing at nothing specific, "other" the share aiming at something that is not a listed gap.');
+  const excluded = [...new Set(arms.flatMap((arm) => results[arm].headlineExcludes || []))];
+  out.push(`Headline numbers${excluded.length ? ` leave out ${excluded.join(', ')} (its code is reused in the v2/v3 prompt examples; see "By case")` : ''}. Does the Host follow the answer? The \`fixed\` arm (when present) asks one fixed question after every main answer, whatever the student said: it is the non-adaptive comparison for every row. The fixed follow-ups are labelled by the same blind judge, in the same way.`, '');
+  out.push('- **Gap targeting**: of the follow-ups asked after an answer that left at least one gap, the share the blind judge says target ANY gap that answer left. **Chance level** is the share a random follow-up (one gap picked at random from the question\'s gaps) would get on exactly the same answers: read the targeting rate against it. An answer that leaves every gap (wrong, short, idk, gaming) has a chance of 100%, so the **partial answers** rows (answers that leave some but not all gaps) are where targeting says the most.');
+  out.push('- **Generic (none)**: the share judged as pointing at nothing specific. **Targets a gap already shown**: of all judged follow-ups, the share that ask about a gap the answer did NOT leave (something the student already showed).');
   out.push('- **Action agreement**: across repeats, how often two runs of the same interview made the same choice (follow-up or move on) after the same main answer. Needs 2 or more repeats.');
-  out.push('- **Direction agreement**: across repeats, among follow-ups that were asked, how often they aimed at the same gap.');
-  out.push('- **Discrimination**: of the minimal pairs (two weak answers to the same question that leave different gaps), the share where each answer got a follow-up aimed at its own gap.');
+  out.push('- **Direction agreement**: across repeats, among follow-ups that were asked, how often they aimed at the same gaps.');
+  out.push('- **Discrimination**: of the minimal pairs (two weak answers to the same question that leave different gaps), the share where each answer got a follow-up aimed at its own gap and not at the other\'s. Its chance level is what random single-gap follow-ups would get.');
   out.push('- **Gaming skip**: main answers from the gaming profiles (keywords, echo, inject) that got no follow-up although one was allowed. Lower is better.', '');
   if (judge) {
     out.push(`Judge: ${judge.model} (${judge.promptVersion}), ${judge.judgements} follow-ups judged, ${judge.unjudged} without a usable judgement, ${judge.calls} calls (${judge.cached} reused), est. cost ${usd(judge.estimatedCostUsd)}.`, '');
   } else {
-    out.push('Judge not run (`--judge`): gap targeting, direction agreement and discrimination are n/a.', '');
+    out.push('Judge not run (`--judge`): gap targeting, the follow-up checks, direction agreement and discrimination are n/a.', '');
   }
   if (options.pairs === false) out.push('Minimal pairs were skipped (`--no-pairs`), so discrimination is n/a.', '');
   else out.push(`Minimal-pair interviews run: ${pairInterviews || 0} (they feed only the discrimination columns).`, '');
 
-  const rate = (r) => frac(r);
   out.push('### Overall', '');
   out.push(mdTable(
-    ['Arm', 'Gap targeting', 'Generic (none)', 'Other', 'Action agreement', 'Direction agreement', 'Discrimination', 'Pairs: both got a follow-up', 'Pairs: identical follow-ups', 'Gaming skip'],
+    ['Arm', 'Gap targeting', 'Chance level', 'Partial answers', 'Chance (partial)', 'Generic (none)', 'Targets a gap already shown', 'Action agreement', 'Direction agreement', 'Discrimination', 'Chance (discrim.)', 'Pairs: both got a follow-up', 'Pairs: identical follow-ups', 'Gaming skip'],
     arms.map((arm) => {
       const a = ad(arm);
-      return [arm, rate(a.gapTargeting.hit), rate(a.gapTargeting.none), rate(a.gapTargeting.other), rate(a.actionAgreement),
-        rate(a.directionAgreement), rate(a.pairs.discrimination), rate(a.pairs.bothAsked), rate(a.pairs.identical), rate(a.gamingSkip.total)];
+      return [arm, rate(a.gapTargeting.hit), pct(a.gapTargeting.chance), rate(a.gapTargeting.partial.hit), pct(a.gapTargeting.partial.chance),
+        rate(a.gapTargeting.none), rate(a.gapTargeting.offTarget), rate(a.actionAgreement), rate(a.directionAgreement),
+        rate(a.pairs.discrimination), pct(a.pairs.discriminationChance), rate(a.pairs.bothAsked), rate(a.pairs.identical), rate(a.gamingSkip.total)];
     })
   ), '');
 
-  out.push('### Gap targeting by answer label', '');
-  out.push(mdTable(['Arm', ...GAP_LABELS], arms.map((arm) => [arm, ...GAP_LABELS.map((l) => rate(ad(arm).gapTargeting.byLabel[l]))])), '');
+  out.push('### Gap targeting by answer label (targeting / chance level)', '');
+  out.push(mdTable(['Arm', ...GAP_LABELS], arms.map((arm) => [arm, ...GAP_LABELS.map((l) => {
+    const b = ad(arm).gapTargeting.byLabel[l];
+    return `${rate(b.hit)} / ${pct(b.chance)}`;
+  })])), '');
+
+  out.push('### Follow-up checks, per prompt version', '');
+  out.push('Each judged follow-up is checked for: **reveals the answer** (it states part of the expected answer the student had not said yet), **two-part** (asks two things in one turn; the judge label, and the simple text check on the same follow-ups for comparison) and **beyond scope** (asks about something outside the instructor\'s criteria). Out of the judged follow-ups.', '');
+  const checkHeader = ['Judged follow-ups', 'Reveals the answer', 'Two-part (judge)', 'Two-part (simple check)', 'Beyond scope'];
+  const checkCells = (c) => [c.judged, rate(c.reveals), rate(c.twoPart), rate(c.twoPartSimple), rate(c.beyondScope)];
+  out.push(mdTable(['Arm', ...checkHeader], arms.map((arm) => [arm, ...checkCells(ad(arm).followUpChecks)])), '');
+
+  out.push('### Follow-up checks, per student profile', '');
+  const profiles = [...new Set(arms.flatMap((arm) => Object.keys(results[arm].byProfile)))];
+  const profileRows = [];
+  for (const profile of profiles) {
+    for (const arm of arms) {
+      const s = results[arm].byProfile[profile];
+      if (s && s.adaptive) profileRows.push([profile, arm, ...checkCells(s.adaptive.followUpChecks)]);
+    }
+  }
+  out.push(mdTable(['Profile', 'Arm', ...checkHeader], profileRows), '');
 
   out.push('### Gaming skip by profile', '');
   out.push(mdTable(['Arm', ...GAMING_PROFILES], arms.map((arm) => [arm, ...GAMING_PROFILES.map((p) => rate(ad(arm).gamingSkip.byProfile[p]))])), '');
 
   const caseIds = [...new Set(arms.flatMap((arm) => Object.keys(results[arm].byCase)))];
   out.push('### By case', '');
+  if (excluded.length) out.push(`${excluded.join(', ')} is not in the headline numbers above; its own rows are here and in its section below.`, '');
   const rows = [];
   for (const caseId of caseIds) {
     for (const arm of arms) {
       const s = results[arm].byCase[caseId];
       if (!s) continue;
       const a = s.adaptive;
-      rows.push([caseId, arm, rate(a.gapTargeting.hit), rate(a.actionAgreement), rate(a.directionAgreement), rate(a.pairs.discrimination), rate(a.gamingSkip.total)]);
+      rows.push([caseId, arm, rate(a.gapTargeting.hit), pct(a.gapTargeting.chance), rate(a.gapTargeting.offTarget), rate(a.actionAgreement),
+        rate(a.directionAgreement), rate(a.pairs.discrimination), rate(a.gamingSkip.total)]);
     }
   }
-  out.push(mdTable(['Case', 'Arm', 'Gap targeting', 'Action agreement', 'Direction agreement', 'Discrimination', 'Gaming skip'], rows), '');
+  out.push(mdTable(['Case', 'Arm', 'Gap targeting', 'Chance level', 'Targets a gap already shown', 'Action agreement', 'Direction agreement', 'Discrimination', 'Gaming skip'], rows), '');
+  return out;
+}
+
+/** The "case 5: answer vs own code" section (empty when case 5 was not run). */
+function ownCodeSection(prompts, results) {
+  const holders = prompts.filter((p) => results[p].ownCode);
+  if (!holders.length) return [];
+  const out = [];
+  out.push('## case 5: answer vs own code', '');
+  out.push('Case 5 is the tank controller whose `step` ends with `return TankState::IDLE;`, so it prints `40 -> IDLE` and `70 -> IDLE` (and still `Pump starts: 2`). Its scripted students answer Q1 about their own program, so even the strong answer says IDLE at 40 and 70, and the gaps (from the problem statement) g1 and g2 stay open. Below: after the Q1 main answer, how often the Host\'s follow-up targets g1 or g2 (the middle readings 40 and 70). Case 4 (same question, correct code, a strong answer leaves no gap) is the comparison.', '');
+  out.push(mdTable(
+    ['Prompt', 'Case 5 Q1: answers', 'Follow-up asked', 'Targets g1 or g2', 'Strong only: follow-up asked', 'Strong only: targets g1 or g2', 'Case 4 Q1 strong: follow-up asked', 'Case 4 Q1 strong: targets g1 or g2'],
+    holders.map((p) => {
+      const o = results[p].ownCode;
+      return [p, o.all.answered, frac(o.all.asked), frac(o.all.targetsMiddle), frac(o.strong.asked), frac(o.strong.targetsMiddle),
+        frac(o.comparison.strong.asked), frac(o.comparison.strong.targetsMiddle)];
+    })
+  ), '');
   return out;
 }
 
@@ -166,12 +218,13 @@ function toMarkdown({ runId, options, plan, results, notes = [], judge = null, p
   if (notes.length) out.push(...notes.map((n) => `- ${n}`), '');
 
   const prompts = Object.keys(results);
-  out.push('## Comparison (overall)', '');
+  const excludedCases = [...new Set(prompts.flatMap((p) => results[p].headlineExcludes || []))];
+  out.push(`## Comparison (overall${excludedCases.length ? `, without ${excludedCases.join(', ')}` : ''})`, '');
   out.push(mdTable(['Prompt', ...MD_COLUMNS], prompts.map((p) => [p, ...cells(results[p].overall)])), '');
 
   const caseIds = [...new Set(prompts.flatMap((p) => Object.keys(results[p].byCase)))];
   for (const caseId of caseIds) {
-    out.push(`## Comparison: ${caseId}`, '');
+    out.push(`## Comparison: ${caseId}${excludedCases.includes(caseId) ? ' (not in the headline numbers)' : ''}`, '');
     out.push(mdTable(['Prompt', ...MD_COLUMNS], prompts.filter((p) => results[p].byCase[caseId]).map((p) => [p, ...cells(results[p].byCase[caseId])])), '');
   }
 
@@ -192,6 +245,22 @@ function toMarkdown({ runId, options, plan, results, notes = [], judge = null, p
 
   out.push(...adaptiveSection({ results, judge, options, pairInterviews }));
 
+  out.push(...ownCodeSection(prompts, results));
+
+  for (const caseId of excludedCases) {
+    const holders = prompts.filter((p) => results[p].byCase[caseId]);
+    if (!holders.length) continue;
+    out.push(`## ${caseId} on its own (left out of the headline numbers)`, '');
+    out.push('Its code and wording are reused in the examples inside the host.v2 and host.v3 prompts, so those prompts are advantaged here. Use these rows to see the effect, not to rank the prompts.', '');
+    out.push(mdTable(['Prompt', ...MD_COLUMNS], holders.map((p) => [p, ...cells(results[p].byCase[caseId])])), '');
+    const rows = holders.map((p) => {
+      const a = results[p].byCase[caseId].adaptive;
+      return [p, frac(a.gapTargeting.hit), pct(a.gapTargeting.chance), frac(a.gapTargeting.offTarget), frac(a.followUpChecks.reveals),
+        frac(a.followUpChecks.twoPart), frac(a.followUpChecks.beyondScope), frac(a.pairs.discrimination), pct(a.pairs.discriminationChance)];
+    });
+    out.push(mdTable(['Prompt', 'Gap targeting', 'Chance level', 'Targets a gap already shown', 'Reveals the answer', 'Two-part (judge)', 'Beyond scope', 'Discrimination', 'Chance (discrim.)'], rows), '');
+  }
+
   for (const prompt of prompts) {
     const r = results[prompt];
     out.push(`## ${prompt}`, '');
@@ -205,18 +274,35 @@ function toMarkdown({ runId, options, plan, results, notes = [], judge = null, p
   return `${out.join('\n')}\n`;
 }
 
-/** judge-sample.csv: judged follow-ups for a person to label, to measure how often the judge agrees with a human. */
+/**
+ * judge-sample.csv: judged follow-ups for a person to label, to measure how often the judge agrees with a human.
+ * The judge never saw student_answer; it is here (with the gaps that answer left) so a person can decide what
+ * the student had not said yet. The human_* columns are empty: human_target is a gap id (or several, separated by
+ * "+") from gap_list, or "none"; the others are yes or no.
+ */
 function toJudgeSampleCsv(items) {
-  const header = ['sample_id', 'main_question', 'student_answer', 'gap_list', 'follow_up', 'judge_target', 'judge_reason', 'human_target', 'source'];
+  const header = [
+    'sample_id', 'main_question', 'student_answer', 'gap_list', 'gaps_left_by_answer', 'follow_up',
+    'judge_target', 'judge_reveals', 'judge_two_part', 'judge_beyond_scope', 'judge_reason',
+    'human_target', 'human_reveals', 'human_two_part', 'human_scope', 'source',
+  ];
   const rows = items.map((item, i) => [
     i + 1,
     item.mainQuestion,
     item.answer,
     item.gaps.map((gap) => `${gap.id}: ${gap.text}`).join(' | '),
+    (item.gapsLeft || []).join('+') || 'none',
     item.followUp,
-    item.target,
+    item.targets.join('+'),
+    // the gap ids the follow-up gives away, whether or not the answer left them open
+    item.reveals.length ? item.reveals.join('+') : 'none',
+    item.twoPart ? 'yes' : 'no',
+    item.beyondScope ? 'yes' : 'no',
     item.reason,
-    '', // human_target: a gap id from gap_list, "none" or "other"
+    '', // human_target: gap id(s) from gap_list joined with "+", or none
+    '', // human_reveals: yes or no (does the follow-up state something the student has not said yet?)
+    '', // human_two_part: yes or no
+    '', // human_scope: "beyond" if the follow-up asks outside the criteria, "within" otherwise
     item.source || '',
   ]);
   return `${[header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')}\n`;
@@ -232,14 +318,15 @@ function textTable(header, rows) {
 /** The table printed at the end of every run: one row per arm. */
 function terminalSummary(report) {
   const arms = Object.keys(report.results);
-  const header = ['Arm', 'Interviews', 'Unnecessary', 'Missed', 'Overrides', 'Fallbacks', 'Gap target', 'Action agree', 'Discrim.', 'Gaming skip', 'Cost'];
+  const header = ['Arm', 'Interviews', 'Unnecessary', 'Missed', 'Overrides', 'Fallbacks', 'Gap target', 'Chance', 'Shown gap', 'Reveals', 'Action agree', 'Discrim.', 'Gaming skip', 'Cost'];
   const rows = arms.map((arm) => {
     const s = report.results[arm].overall;
     const a = s.adaptive;
     return [arm, s.interviews, pct(s.unnecessaryFollowUp), pct(s.missedFollowUp), pct(s.overrides.total), pct(s.fallbacks.total),
-      pct(a.gapTargeting.hit), pct(a.actionAgreement), pct(a.pairs.discrimination), pct(a.gamingSkip.total), usd(s.estimatedCostUsd)];
+      pct(a.gapTargeting.hit), pct(a.gapTargeting.chance), pct(a.gapTargeting.offTarget), pct(a.followUpChecks.reveals), pct(a.actionAgreement),
+      pct(a.pairs.discrimination), pct(a.gamingSkip.total), usd(s.estimatedCostUsd)];
   });
-  const lines = [`Summary (${report.runId})`, textTable(header, rows)];
+  const lines = [`Summary (${report.runId})${Object.values(report.results).some((r) => (r.headlineExcludes || []).length) ? ', without case1' : ''}`, textTable(header, rows)];
   if (report.judge) {
     lines.push(`Judge ${report.judge.model}: ${report.judge.judgements} follow-ups judged, ${report.judge.unjudged} unusable, est. cost ${usd(report.judge.estimatedCostUsd)}`);
   } else {

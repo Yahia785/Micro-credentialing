@@ -1,51 +1,68 @@
 /**
- * The gap-targeting judge.
+ * The blind follow-up judge.
  *
- * For a follow-up the Host asked, a second (larger, different) model says which gap the follow-up
- * is aiming at: one of the gap ids of that main question, "none" (generic) or "other" (something
- * that is not a listed gap). It sees only the main question, the scripted student answer, the
- * follow-up and the gap list: no code, no interview setup, no identifiers.
+ * For a follow-up the Host asked, a second (larger, different) model labels the follow-up on its own:
+ * which gaps it targets, which gaps it gives away, whether it asks two things at once and whether it
+ * goes beyond the instructor's criteria. It sees only the main question, the criteria, the gap list of
+ * that question and the follow-up text. It never sees the student's answer, the code, the interview
+ * setup or any identifier: whether a label counts as a hit is decided afterwards, by comparing the
+ * labels with the gaps the scripted answer left (see adaptive.js).
  *
- * Temperature 0, JSON output. Identical inputs are judged once and reused. An unreadable reply is
- * asked for once more; after that the item stays unjudged and is counted as such.
+ * Temperature 0, JSON output, one call per follow-up. Identical inputs are judged once and reused. An
+ * unreadable reply is asked for once more; after that the item stays unjudged and is counted as such.
  */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const bedrock = require('../../shared/nodejs/agent/bedrock-client');
 
-const JUDGE_PROMPT_VERSION = 'judge.v1';
+const JUDGE_PROMPT_VERSION = 'judge.v2';
 const DEFAULT_JUDGE_MODEL = 'mistral.mistral-large-3-675b-instruct';
 // USD per million tokens, from the AWS Bedrock pricing page for us-east-1 (verify before relying on it).
 const DEFAULT_JUDGE_PRICES = Object.freeze({ inputPerMillion: 0.5, outputPerMillion: 1.5 });
-const NO_GAP = ['none', 'other'];
-const MAX_TOKENS = 300;
+const NONE = 'none';
+const MAX_TOKENS = 400;
 const TIMEOUT_MS = 30000;
 
-const systemPrompt = fs.readFileSync(path.join(__dirname, 'judge-prompt.v1.md'), 'utf8').trim();
+// judge-prompt.v1.md is the earlier prompt (it saw the answer); it is kept for comparison and is not used.
+const systemPrompt = fs.readFileSync(path.join(__dirname, 'judge-prompt.v2.md'), 'utf8').trim();
 
-const TAGS = /<\/?\s*(student_answer|follow_up)\s*>/gi;
+const TAGS = /<\/?\s*follow_up\s*>/gi;
 const clean = (text) => String(text).replace(TAGS, '');
 
-/** The message the judge gets. */
-function buildJudgeMessage({ mainQuestion, answer, followUp, gaps }) {
+/**
+ * The message the judge gets. Only these four fields are read: anything else in `input` (such as the
+ * student's answer) is ignored, so it cannot reach the judge.
+ */
+function buildJudgeMessage({ mainQuestion, criteria, gaps, followUp }) {
   return [
     `Main question: ${mainQuestion}`,
-    '<student_answer>',
-    clean(answer),
-    '</student_answer>',
+    'Criteria:',
+    ...criteria.map((criterion) => `- ${criterion}`),
+    'Gaps:',
+    ...gaps.map((gap) => `- ${gap.id}: ${gap.text}`),
     '<follow_up>',
     clean(followUp),
     '</follow_up>',
-    'Gaps:',
-    ...gaps.map((gap) => `- ${gap.id}: ${gap.text}`),
     'Reply with the JSON object only.',
   ].join('\n');
 }
 
+/** A list of known ids from the judge's reply (case-insensitive), or null when it is not one. */
+function idList(value, known) {
+  if (!Array.isArray(value)) return null;
+  const out = [];
+  for (const item of value) {
+    const match = typeof item === 'string' ? known.find((id) => id.toLowerCase() === item.trim().toLowerCase()) : undefined;
+    if (!match) return null;
+    if (!out.includes(match)) out.push(match);
+  }
+  return out;
+}
+
 /**
- * Read the judge's reply.
- * @returns {{ ok: true, target: string, reason: string } | { ok: false }}
+ * Read the judge's reply. `targets` is a list of gap ids, or ['none']; `reveals` a list of gap ids.
+ * @returns {{ ok: true, targets: string[], reveals: string[], twoPart: boolean, beyondScope: boolean, reason: string } | { ok: false }}
  */
 function parseJudgement(text, gapIds) {
   const raw = String(text || '');
@@ -58,12 +75,14 @@ function parseJudgement(text, gapIds) {
   } catch {
     return { ok: false };
   }
-  const target = typeof parsed.target === 'string' ? parsed.target.trim() : '';
-  const known = [...gapIds, ...NO_GAP];
-  const match = known.find((id) => id.toLowerCase() === target.toLowerCase());
-  if (!match) return { ok: false };
+  let targets = idList(parsed.targets, [...gapIds, NONE]);
+  const reveals = idList(parsed.reveals, gapIds);
+  if (!targets || !reveals) return { ok: false };
+  if (typeof parsed.two_part !== 'boolean' || typeof parsed.beyond_scope !== 'boolean') return { ok: false };
+  if (targets.length > 1) targets = targets.filter((id) => id !== NONE);
+  if (targets.length === 0) targets = [NONE];
   const reason = typeof parsed.reason === 'string' ? parsed.reason.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
-  return { ok: true, target: match, reason };
+  return { ok: true, targets, reveals, twoPart: parsed.two_part, beyondScope: parsed.beyond_scope, reason };
 }
 
 /**
@@ -90,24 +109,29 @@ function createJudge({ modelId, converseFn = bedrock.converse }) {
         });
       } catch (error) {
         usage.failed += 1;
-        return { valid: false, target: null, reason: '', error: error.reason || error.name };
+        return { valid: false, error: error.reason || error.name };
       }
       usage.calls += 1;
       usage.inputTokens += result.inputTokens || 0;
       usage.outputTokens += result.outputTokens || 0;
       const parsed = parseJudgement(result.text, gapIds);
-      if (parsed.ok) return { valid: true, target: parsed.target, reason: parsed.reason };
+      if (parsed.ok) {
+        const { ok, ...labels } = parsed;
+        return { valid: true, ...labels };
+      }
       usage.invalid += 1;
     }
-    return { valid: false, target: null, reason: '', error: 'invalid_output' };
+    return { valid: false, error: 'invalid_output' };
   }
 
   /**
-   * @param {{ mainQuestion: string, answer: string, followUp: string, gaps: Array<{id: string, text: string}> }} input
-   * @returns {Promise<{ valid: boolean, target: string|null, reason: string, error?: string, cached: boolean }>}
+   * @param {{ mainQuestion: string, criteria: string[], gaps: Array<{id: string, text: string}>, followUp: string }} input
+   *   Nothing else is used: the key of the reuse cache is built from these fields only.
+   * @returns {Promise<{ valid: boolean, targets?: string[], reveals?: string[], twoPart?: boolean, beyondScope?: boolean, reason?: string, error?: string, cached: boolean }>}
    */
   async function judge(input) {
-    const key = crypto.createHash('sha256').update(JSON.stringify([input.mainQuestion, input.answer, input.followUp, input.gaps])).digest('hex');
+    const key = crypto.createHash('sha256')
+      .update(JSON.stringify([input.mainQuestion, input.criteria, input.gaps, input.followUp])).digest('hex');
     if (cache.has(key)) {
       usage.cached += 1;
       return { ...cache.get(key), cached: true };
@@ -129,5 +153,5 @@ function estimateJudgeCost(usage, prices = DEFAULT_JUDGE_PRICES) {
 
 module.exports = {
   createJudge, buildJudgeMessage, parseJudgement, estimateJudgeCost, sameProvider,
-  JUDGE_PROMPT_VERSION, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PRICES, NO_GAP,
+  JUDGE_PROMPT_VERSION, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PRICES, NONE,
 };

@@ -32,6 +32,23 @@ const CASES = [
     configFile: path.join(__dirname, 'word-count.json'),
     studentsFile: path.join(students, 'case3.json'),
   },
+  {
+    id: 'case4',
+    title: 'Tank fill controller (state machine)',
+    codeFile: path.join(__dirname, 'tank-controller.cpp'),
+    configFile: path.join(__dirname, 'tank-controller.json'),
+    testsFile: path.join(__dirname, 'tank-controller.tests.json'),
+    studentsFile: path.join(students, 'case4.json'),
+  },
+  {
+    // Same problem, statement, questions and tests as case 4; the student's step ends with `return TankState::IDLE;`.
+    id: 'case5',
+    title: 'Tank fill controller (bug: returns IDLE between the levels)',
+    codeFile: path.join(__dirname, 'tank-controller-bug.cpp'),
+    configFile: path.join(__dirname, 'tank-controller.json'),
+    testsFile: path.join(__dirname, 'tank-controller.tests.json'),
+    studentsFile: path.join(students, 'case5.json'),
+  },
 ];
 
 function caseIds() {
@@ -69,6 +86,8 @@ function loadCase(id) {
     config: parsed.value,
     mains: mainQuestionsOf(parsed.value),
     studentsRaw: JSON.parse(fs.readFileSync(entry.studentsFile, 'utf8')),
+    // Input and expected output of the program's tests. Stored for later: nothing runs them yet.
+    tests: entry.testsFile ? JSON.parse(fs.readFileSync(entry.testsFile, 'utf8')).tests : [],
   };
 }
 
