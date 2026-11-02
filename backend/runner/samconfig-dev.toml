@@ -1,0 +1,20 @@
+version = 0.1
+
+[dev.build.parameters]
+cached = true
+parallel = true
+
+[dev.deploy.parameters]
+stack_name = "micro-credentialing-runner-dev"
+resolve_s3 = true
+resolve_image_repos = true
+s3_prefix = "micro-credentialing-runner-dev"
+region = "us-east-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+parameter_overrides = "Environment=\"dev\""
+tags = "Environment=\"dev\" Project=\"micro-credentialing\""
+
+[dev.global.parameters]
+region = "us-east-1"

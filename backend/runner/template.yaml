@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  C++ runner for student code. A container-image Lambda in a VPC with private subnets only:
+  no NAT, no internet gateway, no VPC endpoints, and a security group that allows no outbound
+  traffic. Its role can only write logs and manage its own network interfaces.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - production
+
+Resources:
+  # ------------------------------------------
+  # NETWORK: a VPC with nothing to reach
+  # ------------------------------------------
+  RunnerVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: false
+      EnableDnsHostnames: false
+      Tags:
+        - Key: Name
+          Value: !Sub micro-credentialing-runner-${Environment}
+
+  # No route tables are added and no gateway is attached: the only route is the VPC-local one.
+  RunnerSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref RunnerVpc
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: false
+
+  RunnerSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref RunnerVpc
+      CidrBlock: 10.20.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: false
+
+  # CloudFormation adds an allow-all egress rule to a security group unless an egress rule is
+  # given. The single rule below only allows traffic to 127.0.0.1/32, which never leaves the
+  # network interface, so in practice nothing can leave.
+  RunnerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Runner - no inbound, no outbound
+      VpcId: !Ref RunnerVpc
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 127.0.0.1/32
+          Description: Placeholder that replaces the default allow-all egress rule
+
+  # ------------------------------------------
+  # FUNCTION
+  # ------------------------------------------
+  RunnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub micro-credentialing-runner-${Environment}
+      PackageType: Image
+      Architectures:
+        - x86_64
+      MemorySize: 1769 # one full vCPU
+      Timeout: 30
+      # Only logs and network interfaces. No other policy, no environment variables, no secrets.
+      Policies:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref RunnerSecurityGroup
+        SubnetIds:
+          - !Ref RunnerSubnetA
+          - !Ref RunnerSubnetB
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: ./function
+      DockerTag: !Sub ${Environment}
+
+  RunnerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/micro-credentialing-runner-${Environment}
+      RetentionInDays: 14
+
+Outputs:
+  RunnerFunctionName:
+    Value: !Ref RunnerFunction
+  RunnerFunctionArn:
+    Value: !GetAtt RunnerFunction.Arn
