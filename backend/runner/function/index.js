@@ -1,10 +1,14 @@
 /**
  * C++ runner Lambda.
  *
- * Event:   { source, runs: [{ stdin, expectedOutput }], timeLimitMs, memoryLimitKb }
- * Returns: { results: [...], diagnostics }  with one result per run, in order. Each result has the
- *          runCpp shape (status, stdout, stderr, compileOutput, timeMs, memoryKb) plus statusText,
+ * Event:   { source, runs: [{ stdin }], timeLimitMs, memoryLimitKb }
+ *          The expected output never enters the runner: an event that contains expectedOutput is rejected.
+ * Returns: { results: [...], diagnostics }  with one result per run, in order. Each result has
+ *          status (accepted only means "ran fine"; compile_error, runtime_error, time_limit, memory_limit,
+ *          internal_error), stdout (capped), stderr, compileOutput, timeMs, memoryKb, plus statusText,
  *          runId and message. Compiles once, then runs each input one after the other.
+ *          diagnostics: { seccomp, landlock, ... }. Without seccomp nothing runs (internal_error
+ *          "sandbox unavailable"); Landlock is used when the kernel has it and is not required.
  *
  * Student code is untrusted. This function never logs source, stdin or program output.
  */
@@ -17,6 +21,7 @@ const { classifyRun, compileFailure, internalError } = require('./lib/classify')
 
 const MAX_SOURCE_BYTES = 256 * 1024;
 const MAX_RUNS = 200;
+const MAX_RESPONSE_BYTES = 5 * MB; // Lambda's synchronous response limit is 6 MB
 const COMPILE_OUTPUT_CAP = 64 * 1024;
 const COMPILE_CPU_SEC = 10;
 const COMPILE_WALL_MS = 15000;
@@ -35,16 +40,18 @@ function validate(event) {
   if (!Array.isArray(event.runs) || event.runs.length === 0 || event.runs.length > MAX_RUNS) {
     throw new InputError(`runs must have 1 to ${MAX_RUNS} entries`);
   }
+  // The runner must not learn the expected output, so refuse it instead of ignoring it.
+  if (event.runs.some(run => run === null || typeof run !== 'object')) throw new InputError('each run must be an object');
+  if ('expectedOutput' in event || event.runs.some(run => 'expectedOutput' in run)) {
+    throw new InputError('expectedOutput is not accepted: the runner never receives the expected output');
+  }
   const timeLimitMs = Number(event.timeLimitMs);
   const memoryLimitKb = Number(event.memoryLimitKb);
   if (!Number.isFinite(timeLimitMs) || timeLimitMs <= 0) throw new InputError('timeLimitMs must be a positive number');
   if (!Number.isFinite(memoryLimitKb) || memoryLimitKb <= 0) throw new InputError('memoryLimitKb must be a positive number');
   return {
     source: event.source,
-    runs: event.runs.map(run => ({
-      stdin: typeof run.stdin === 'string' ? run.stdin : '',
-      expectedOutput: typeof run.expectedOutput === 'string' ? run.expectedOutput : null
-    })),
+    runs: event.runs.map(run => ({ stdin: typeof run.stdin === 'string' ? run.stdin : '' })),
     timeLimitMs: Math.min(timeLimitMs, MAX_TIME_LIMIT_MS),
     memoryLimitKb: Math.min(Math.max(memoryLimitKb, MIN_MEMORY_LIMIT_KB), MAX_MEMORY_LIMIT_KB)
   };
@@ -69,17 +76,30 @@ async function compile(dir, source) {
   const text = Buffer.concat([compiled.stderr, compiled.stdout]).toString('utf-8').slice(0, COMPILE_OUTPUT_CAP);
   const meta = compiled.meta;
   const landlock = meta ? meta.landlock : null;
-  if (meta && !meta.landlock) return { ok: false, landlock: false, sandboxUnavailable: true };
-  if (compiled.wallKilled || (meta && meta.signal === 24)) return { ok: false, landlock, output: 'Compilation time limit exceeded.' };
-  if (!meta) return { ok: false, landlock, output: 'Compilation failed: sandbox did not report.', internal: true };
-  if (meta.exitCode !== 0 || meta.signal) return { ok: false, landlock, output: text || `Compilation failed (exit ${meta.exitCode}, signal ${meta.signal}).` };
-  return { ok: true, landlock };
+  const seccomp = meta ? meta.seccomp : null;
+  // The seccomp filter is required; Landlock is optional (the kernel may not have it).
+  if (meta && !meta.seccomp) return { ok: false, landlock, seccomp: false, sandboxUnavailable: true };
+  if (compiled.wallKilled || (meta && meta.signal === 24)) return { ok: false, landlock, seccomp, output: 'Compilation time limit exceeded.' };
+  if (!meta) return { ok: false, landlock, seccomp, output: 'Compilation failed: sandbox did not report.', internal: true };
+  if (meta.exitCode !== 0 || meta.signal) return { ok: false, landlock, seccomp, output: text || `Compilation failed (exit ${meta.exitCode}, signal ${meta.signal}).` };
+  return { ok: true, landlock, seccomp };
 }
 
-/** Landlock could not be applied: nothing ran, and every run says so. */
+/** The seccomp filter could not be installed: nothing ran, and every run says so. */
 function sandboxUnavailable(input, diagnostics) {
-  diagnostics.landlock = false;
+  diagnostics.seccomp = false;
   return { results: input.runs.map(() => internalError('sandbox unavailable')), diagnostics };
+}
+
+/** Keep the reply under Lambda's response limit: results that no longer fit are replaced by an error. */
+function fitResponse(results) {
+  let bytes = 0;
+  return results.map(result => {
+    const size = Buffer.byteLength(JSON.stringify(result));
+    if (bytes + size > MAX_RESPONSE_BYTES) return internalError('Output too large for one response');
+    bytes += size;
+    return result;
+  });
 }
 
 exports.handler = async (event, context) => {
@@ -92,7 +112,7 @@ exports.handler = async (event, context) => {
     throw error;
   }
 
-  const diagnostics = { leftoverKilled: 0, survivors: 0, landlock: null, compileMs: 0 };
+  const diagnostics = { leftoverKilled: 0, survivors: 0, seccomp: null, landlock: null, compileMs: 0 };
   let dir;
   try {
     wipeTmp(); // nothing from an earlier call may survive in /tmp
@@ -102,6 +122,7 @@ exports.handler = async (event, context) => {
     const compiled = await compile(dir, input.source);
     diagnostics.compileMs = Date.now() - compileStart;
     diagnostics.landlock = compiled.landlock === undefined ? null : compiled.landlock;
+    diagnostics.seccomp = compiled.seccomp === undefined ? null : compiled.seccomp;
     if (compiled.sandboxUnavailable) return sandboxUnavailable(input, diagnostics);
     if (!compiled.ok) {
       const failure = compiled.internal ? internalError(compiled.output) : compileFailure(compiled.output);
@@ -127,9 +148,10 @@ exports.handler = async (event, context) => {
       });
       if (outcome.meta) {
         diagnostics.landlock = diagnostics.landlock && outcome.meta.landlock;
+        diagnostics.seccomp = diagnostics.seccomp && outcome.meta.seccomp;
         diagnostics.leftoverKilled += outcome.meta.reaped;
       }
-      if (outcome.meta && !outcome.meta.landlock) return sandboxUnavailable(input, diagnostics);
+      if (outcome.meta && !outcome.meta.seccomp) return sandboxUnavailable(input, diagnostics);
 
       // Kill anything the program left behind before the next run (or the next call).
       const sweep = await sweepProcesses();
@@ -139,10 +161,10 @@ exports.handler = async (event, context) => {
         results.push(internalError('Student process could not be stopped'));
         break;
       }
-      results.push(classifyRun(outcome, { ...input, expectedOutput: run.expectedOutput }));
+      results.push(classifyRun(outcome, input));
     }
     while (results.length < input.runs.length) results.push(internalError('Run skipped'));
-    return { results, diagnostics };
+    return { results: fitResponse(results), diagnostics };
   } catch (error) {
     console.error('Runner failure', { message: error.message });
     return { results: input.runs.map(() => internalError('Runner failure')), diagnostics };

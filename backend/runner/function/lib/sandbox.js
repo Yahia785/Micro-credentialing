@@ -98,7 +98,7 @@ function execLimited({ mode, dir, argv, stdin, cpuSec, asBytes, stackBytes = 64 
 }
 
 function parseMeta(text) {
-  const match = /exit=(-?\d+) sig=(\d+) cpu_ms=(\d+) rss_kb=(\d+) landlock=(\d) reaped=(\d+)/.exec(text);
+  const match = /exit=(-?\d+) sig=(\d+) cpu_ms=(\d+) rss_kb=(\d+) landlock=(\d) seccomp=(\d) reaped=(\d+)/.exec(text);
   if (!match) return null;
   return {
     exitCode: Number(match[1]),
@@ -106,7 +106,8 @@ function parseMeta(text) {
     cpuMs: Number(match[3]),
     rssKb: Number(match[4]),
     landlock: match[5] === '1',
-    reaped: Number(match[6])
+    seccomp: match[6] === '1',
+    reaped: Number(match[7])
   };
 }
 

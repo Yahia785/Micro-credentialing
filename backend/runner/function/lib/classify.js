@@ -1,16 +1,15 @@
 /**
- * Turn how a program ended into the runCpp status. statusText uses Judge0's wording so grading
- * stores the same strings whichever provider ran the code.
+ * Turn how a program ended into a runner status. The runner never sees the expected output, so "accepted"
+ * only means "ran fine": the provider (shared/nodejs/utils/codeRunnerOwn.js) compares the output and turns
+ * it into wrong_answer when it does not match. statusText uses Judge0's wording so grading stores the same
+ * strings whichever provider ran the code.
  */
-
-const { outputMatches } = require('./compare');
 
 const SIGNALS = { 6: 'SIGABRT', 8: 'SIGFPE', 11: 'SIGSEGV', 25: 'SIGXFSZ' };
 const SIGXCPU = 24;
 
 const TEXT = {
   accepted: 'Accepted',
-  wrong_answer: 'Wrong Answer',
   time_limit: 'Time Limit Exceeded',
   compile_error: 'Compilation Error',
   memory_limit: 'Runtime Error (SIGSEGV)',
@@ -28,14 +27,25 @@ function result(status, statusText, extra) {
   };
 }
 
+function isValidUtf8(buffer) {
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * @param {{meta: object|null, stdout: Buffer, stderr: Buffer, outputTruncated: boolean, wallKilled: boolean}} run
- * @param {{ timeLimitMs: number, memoryLimitKb: number, expectedOutput?: string|null }} limits
+ * @param {{ timeLimitMs: number, memoryLimitKb: number }} limits
  */
-function classifyRun(run, { timeLimitMs, memoryLimitKb, expectedOutput }) {
+function classifyRun(run, { timeLimitMs, memoryLimitKb }) {
   const base = {
     stdout: run.stdout.toString('utf-8'),
-    stderr: run.stderr.toString('utf-8')
+    stderr: run.stderr.toString('utf-8'),
+    // The JSON reply cannot carry invalid UTF-8 bytes, so say so: the comparison treats such output as bytes.
+    stdoutInvalidUtf8: !isValidUtf8(run.stdout)
   };
 
   if (run.wallKilled && !run.outputTruncated) {
@@ -61,8 +71,7 @@ function classifyRun(run, { timeLimitMs, memoryLimitKb, expectedOutput }) {
     return result('runtime_error', runtimeErrorText(signal), measured);
   }
 
-  const accepted = outputMatches(expectedOutput, run.stdout);
-  return result(accepted ? 'accepted' : 'wrong_answer', accepted ? TEXT.accepted : TEXT.wrong_answer, measured);
+  return result('accepted', TEXT.accepted, measured);
 }
 
 function compileFailure(compileOutput) {

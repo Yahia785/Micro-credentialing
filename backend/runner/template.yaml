@@ -58,10 +58,65 @@ Resources:
           Description: Placeholder that replaces the default allow-all egress rule
 
   # ------------------------------------------
+  # EXECUTION ROLE: the credentials student code could find are made worthless
+  # ------------------------------------------
+  # Allow: write to its own log group, and the network-interface actions Lambda needs to put the function in a VPC.
+  # Deny: the same network-interface actions whenever the request carries lambda:SourceFunctionArn for this function,
+  # which AWS sets on requests made with the function's own credentials (function code, or anyone who copied them).
+  # Lambda's own VPC networking does not carry that key, so it keeps working. AWS documents this as the way to stop
+  # function code from using the execution role to change network interfaces.
+  # No managed policy, nothing else. The function ARN is built from the fixed function name to avoid a circular reference.
+  RunnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: runner-minimum
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOwnLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/micro-credentialing-runner-${Environment}:*
+              - Sid: LambdaVpcNetworking
+                Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeSubnets
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+                Resource: '*'
+              - Sid: DenyNetworkInterfacesToFunctionCode
+                Effect: Deny
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeSubnets
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+                Resource: '*'
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:micro-credentialing-runner-${Environment}
+
+  # ------------------------------------------
   # FUNCTION
   # ------------------------------------------
   RunnerFunction:
     Type: AWS::Serverless::Function
+    DependsOn: RunnerLogGroup # the group exists before the first invocation, so Lambda never has to create it
     Properties:
       FunctionName: !Sub micro-credentialing-runner-${Environment}
       PackageType: Image
@@ -69,9 +124,8 @@ Resources:
         - x86_64
       MemorySize: 1769 # one full vCPU
       Timeout: 30
-      # Only logs and network interfaces. No other policy, no environment variables, no secrets.
-      Policies:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      # Only logs and network interfaces (RunnerRole). No other policy, no environment variables, no secrets.
+      Role: !GetAtt RunnerRole.Arn
       VpcConfig:
         SecurityGroupIds:
           - !Ref RunnerSecurityGroup
@@ -94,3 +148,5 @@ Outputs:
     Value: !Ref RunnerFunction
   RunnerFunctionArn:
     Value: !GetAtt RunnerFunction.Arn
+  RunnerRoleArn:
+    Value: !GetAtt RunnerRole.Arn

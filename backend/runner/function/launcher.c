@@ -9,22 +9,31 @@
  * with an EMPTY environment ("run") or only TMPDIR/PATH ("compile"). The parent wait4()s the child
  * so the kernel's own accounting gives exact CPU time and peak memory, and writes one line to fd 3:
  *
- *   exit=<code or -1> sig=<signal or 0> cpu_ms=<n> rss_kb=<n> landlock=<0|1> reaped=<leftover processes killed>
+ *   exit=<code or -1> sig=<signal or 0> cpu_ms=<n> rss_kb=<n> landlock=<0|1> seccomp=<0|1> reaped=<leftover processes killed>
  *
  * The launcher is a "subreaper": every descendant the program leaves behind (fork, daemon, setsid
  * escape) is re-parented to it. When the program ends, or on SIGUSR1 from the Node handler (wall-clock
  * timeout), the launcher SIGKILLs and reaps the whole tree, so nothing survives into the next run and no
  * zombie piles up (Lambda reuses warm containers, and zombies count against the process limit).
  *
- * The child restricts its own filesystem access with Landlock (no root needed):
- * read/execute on system directories only, read/write on RWDIR only. That hides /proc, /etc, /var/task
- * etc. from the program. If Landlock cannot be applied the program is NOT run: the child exits 125 and landlock=0 is reported.
+ * Before exec the child sets no_new_privs and then:
+ *
+ *   - Landlock (optional, needs kernel 5.13+): read/execute on system directories only, read/write on RWDIR
+ *     only. That hides /proc, /etc, /var/task etc. from the program. If the kernel has no Landlock the
+ *     program still runs and landlock=0 is reported (standard Lambda runs kernel 5.10).
+ *   - seccomp (required): a filter that makes network, ptrace and a few other system calls fail with EPERM.
+ *     If it cannot be installed the program is NOT run: the child exits 125 and seccomp=0 is reported.
+ *     The same filter is installed for the compiler ("compile" mode).
  */
 #define _GNU_SOURCE
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/audit.h>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
 #include <signal.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,12 +86,76 @@ static int apply_landlock(int is_compile, const char *rwdir) {
   if (!is_compile) ok &= ll_add(ruleset, "/dev/urandom", LL_READ_FILE) == 0;
   ok &= ll_add(ruleset, rwdir, LL_ALL_V1) == 0;
 
-  if (!ok || prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 || syscall(SYS_landlock_restrict_self, ruleset, 0) != 0) {
+  /* no_new_privs is already set by the caller (landlock_restrict_self requires it) */
+  if (!ok || syscall(SYS_landlock_restrict_self, ruleset, 0) != 0) {
     close(ruleset);
     return 0;
   }
   close(ruleset);
   return 1;
+}
+
+#ifndef SECCOMP_RET_KILL_PROCESS
+#define SECCOMP_RET_KILL_PROCESS 0x80000000U
+#endif
+#ifndef SECCOMP_SET_MODE_FILTER
+#define SECCOMP_SET_MODE_FILTER 1
+#endif
+#ifndef SYS_io_uring_setup
+#define SYS_io_uring_setup 425 /* same number on x86_64 and aarch64 */
+#endif
+#ifndef SYS_userfaultfd
+#define SYS_userfaultfd 323
+#endif
+
+#if defined(__x86_64__)
+#define AUDIT_ARCH_CURRENT AUDIT_ARCH_X86_64
+#define X32_SYSCALL_BIT 0x40000000U /* x32 ABI numbers would slip past the number checks below */
+#elif defined(__aarch64__)
+#define AUDIT_ARCH_CURRENT AUDIT_ARCH_AARCH64
+#else
+#error "seccomp filter: unsupported architecture"
+#endif
+
+/* System calls the program (and the compiler) may not make. They fail with EPERM instead of killing the process. */
+static const int denied_syscalls[] = {
+  SYS_socket, SYS_socketpair, SYS_connect, SYS_bind, SYS_listen, SYS_accept, SYS_accept4,
+  SYS_sendto, SYS_sendmsg, SYS_recvfrom, SYS_recvmsg,
+  SYS_ptrace, SYS_process_vm_readv, SYS_process_vm_writev,
+  SYS_mount, SYS_unshare, SYS_setns,
+  SYS_keyctl, SYS_add_key, SYS_request_key,
+  SYS_bpf, SYS_perf_event_open, SYS_userfaultfd, SYS_io_uring_setup
+};
+
+/*
+ * Filter layout:  check arch (other arch, e.g. 32-bit int 0x80, kills the process) -> load syscall number ->
+ * [x32 range -> EPERM] -> one compare per denied number (match -> EPERM) -> otherwise allow.
+ * Uses the seccomp(2) system call directly, no libseccomp.
+ */
+static int install_seccomp(void) {
+  const unsigned n = sizeof(denied_syscalls) / sizeof(denied_syscalls[0]);
+  struct sock_filter f[n + 8];
+  unsigned i = 0;
+
+  f[i++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch));
+  f[i++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_CURRENT, 1, 0);
+  f[i++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
+  f[i++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr));
+  unsigned first_jump = i;
+#ifdef X32_SYSCALL_BIT
+  f[i++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, X32_SYSCALL_BIT, 0, 0);
+#endif
+  for (unsigned j = 0; j < n; j++) {
+    f[i++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (unsigned)denied_syscalls[j], 0, 0);
+  }
+  unsigned allow = i;
+  f[i++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+  unsigned deny = i;
+  f[i++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA));
+  for (unsigned k = first_jump; k < allow; k++) f[k].jt = (unsigned char)(deny - k - 1);
+
+  struct sock_fprog prog = { .len = (unsigned short)i, .filter = f };
+  return syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &prog) == 0;
 }
 
 static volatile sig_atomic_t interrupted = 0;
@@ -152,9 +225,12 @@ int main(int argc, char **argv) {
   pid_t pid = fork();
   if (pid < 0) return 3;
   if (pid == 0) {
-    char ll_ok = apply_landlock(is_compile, rwdir) ? '1' : '0';
-    (void)!write(ll_pipe[1], &ll_ok, 1);
-    if (ll_ok == '0') _exit(125); /* fail closed: never run the program without the file policy */
+    int nnp = prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0;
+    char flags[2];
+    flags[0] = nnp && apply_landlock(is_compile, rwdir) ? '1' : '0'; /* optional */
+    flags[1] = nnp && install_seccomp() ? '1' : '0';                 /* required */
+    (void)!write(ll_pipe[1], flags, 2);
+    if (flags[1] == '0') _exit(125); /* fail closed: never run the program without the seccomp filter */
     /* stays in the launcher's process group so one kill(-pgid) reaches it and its children */
     set_limit(RLIMIT_CPU, cpu_s, cpu_s + 1); /* soft: SIGXCPU, hard: SIGKILL */
     set_limit(RLIMIT_AS, as_bytes, as_bytes);
@@ -179,9 +255,10 @@ int main(int argc, char **argv) {
   }
 
   close(ll_pipe[1]);
-  char ll_ok = '0';
-  (void)!read(ll_pipe[0], &ll_ok, 1);
-  int landlock = ll_ok == '1';
+  char flags[2] = { '0', '0' };
+  (void)!read(ll_pipe[0], flags, 2);
+  int landlock = flags[0] == '1';
+  int seccomp = flags[1] == '1';
 
   int status = 0;
   struct rusage ru;
@@ -196,9 +273,9 @@ int main(int argc, char **argv) {
   long reaped = kill_and_reap_all();
 
   long cpu_ms = ru.ru_utime.tv_sec * 1000L + ru.ru_utime.tv_usec / 1000 + ru.ru_stime.tv_sec * 1000L + ru.ru_stime.tv_usec / 1000;
-  dprintf(3, "exit=%d sig=%d cpu_ms=%ld rss_kb=%ld landlock=%d reaped=%ld\n",
+  dprintf(3, "exit=%d sig=%d cpu_ms=%ld rss_kb=%ld landlock=%d seccomp=%d reaped=%ld\n",
           WIFEXITED(status) ? WEXITSTATUS(status) : -1,
           WIFSIGNALED(status) ? WTERMSIG(status) : 0,
-          cpu_ms, ru.ru_maxrss, landlock, reaped);
+          cpu_ms, ru.ru_maxrss, landlock, seccomp, reaped);
   return 0;
 }

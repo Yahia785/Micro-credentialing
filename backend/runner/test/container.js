@@ -23,13 +23,15 @@ const s=fs.readFileSync('/proc/'+n+'/status','utf-8');
 out.push({pid:+n,comm:/^Name:\s+(.*)$/m.exec(s)[1],uid:+/^Uid:\s+(\d+)/m.exec(s)[1],state:/^State:\s+(\S)/m.exec(s)[1]})}catch{}}
 process.stdout.write(JSON.stringify({ps:out,tmp:fs.readdirSync('/tmp')}))`;
 
-function start({ seccompUnconfined = false, noLandlock = false } = {}) {
+function start({ seccompUnconfined = false, noLandlock = false, noSeccomp = false } = {}) {
   stop();
   const args = ['run', '-d', '--name', NAME, '--network', 'none', '--read-only', '--tmpfs', '/tmp:rw,exec,mode=1777,size=512m',
     '--user', String(UID), '--memory', '1769m', '--cpus', '1',
     '-e', `AWS_SECRET_ACCESS_KEY=${FAKE_SECRET}`, '-e', 'AWS_SESSION_TOKEN=FAKE-TOKEN-ABC', '-e', 'AWS_ACCESS_KEY_ID=FAKEKEYID'];
   if (seccompUnconfined) args.push('--security-opt', 'seccomp=unconfined');
   if (noLandlock) args.push('--security-opt', `seccomp=${require('path').join(__dirname, 'seccomp-no-landlock.json')}`);
+  // Docker profiles that make the launcher's own sandbox calls fail, to test the "Landlock missing" and "seccomp missing" paths.
+  if (noSeccomp) args.push('--security-opt', `seccomp=${require('path').join(__dirname, 'seccomp-no-seccomp.json')}`);
   docker([...args, IMAGE]);
   spawnSync('node', ['-e', 'setTimeout(()=>{},2500)']);
 }
