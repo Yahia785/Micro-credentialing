@@ -150,11 +150,13 @@ const modelIdOf = (promptVersion, opts) => {
 
 /**
  * An arm is a prompt version at a temperature (or the fixed baseline). `armOf` fills in the defaults for a plain prompt
- * version: the arm is named after the prompt and runs at the Bedrock client's default temperature.
+ * version: the arm is named after the prompt and runs at the default temperature of that version (0 for the rubric
+ * prompts, host.v4 and later; the Bedrock client's default for the others).
  */
+const defaultTemperature = (promptVersion) => (engine.usesRubric(promptVersion) ? engine.RUBRIC_PROMPT_TEMPERATURE : bedrock.DEFAULT_TEMPERATURE);
 function armOf({ promptVersion, arm, temperature }) {
   if (promptVersion === FIXED_ARM) return { arm: arm || FIXED_ARM, promptVersion, temperature: null };
-  return { arm: arm || promptVersion, promptVersion, temperature: temperature === undefined ? bedrock.DEFAULT_TEMPERATURE : temperature };
+  return { arm: arm || promptVersion, promptVersion, temperature: temperature === undefined ? defaultTemperature(promptVersion) : temperature };
 }
 const safeName = (text) => String(text).replace(/[^A-Za-z0-9_-]/g, '');
 
@@ -373,7 +375,7 @@ function parseTemperature(text) {
 /**
  * The Host arms: each prompt version at one temperature. `--prompts host.v4@0,host.v4@0.2,host.v3` names the
  * temperature of an arm after an @; `--temperatures 0,0.2` gives every prompt without an @ one arm per temperature.
- * Without either, the arm is the prompt version itself and runs at the client's default temperature.
+ * Without either, the arm is the prompt version itself and runs at the default temperature of its version (0 for host.v4 and later, 0.2 for the others).
  */
 function parseArms(promptsValue, temperaturesValue) {
   const names = promptsValue === 'all' ? [...engine.PROMPT_VERSIONS] : String(promptsValue).split(',').map((s) => s.trim()).filter(Boolean);
@@ -386,7 +388,7 @@ function parseArms(promptsValue, temperaturesValue) {
       throw new Error(`Unknown prompt version: ${promptVersion}. Available: ${engine.PROMPT_VERSIONS.join(', ')}`);
     }
     const temperatures = at !== undefined ? [parseTemperature(at)] : temps;
-    if (!temperatures) specs.push({ arm: promptVersion, promptVersion, temperature: bedrock.DEFAULT_TEMPERATURE });
+    if (!temperatures) specs.push({ arm: promptVersion, promptVersion, temperature: defaultTemperature(promptVersion) });
     else temperatures.forEach((temperature) => specs.push({ arm: `${promptVersion}@${temperature}`, promptVersion, temperature }));
   }
   const seen = new Set();

@@ -13,12 +13,19 @@
 const fs = require('fs');
 const path = require('path');
 const bedrock = require('./bedrock-client');
-const { isMultiPart, firstQuestionOnly } = require('./follow-up-check');
+const { isYesNo, isMultiPart, firstQuestionOnly } = require('./follow-up-check');
 
-const PROMPT_VERSIONS = Object.freeze(['host.v1', 'host.v2', 'host.v3', 'host.v4']);
+const PROMPT_VERSIONS = Object.freeze(['host.v1', 'host.v2', 'host.v3', 'host.v4', 'host.v4.1']);
 // The prompt versions that receive the instructor's rubric (a list of items r1, r2, ... per main question) and reply with
 // the rubric ids the answer did not show ("missing"), the id a follow-up aims at ("target") and "isHint".
-const RUBRIC_PROMPTS = Object.freeze(['host.v4']);
+const RUBRIC_PROMPTS = Object.freeze(['host.v4', 'host.v4.1']);
+// host.v4.1 repairs a reply instead of failing it: a missing or wrong target is set to the first missing id, a follow-up that
+// repeats rubric wording is rewritten once, and a reply that is not JSON is asked for once more.
+const REPAIR_PROMPTS = Object.freeze(['host.v4.1']);
+// A yes/no follow-up is rewritten once as an open question (then the engine falls back), for these versions.
+const OPEN_QUESTION_PROMPTS = Object.freeze(['host.v4', 'host.v4.1']);
+// The temperature an arm of these versions runs at when none is named (the other versions use the client's default).
+const RUBRIC_PROMPT_TEMPERATURE = 0;
 const PROMPT_VERSION = 'host.v3'; // default; AGENT_PROMPT_VERSION or an explicit version overrides it
 const DEFAULT_FOLLOW_UPS_PER_MAIN = 1;
 const MAX_FOLLOW_UPS_PER_MAIN = 3;
@@ -31,6 +38,9 @@ const MAX_TRANSCRIPT_TURNS = 24;
 
 const ACTIONS = Object.freeze({ FOLLOW_UP: 'follow_up', NEXT_MAIN: 'next_main', END: 'end' });
 const REWRITE_REQUEST = 'Your follow-up asks more than one question. Rewrite it as ONE question about the same point, with a single question mark and no second request. Reply with the same JSON object only.';
+const JSON_RETRY_REQUEST = 'Your reply was not a valid JSON object. Reply with the JSON object only: no other text, no code fences.';
+const LEAK_REWRITE_REQUEST = 'Your follow-up repeats wording from the private guidance. Rewrite it in your own words, without the wording of any rubric item, as ONE question about the same point. Reply with the same JSON object only.';
+const YES_NO_REWRITE_REQUEST = 'Your follow-up can be answered with yes or no. Rewrite it as ONE open question (explain, trace, predict the output, or what would happen if) about the same point. Reply with the same JSON object only.';
 const FALLBACKS = Object.freeze({
   MODEL_UNAVAILABLE: 'model_unavailable',
   INVALID_OUTPUT: 'invalid_output',
@@ -71,6 +81,8 @@ function loadPrompt(version = resolvePromptVersion()) {
 
 /** True for the prompt versions that work from a rubric. */
 const usesRubric = (version) => RUBRIC_PROMPTS.includes(version);
+/** True for the prompt versions whose invalid replies are repaired where possible. */
+const repairsReplies = (version) => REPAIR_PROMPTS.includes(version);
 
 /**
  * The rubric of the main question being discussed, as [{ id, text }]: what a full answer must say. It sits next to the
@@ -198,30 +210,34 @@ function leaksCriterion(question, criteria) {
 
 /**
  * Validate the model's reply.
- * On failure, `modelReason` carries the model's own reason when the JSON was readable.
+ * On failure, `rejected` names the check that failed (bad_json, bad_action, missing_invalid, target_invalid, question_invalid,
+ * rubric_word, rubric_leak) and `modelReason` carries the model's own reason when the JSON was readable. A reply that only
+ * fails the rubric-wording check also carries the rest of it as `value`, so the caller can ask for a rewrite.
  *
  * With `rubric` (host.v4) the reply must also carry `missing`, a list of rubric ids; a follow-up carries `target`, the
  * id it aims at; `isHint` marks a follow-up that is a smaller step or hint after a struggling answer.
- * @returns {{ ok: true, value: { action, question, reason, missing?, target?, isHint? } } | { ok: false, modelReason?: string }}
+ * With `repair` (host.v4.1) a follow-up whose target is missing, unknown or not one of the missing ids gets the first missing id
+ * as its target (noted in `value.repairs`) instead of failing.
+ * @returns {{ ok: true, value: { action, question, reason, missing?, target?, isHint?, repairs? } } | { ok: false, rejected: string, modelReason?: string, value?: object }}
  */
-function parseHostOutput(text, { criteria = [], rubric = null } = {}) {
+function parseHostOutput(text, { criteria = [], rubric = null, repair = false } = {}) {
   let candidate = String(text || '').trim();
   const start = candidate.indexOf('{');
   const end = candidate.lastIndexOf('}');
-  if (start === -1 || end <= start) return { ok: false };
+  if (start === -1 || end <= start) return { ok: false, rejected: 'bad_json' };
   candidate = candidate.slice(start, end + 1);
 
   let parsed;
   try {
     parsed = JSON.parse(candidate);
   } catch {
-    return { ok: false };
+    return { ok: false, rejected: 'bad_json' };
   }
-  if (!parsed || typeof parsed !== 'object') return { ok: false };
+  if (!parsed || typeof parsed !== 'object') return { ok: false, rejected: 'bad_json' };
 
   const reason = typeof parsed.reason === 'string' ? parsed.reason.trim().slice(0, MAX_REASON_LENGTH) : '';
-  const invalid = { ok: false, ...(reason && { modelReason: reason }) };
-  if (!Object.values(ACTIONS).includes(parsed.action)) return invalid;
+  const invalid = (rejected, more = {}) => ({ ok: false, rejected, ...(reason && { modelReason: reason }), ...more });
+  if (!Object.values(ACTIONS).includes(parsed.action)) return invalid('bad_action');
 
   let question = typeof parsed.question === 'string' ? parsed.question.replace(/\s+/g, ' ').trim() : '';
 
@@ -229,23 +245,30 @@ function parseHostOutput(text, { criteria = [], rubric = null } = {}) {
   const extra = {};
   if (rubricIds) {
     const missing = rubricIdList(parsed.missing, rubricIds);
-    if (!missing) return invalid;
+    if (!missing) return invalid('missing_invalid');
     extra.missing = missing;
     extra.target = null;
     extra.isHint = false;
     if (parsed.action === ACTIONS.FOLLOW_UP) {
-      const target = typeof parsed.target === 'string' ? rubricIds.find((id) => id.toLowerCase() === parsed.target.trim().toLowerCase()) : undefined;
-      if (!target) return invalid;
+      const given = typeof parsed.target === 'string' ? rubricIds.find((id) => id.toLowerCase() === parsed.target.trim().toLowerCase()) : undefined;
+      let target = given;
+      if (repair && missing.length && !(given && missing.includes(given))) {
+        target = missing[0];
+        extra.repairs = [{ type: 'target', from: typeof parsed.target === 'string' ? parsed.target : null, to: target }];
+      }
+      if (!target) return invalid('target_invalid');
       extra.target = target;
       extra.isHint = parsed.isHint === true;
     }
   }
 
   if (parsed.action === ACTIONS.FOLLOW_UP) {
-    if (!question || question.length > MAX_FOLLOW_UP_LENGTH) return invalid;
-    if (/\b(rubric|criteria|criterion)\b/i.test(question)) return invalid;
+    if (!question || question.length > MAX_FOLLOW_UP_LENGTH) return invalid('question_invalid');
+    if (/\b(rubric|criteria|criterion)\b/i.test(question)) return invalid('rubric_word');
     // With a rubric, its items are private too.
-    if (leaksCriterion(question, rubric ? [...criteria, ...rubric.map((item) => item.text)] : criteria)) return invalid;
+    if (leaksCriterion(question, rubric ? [...criteria, ...rubric.map((item) => item.text)] : criteria)) {
+      return invalid('rubric_leak', { value: { action: parsed.action, question, reason, ...extra } });
+    }
   } else {
     question = '';
   }
@@ -332,6 +355,8 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
   let modelReason = '';
   let guard = null;
   let engineDecision = false;
+  let rejected = null; // host.v4 and later: why the reply was not used (the check that failed) and the raw reply
+  const repairs = []; // host.v4.1 and the yes/no guard: what the engine repaired in the reply
 
   if (allowed.length === 1) {
     // Nothing to choose: no follow-up is left for this main question. The model is not asked.
@@ -347,7 +372,8 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
     try {
       const system = loadPrompt(version);
       const userMessage = buildUserMessage({ config, state, code, turns, rubric });
-      const parseOptions = { criteria: theme.criteria, rubric };
+      const repairing = repairsReplies(version);
+      const parseOptions = { criteria: theme.criteria, rubric, repair: repairing };
       const result = await converseFn({
         system,
         messages: [{ role: 'user', content: [{ text: userMessage }] }],
@@ -355,13 +381,68 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
         ...(rubric && { maxTokens: RUBRIC_MAX_TOKENS }),
       });
       usage = { inputTokens: result.inputTokens, outputTokens: result.outputTokens, latencyMs: result.latencyMs };
+      let replyText = result.text;
+      let parsed = parseHostOutput(replyText, parseOptions);
 
-      const parsed = parseHostOutput(result.text, parseOptions);
+      // One more call on the same conversation (the reply so far, then a short request). null when the model is unavailable.
+      const askAgain = async (request) => {
+        try {
+          const again = await converseFn({
+            system,
+            messages: [
+              { role: 'user', content: [{ text: userMessage }] },
+              { role: 'assistant', content: [{ text: replyText }] },
+              { role: 'user', content: [{ text: request }] },
+            ],
+            modelId,
+            ...(rubric && { maxTokens: RUBRIC_MAX_TOKENS }),
+          });
+          usage = {
+            inputTokens: usage.inputTokens + again.inputTokens,
+            outputTokens: usage.outputTokens + again.outputTokens,
+            latencyMs: usage.latencyMs + again.latencyMs,
+          };
+          replyText = again.text;
+          return parseHostOutput(again.text, parseOptions);
+        } catch (error) {
+          if (error.name !== 'ModelUnavailableError') throw error;
+          return null;
+        }
+      };
+      const noteRepairs = (value) => { if (value && value.repairs) repairs.push(...value.repairs); };
+
+      if (repairing && !parsed.ok && parsed.rejected === 'bad_json') {
+        const again = await askAgain(JSON_RETRY_REQUEST);
+        repairs.push({ type: 'json_retry', fixed: !!again && again.rejected !== 'bad_json' });
+        if (again) parsed = again;
+      }
+      if (repairing && !parsed.ok && parsed.rejected === 'rubric_leak') {
+        const original = parsed.value.question;
+        const again = await askAgain(LEAK_REWRITE_REQUEST);
+        const fixed = !!again && again.ok && again.value.action === ACTIONS.FOLLOW_UP;
+        repairs.push({ type: 'leak_rewrite', original, fixed });
+        if (fixed) parsed = again;
+      }
+
       if (parsed.ok) {
         decision = parsed.value;
+        noteRepairs(parsed.value);
         modelReason = parsed.value.reason;
-        if (decision.action === ACTIONS.FOLLOW_UP && followUpsRemaining > 0 && isMultiPart(decision.question)) {
-          const guarded = await guardTwoQuestions({ decision, firstReply: result.text, userMessage, system, modelId, converseFn, parseOptions });
+        if (rubric && decision.action === ACTIONS.FOLLOW_UP && followUpsRemaining > 0 && OPEN_QUESTION_PROMPTS.includes(version) && isYesNo(decision.question)) {
+          const original = decision.question;
+          const again = await askAgain(YES_NO_REWRITE_REQUEST);
+          const fixed = !!again && again.ok && again.value.action === ACTIONS.FOLLOW_UP && !isYesNo(again.value.question);
+          repairs.push({ type: 'yes_no_rewrite', original, fixed });
+          if (fixed) {
+            noteRepairs(again.value);
+            decision = { ...decision, question: again.value.question };
+          } else {
+            fallback = FALLBACKS.INVALID_OUTPUT;
+            rejected = { code: 'yes_no', reply: replyText };
+          }
+        }
+        if (!fallback && decision.action === ACTIONS.FOLLOW_UP && followUpsRemaining > 0 && isMultiPart(decision.question)) {
+          const guarded = await guardTwoQuestions({ decision, firstReply: replyText, userMessage, system, modelId, converseFn, parseOptions });
           guard = guarded.guard;
           decision = { ...decision, question: guarded.question };
           usage = {
@@ -373,6 +454,7 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
       } else {
         fallback = FALLBACKS.INVALID_OUTPUT;
         modelReason = parsed.modelReason || '';
+        rejected = { code: parsed.rejected, reply: replyText };
       }
     } catch (error) {
       if (error.name !== 'ModelUnavailableError') throw error;
@@ -413,6 +495,8 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
   const record = {
     ...(engineDecision && { engineDecision: true }),
     ...(guard && { guard }),
+    ...(repairs.length && { repairs }),
+    ...(rejected && rubric && { rejected: { code: rejected.code, reply: String(rejected.reply || '').slice(0, 2000) } }),
     ...(decision && Array.isArray(decision.missing) && {
       missing: decision.missing,
       target: asked ? decision.target : null,
@@ -460,6 +544,8 @@ function recordFields(decision) {
   const out = {};
   if (decision.engineDecision) out.engineDecision = true;
   if (decision.guard) out.guard = decision.guard;
+  if (decision.repairs) out.repairs = decision.repairs;
+  if (decision.rejected) out.rejected = decision.rejected;
   if (Array.isArray(decision.missing)) {
     out.missing = decision.missing;
     out.target = decision.target;
@@ -472,6 +558,8 @@ module.exports = {
   PROMPT_VERSION,
   PROMPT_VERSIONS,
   RUBRIC_PROMPTS,
+  REPAIR_PROMPTS,
+  RUBRIC_PROMPT_TEMPERATURE,
   DEFAULT_FOLLOW_UPS_PER_MAIN,
   MAX_FOLLOW_UPS_PER_MAIN,
   ACTIONS,
@@ -479,8 +567,12 @@ module.exports = {
   FALLBACK_REASONS,
   MAX_FOLLOW_UP_LENGTH,
   REWRITE_REQUEST,
+  JSON_RETRY_REQUEST,
+  LEAK_REWRITE_REQUEST,
+  YES_NO_REWRITE_REQUEST,
   resolvePromptVersion,
   usesRubric,
+  repairsReplies,
   rubricFor,
   followUpBudget,
   allowedActions,

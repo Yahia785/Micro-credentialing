@@ -164,6 +164,24 @@ describe('temperature arms', () => {
   });
 });
 
+describe('host.v4.1 arms', () => {
+  it('host.v4 and host.v4.1 run at temperature 0 when no @ is given; the other versions keep 0.2; @ still wins', () => {
+    const arms = (raw) => normalizeOptions(base(raw)).armSpecs.map((s) => [s.arm, s.promptVersion, s.temperature]);
+    expect(arms({ prompts: 'host.v4.1,host.v4,host.v3' })).toEqual([['host.v4.1', 'host.v4.1', 0], ['host.v4', 'host.v4', 0], ['host.v3', 'host.v3', 0.2]]);
+    expect(arms({ prompts: 'host.v4.1@0,host.v4@0' })).toEqual([['host.v4.1@0', 'host.v4.1', 0], ['host.v4@0', 'host.v4', 0]]);
+    expect(arms({ prompts: 'host.v4.1@0.2' })).toEqual([['host.v4.1@0.2', 'host.v4.1', 0.2]]);
+  });
+
+  it('the fake run compares host.v4.1@0 with host.v4@0; the report lists invalid replies and repairs', async () => {
+    const { outDir, report } = await runEval(base({ prompts: 'host.v4.1@0,host.v4@0', baseline: 'fixed', profiles: 'strong,vague,idk', out: path.join(tmp, 'v41') }));
+    expect(Object.keys(report.results).sort()).toEqual(['fixed', 'host.v4.1@0', 'host.v4@0']);
+    const md = fs.readFileSync(path.join(outDir, 'summary.md'), 'utf8');
+    expect(md).toMatch(/## Invalid replies and repairs/);
+    expect(report.results['host.v4.1@0'].overall.repairs).toBeDefined();
+    expect(Object.keys(report.results['host.v4@0'].overall.rejected)).toContain('rubric_leak');
+  });
+});
+
 describe('model calls the engine saves', () => {
   it('a budget-1 interview has exactly one model call per main question; the other decisions are engine decisions', async () => {
     const { outDir, report } = await runEval(base({ prompts: 'host.v3', profiles: 'idk' }));

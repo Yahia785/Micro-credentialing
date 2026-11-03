@@ -101,6 +101,10 @@ function isThrottleError(name) {
 
 const zeroByLabel = (labels) => Object.fromEntries(labels.map((l) => [l, 0]));
 
+/** The checks a host.v4 reply can fail (see parseHostOutput), and the yes/no guard. */
+const REJECT_CODES = ['bad_json', 'bad_action', 'missing_invalid', 'target_invalid', 'question_invalid', 'rubric_word', 'rubric_leak', 'yes_no'];
+const REPAIR_FIELDS = { json_retry: ['json', 'jsonFixed'], leak_rewrite: ['leak', 'leakFixed'], yes_no_rewrite: ['yesNo', 'yesNoFixed'] };
+
 function emptyCounters() {
   return {
     interviews: 0,
@@ -125,6 +129,9 @@ function emptyCounters() {
     missed: zeroByLabel(BAD_LABELS),
     overrides: zeroByLabel(OVERRIDE_TYPES),
     fallbacks: { invalidOutput: 0, modelUnavailable: 0, throttled: 0 },
+    // host.v4 and later: why a reply was rejected (the check that failed), and what the engine repaired in a reply.
+    rejected: Object.fromEntries(REJECT_CODES.map((code) => [code, 0])),
+    repairs: { target: 0, leak: 0, leakFixed: 0, json: 0, jsonFixed: 0, yesNo: 0, yesNoFixed: 0 },
     throttleRetries: 0,
     yesNo: 0,
     multiPart: 0,
@@ -142,6 +149,8 @@ function decisionRecord(source) {
   return {
     engineDecision: !!source.engineDecision,
     guard: source.guard || null,
+    repairs: Array.isArray(source.repairs) ? source.repairs : [],
+    rejected: source.rejected || null,
     hostMissing: Array.isArray(source.missing) ? source.missing : null, // rubric ids the Host says the answer did not show
     target: source.target || null,
     isHint: !!source.isHint,
@@ -217,6 +226,15 @@ function analyzeTranscript(transcript) {
 
     if (OVERRIDE_TYPES.includes(kind)) c.overrides[kind] += 1;
     if (step.fallback === 'invalid_output') c.fallbacks.invalidOutput += 1;
+    if (step.rejected && c.rejected[step.rejected.code] !== undefined) c.rejected[step.rejected.code] += 1;
+    for (const repair of step.repairs || []) {
+      if (repair.type === 'target') c.repairs.target += 1;
+      else if (REPAIR_FIELDS[repair.type]) {
+        const [all, fixed] = REPAIR_FIELDS[repair.type];
+        c.repairs[all] += 1;
+        if (repair.fixed) c.repairs[fixed] += 1;
+      }
+    }
     if (step.fallback === 'model_unavailable') {
       if (step.modelCall && step.modelCall.throttled) c.fallbacks.throttled += 1;
       else c.fallbacks.modelUnavailable += 1;
@@ -354,6 +372,13 @@ function summarize(counters, prices = DEFAULT_PRICES) {
       modelUnavailable: c.fallbacks.modelUnavailable,
       throttled: c.fallbacks.throttled,
       throttleRetries: c.throttleRetries,
+    },
+    rejected: { ...c.rejected },
+    repairs: {
+      target: c.repairs.target,
+      leakRewrite: ratio(c.repairs.leakFixed, c.repairs.leak),
+      jsonRetry: ratio(c.repairs.jsonFixed, c.repairs.json),
+      yesNoRewrite: ratio(c.repairs.yesNoFixed, c.repairs.yesNo),
     },
     yesNo: ratio(c.yesNo, c.followUps),
     multiPart: ratio(c.multiPart, c.followUps),

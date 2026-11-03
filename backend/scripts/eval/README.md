@@ -245,6 +245,17 @@ the follow-up is a smaller step or a hint (`isHint: true`, stored on the turn, n
 The engine also rejects a v4 follow-up that repeats five words in a row of a rubric item. `host.v3` stays the default; `host.v4` is chosen with
 `--prompts` or `AGENT_PROMPT_VERSION`. A config without a rubric falls back to the theme criteria, one item each.
 
+**host.v4.1** is host.v4 with a more lenient rubric check (an item counts as shown when the answer states its main point in any wording; when unsure, shown),
+a stricter yes/no rule, and a hint rule (a hint points to a place in the code or asks a smaller sub-question about the target item; it never states a rubric fact
+or moves to another item). `host.v4` is unchanged. The engine repairs a v4.1 reply instead of failing it, and records each repair on the turn (`repairs`):
+- a follow-up whose `target` is missing, unknown or not in `missing` gets the first missing id as its target (`target`);
+- a follow-up that repeats five words of a rubric item is sent back once to be rewritten without that wording (`leak_rewrite`; the engine falls back only if the rewrite leaks too);
+- a reply that is not a JSON object is asked for once more with "reply with the JSON object only" (`json_retry`).
+For host.v4 **and** host.v4.1 a yes/no follow-up (the existing `isYesNo` check) is rewritten once as an open question (`yes_no_rewrite`), otherwise the engine falls back.
+When a rubric-prompt reply is rejected, the turn stores `rejected: { code, reply }` (code is one of `bad_json`, `bad_action`, `missing_invalid`, `target_invalid`,
+`question_invalid`, `rubric_word`, `rubric_leak`, `yes_no`; reply is the raw model text, cut to 2000 characters), so the reason for an invalid reply can be counted.
+summary.md has the table "Invalid replies and repairs". **host.v4 and host.v4.1 arms run at temperature 0 when no `@temperature` is given.**
+
 **Engine changes that apply to every prompt version**
 - *Two-question guard*: a follow-up that asks more than one question (the simple text check: more than one `?`, or two questions joined by
   "and what/why/how...") is sent back once with "rewrite it as ONE question". If the rewrite still asks two, or the model cannot answer, only the

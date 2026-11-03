@@ -260,6 +260,24 @@ function guardSection(prompts, results) {
   return out;
 }
 
+/** Invalid host.v4 replies by the check they failed, and the repairs the engine made (host.v4.1, and the yes/no guard). */
+function repairSection(prompts, results) {
+  const holders = prompts.filter((p) => /^host\.v[4-9]/.test(p) || results[p].overall.fallbacks.invalidOutput > 0);
+  if (!holders.length) return [];
+  const codes = Object.keys(results[holders[0]].overall.rejected);
+  const out = ['## Invalid replies and repairs (host.v4 and later)', ''];
+  out.push('Invalid replies by the check they failed, and what the engine repaired before it would have fallen back: **target** (a missing or wrong target was set to the first missing id), **leak rewrite** (a follow-up that repeated rubric wording was rewritten once; fixed = the rewrite passed), **JSON retry** (a reply that was not JSON was asked for again), **yes/no rewrite** (a yes/no follow-up was rewritten once as an open question; if the rewrite is still yes/no the engine falls back).', '');
+  out.push(mdTable(['Arm', 'Invalid replies', ...codes], holders.map((p) => {
+    const o = results[p].overall;
+    return [p, o.fallbacks.invalidOutput, ...codes.map((c) => o.rejected[c])];
+  })), '');
+  out.push(mdTable(['Arm', 'Target repaired', 'Leak rewrite: fixed', 'JSON retry: fixed', 'Yes/no rewrite: fixed'], holders.map((p) => {
+    const r = results[p].overall.repairs;
+    return [p, r.target, frac(r.leakRewrite), frac(r.jsonRetry), frac(r.yesNoRewrite)];
+  })), '');
+  return out;
+}
+
 /** The rubric check of the host.v4 arms: Host vs judge, and both against the scripted gaps_left. */
 function rubricSection(prompts, results) {
   const holders = prompts.filter((p) => results[p].rubric);
@@ -321,6 +339,7 @@ function toMarkdown({ runId, options, plan, results, notes = [], judge = null, p
 
   out.push(...barSection(results));
   out.push(...guardSection(prompts, results));
+  out.push(...repairSection(prompts, results));
   out.push(...rubricSection(prompts, results));
   out.push(...hintSection(prompts, results));
 

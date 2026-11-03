@@ -42,8 +42,8 @@ describe('the rubric in the config', () => {
     expect(engine.rubricFor(config, st({ themeIndex: 1 }))).toEqual([{ id: 'r1', text: 'Student names the empty case' }]);
   });
 
-  it('only host.v4 uses a rubric', () => {
-    expect(engine.RUBRIC_PROMPTS).toEqual(['host.v4']);
+  it('only host.v4 and host.v4.1 use a rubric', () => {
+    expect(engine.RUBRIC_PROMPTS).toEqual(['host.v4', 'host.v4.1']);
     expect(['host.v1', 'host.v2', 'host.v3', 'host.v4'].map(engine.usesRubric)).toEqual([false, false, false, true]);
   });
 
