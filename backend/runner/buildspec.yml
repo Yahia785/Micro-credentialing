@@ -1,0 +1,34 @@
+version: 0.2
+
+# Run by the CodeBuild project in backend/runner/build/template.yaml. Builds backend/runner/function/Dockerfile,
+# tags the image with the git commit, pushes it to the runner's ECR repository and prints the final digest.
+# Environment variables come from the project: REPOSITORY_URI (registry/repository), ENVIRONMENT.
+env:
+  shell: bash
+
+phases:
+  pre_build:
+    commands:
+      - COMMIT=$(echo "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c1-12)
+      - TAG="runnerfunction-${COMMIT}-${ENVIRONMENT}"
+      - echo "Commit $CODEBUILD_RESOLVED_SOURCE_VERSION, image tag $TAG"
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "${REPOSITORY_URI%%/*}"
+  build:
+    commands:
+      - docker build -t "$REPOSITORY_URI:$TAG" backend/runner/function
+  post_build:
+    commands:
+      - |
+        if [ "$CODEBUILD_BUILD_SUCCEEDING" != "1" ]; then
+          echo "Build failed, nothing pushed"; exit 1
+        fi
+      - docker push "$REPOSITORY_URI:$TAG"
+      # Lambda accepts a single-platform Docker v2 or OCI image manifest, not an image index (which BuildKit can
+      # create when it adds attestations). Asking ECR for only those two types fails when the manifest is an index.
+      - REPOSITORY_NAME="${REPOSITORY_URI#*/}"
+      - MEDIA_TYPE=$(aws ecr batch-get-image --repository-name "$REPOSITORY_NAME" --image-ids imageTag="$TAG" --accepted-media-types application/vnd.docker.distribution.manifest.v2+json application/vnd.oci.image.manifest.v1+json --query 'images[0].imageManifestMediaType' --output text)
+      - echo "Manifest media type $MEDIA_TYPE"
+      - case "$MEDIA_TYPE" in application/vnd.docker.distribution.manifest.v2+json|application/vnd.oci.image.manifest.v1+json) ;; *) echo "Not a single-image manifest Lambda accepts"; exit 1 ;; esac
+      - DIGEST=$(aws ecr describe-images --repository-name "$REPOSITORY_NAME" --image-ids imageTag="$TAG" --query 'imageDetails[0].imageDigest' --output text)
+      - echo "IMAGE_TAG=$TAG"
+      - echo "IMAGE_DIGEST=$DIGEST"

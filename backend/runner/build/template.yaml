@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Builds the runner image in AWS and pushes it to the runner's ECR repository, so the image never uploads from a
+  laptop. CodeBuild pulls the public GitHub repo (no credentials) at the branch given to start-build, runs
+  backend/runner/buildspec.yml, and pushes to the existing repository micro-credentialing-runner-<env>.
+  The repository is created by scripts/create-repo.ps1, not by this stack.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - production
+  GitHubRepository:
+    Type: String
+    Default: https://github.com/Yahia785/Micro-credentialing.git
+
+Resources:
+  BuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/codebuild/micro-credentialing-runner-build-${Environment}
+      RetentionInDays: 14
+
+  # Can push to one repository, write its own log group, and nothing else.
+  BuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: push-runner-image
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !GetAtt BuildLogGroup.Arn
+                  - !Sub ${BuildLogGroup.Arn}:*
+              # ecr:GetAuthorizationToken cannot be limited to a resource.
+              - Sid: RegistryLogin
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Sid: PushAndInspectOneRepository
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                  - ecr:BatchGetImage
+                  - ecr:DescribeImages
+                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/micro-credentialing-runner-${Environment}
+
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub micro-credentialing-runner-build-${Environment}
+      Description: Builds and pushes the C++ runner image
+      ServiceRole: !GetAtt BuildRole.Arn
+      TimeoutInMinutes: 20
+      Source:
+        Type: GITHUB
+        Location: !Ref GitHubRepository
+        BuildSpec: backend/runner/buildspec.yml
+        GitCloneDepth: 1
+        ReportBuildStatus: false
+      # The branch is passed when a build starts (aws codebuild start-build --source-version <branch>).
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL # 2 vCPU, 3 GB: the smallest size, enough for a ~700 MB image
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        PrivilegedMode: true # needed to run the Docker daemon
+        EnvironmentVariables:
+          - Name: REPOSITORY_URI
+            Type: PLAINTEXT
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/micro-credentialing-runner-${Environment}
+          - Name: ENVIRONMENT
+            Type: PLAINTEXT
+            Value: !Ref Environment
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogGroup
+
+Outputs:
+  BuildProjectName:
+    Value: !Ref BuildProject
+  BuildRoleArn:
+    Value: !GetAtt BuildRole.Arn
