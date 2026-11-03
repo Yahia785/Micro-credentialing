@@ -6,6 +6,7 @@ const path = require('path');
 const { BAD_LABELS, GAMING_PROFILES } = require('./students');
 const { OVERRIDE_TYPES } = require('./metrics');
 const { evaluateBars } = require('./bars');
+const { followUpLines } = require('./followups');
 const engine = require('../../shared/nodejs/agent/interview-engine');
 
 const pct = (r) => (r.rate === null ? 'n/a' : `${(r.rate * 100).toFixed(0)}%`);
@@ -203,15 +204,15 @@ function adaptiveSection({ results, judge, options, pairInterviews }) {
   return out;
 }
 
-/** The "case 5: answer vs own code" section (empty when case 5 was not run). */
+/** The "own-code questions" section (empty when none of cases 5, 6, 7 and 9 was run). */
 function ownCodeSection(prompts, results) {
   const holders = prompts.filter((p) => results[p].ownCode);
   if (!holders.length) return [];
   const out = [];
-  out.push('## case 5: answer vs own code', '');
-  out.push('Case 5 is the tank controller whose `step` ends with `return TankState::IDLE;`, so it prints `40 -> IDLE` and `70 -> IDLE` (and still `Pump starts: 2`). Its scripted students answer Q1 about their own program, so even the strong answer says IDLE at 40 and 70, and the gaps (from the problem statement) g1 and g2 stay open. Below: after the Q1 main answer, how often the Host\'s follow-up targets g1 or g2 (the middle readings 40 and 70). Case 4 (same question, correct code, a strong answer leaves no gap) is the comparison.', '');
+  out.push('## Own-code questions: answer vs own code', '');
+  out.push('In some tank-controller cases the program of the student differs from the problem statement, and on ONE main question the scripted students answer about their own code, so even the strong answer leaves open the gaps (from the statement) that the bug contradicts: case 5 (`step` returns IDLE between the levels) Q1, gaps g1 and g2; case 6 (`>` instead of `>=`) Q4, g2 and g3; case 7 (ALARM does not stick) Q3, g3; case 9 (a start is counted on every FILLING reading) Q1, g3. Case 8 changes no answer. Below, pooled over the cases that were run: after that main answer, how often the Host asks a follow-up and how often it targets one of those gaps. Case 4 (same questions, correct code, a strong answer leaves no gap) is the comparison.', '');
   out.push(mdTable(
-    ['Prompt', 'Case 5 Q1: answers', 'Follow-up asked', 'Targets g1 or g2', 'Strong only: follow-up asked', 'Strong only: targets g1 or g2', 'Case 4 Q1 strong: follow-up asked', 'Case 4 Q1 strong: targets g1 or g2'],
+    ['Prompt', 'Own-code questions: answers', 'Follow-up asked', 'Targets the contradicted gaps', 'Strong only: follow-up asked', 'Strong only: targets them', 'Case 4, same questions, strong: follow-up asked', 'Case 4, same questions, strong: targets them'],
     holders.map((p) => {
       const o = results[p].ownCode;
       return [p, o.all.answered, frac(o.all.asked), frac(o.all.targetsMiddle), frac(o.strong.asked), frac(o.strong.targetsMiddle),
@@ -238,8 +239,8 @@ function barSection(results) {
     return mark(check, pct({ rate: check.value }));
   };
   const header = ['Arm', ...rows[0].checks.map((c) => `${c.label}: ${c.rule}`), 'Overall'];
-  const out = ['## Good-enough bar (cases 2 to 5)', ''];
-  out.push('One row per Host arm. Each bar is pass or fail on the headline numbers (case 1 left out). A bar that this run cannot measure shows n/a and the overall result says "incomplete". The judge agreement with a human hand-check comes from `compare-rubric.js` and `judge-sample.csv`, filled in by hand.', '');
+  const out = ['## Good-enough bar (headline cases)', ''];
+  out.push('One row per Host arm. Each bar is pass or fail on the headline numbers (cases 4 to 9; cases 1, 2 and 3 are left out). A bar that this run cannot measure shows n/a and the overall result says "incomplete". The judge agreement with a human hand-check comes from `compare-rubric.js` and `judge-sample.csv`, filled in by hand.', '');
   out.push(mdTable(header, rows.map((row) => [row.arm, ...row.checks.map(cell), row.overall])), '');
   return out;
 }
@@ -271,9 +272,24 @@ function repairSection(prompts, results) {
     const o = results[p].overall;
     return [p, o.fallbacks.invalidOutput, ...codes.map((c) => o.rejected[c])];
   })), '');
-  out.push(mdTable(['Arm', 'Target repaired', 'Leak rewrite: fixed', 'JSON retry: fixed', 'Yes/no rewrite: fixed'], holders.map((p) => {
+  out.push(mdTable(['Arm', 'Target repaired', 'Leak rewrite: fixed', 'JSON retry: fixed', 'Yes/no rewrite: fixed', 'Check retry (host.v5): fixed'], holders.map((p) => {
     const r = results[p].overall.repairs;
-    return [p, r.target, frac(r.leakRewrite), frac(r.jsonRetry), frac(r.yesNoRewrite)];
+    return [p, r.target, frac(r.leakRewrite), frac(r.jsonRetry), frac(r.yesNoRewrite), frac(r.checkRetry)];
+  })), '');
+  return out;
+}
+
+/** host.v5: how well the checker (step A) matches the scripted gaps_left, with no judge involved, and what it cost. */
+function checkerSection(prompts, results) {
+  const holders = prompts.filter((p) => /^host\.v5/.test(p) && results[p].rubric);
+  if (!holders.length) return [];
+  const out = ['## Checker of host.v5 (step A) against the scripted gaps', ''];
+  out.push('The missing list of the checker on each main answer, compared with the gaps the scripted answer leaves (r1 = g1, ...). No judge is involved. Exact = the two lists are identical. Missed = the checker says shown, the script says missing. False missing = the checker says missing, the script says shown. Invalid checks are replies that failed the evidence check twice (the engine then moved on).', '');
+  out.push(mdTable(['Arm', 'Answers checked', 'Exact match', 'Missed items', 'False-missing items', 'Invalid checks', 'Check retried: fixed'], holders.map((p) => {
+    const r = results[p].rubric.hostVsScripted;
+    const sum = (key) => Object.values(r.perItem).reduce((a, c) => a + c[key], 0);
+    const o = results[p].overall;
+    return [p, r.n, frac(r.exact), sum('missed'), sum('wronglyMissing'), o.rejected.check_invalid, frac(o.repairs.checkRetry)];
   })), '');
   return out;
 }
@@ -323,7 +339,7 @@ function hintSection(prompts, results) {
   return out;
 }
 
-function toMarkdown({ runId, options, plan, results, notes = [], judge = null, pairInterviews = 0 }) {
+function toMarkdown({ runId, options, plan, results, notes = [], judge = null, pairInterviews = 0, followUps = {} }) {
   const cols = MD_COLUMNS.map((name) => COLUMNS.find((c) => c[1] === name));
   const cells = (s) => cols.map((c) => c[2](s));
   const out = [];
@@ -340,6 +356,7 @@ function toMarkdown({ runId, options, plan, results, notes = [], judge = null, p
   out.push(...barSection(results));
   out.push(...guardSection(prompts, results));
   out.push(...repairSection(prompts, results));
+  out.push(...checkerSection(prompts, results));
   out.push(...rubricSection(prompts, results));
   out.push(...hintSection(prompts, results));
 
@@ -372,7 +389,7 @@ function toMarkdown({ runId, options, plan, results, notes = [], judge = null, p
     const holders = prompts.filter((p) => results[p].byCase[caseId]);
     if (!holders.length) continue;
     out.push(`## ${caseId} on its own (left out of the headline numbers)`, '');
-    out.push('Its code and wording are reused in the examples inside the host.v2 and host.v3 prompts, so those prompts are advantaged here. Use these rows to see the effect, not to rank the prompts.', '');
+    out.push(caseId === 'case1' ? 'Its code and wording are reused in the examples inside the host.v2 and host.v3 prompts, so those prompts are advantaged here. Use these rows to see the effect, not to rank the prompts.' : 'A side check, kept apart from the headline numbers (the tank controller, cases 4 to 9).', '');
     out.push(mdTable(['Prompt', ...MD_COLUMNS], holders.map((p) => [p, ...cells(results[p].byCase[caseId])])), '');
     const rows = holders.map((p) => {
       const a = results[p].byCase[caseId].adaptive;
@@ -392,6 +409,7 @@ function toMarkdown({ runId, options, plan, results, notes = [], judge = null, p
     ];
     out.push(mdTable(['Scope', ...MD_COLUMNS], rows), '');
   }
+  out.push(...followUpLines(followUps));
   return `${out.join('\n')}\n`;
 }
 

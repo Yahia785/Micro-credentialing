@@ -1,0 +1,94 @@
+{
+  "note": "Stored for later: nothing runs these yet. case7: step does not check current == ALARM first (ALARM does not stick). The expected lines are what THIS program prints (computed by a hand transcription of the C++ in JavaScript, scripts/eval/build-tank-cases.js; no compiler was run). The lines the statement expects are in tank-controller.tests.json. It fails T2 of the statement's seven tests.",
+  "program": "tank-controller-alarm.cpp",
+  "tests": [
+    {
+      "id": "T1",
+      "checks": "Example from the statement",
+      "input": "20 80 100 50 18 40 85 70 15",
+      "expected": [
+        "50 -> IDLE",
+        "18 -> FILLING",
+        "40 -> FILLING",
+        "85 -> FULL",
+        "70 -> FULL",
+        "15 -> FILLING",
+        "Pump starts: 2"
+      ],
+      "passesStatement": true
+    },
+    {
+      "id": "T2",
+      "checks": "Invalid reading while filling; alarm stays",
+      "input": "20 80 100 10 30 -5 50 10",
+      "expected": [
+        "10 -> FILLING",
+        "30 -> FILLING",
+        "-5 -> ALARM",
+        "50 -> ALARM",
+        "10 -> FILLING",
+        "Pump starts: 2"
+      ],
+      "passesStatement": false
+    },
+    {
+      "id": "T3",
+      "checks": "Exactly at high",
+      "input": "20 80 100 10 80",
+      "expected": [
+        "10 -> FILLING",
+        "80 -> FULL",
+        "Pump starts: 1"
+      ],
+      "passesStatement": true
+    },
+    {
+      "id": "T4",
+      "checks": "Readings near the middle",
+      "input": "20 80 100 49 51 49 51",
+      "expected": [
+        "49 -> IDLE",
+        "51 -> IDLE",
+        "49 -> IDLE",
+        "51 -> IDLE",
+        "Pump starts: 0"
+      ],
+      "passesStatement": true
+    },
+    {
+      "id": "T5",
+      "checks": "No readings",
+      "input": "20 80 100",
+      "expected": [
+        "Pump starts: 0"
+      ],
+      "passesStatement": true
+    },
+    {
+      "id": "T6",
+      "checks": "First reading invalid",
+      "input": "20 80 100 -1 50",
+      "expected": [
+        "-1 -> ALARM",
+        "50 -> ALARM",
+        "Pump starts: 0"
+      ],
+      "passesStatement": true
+    },
+    {
+      "id": "T7",
+      "checks": "Boundaries (low, just below, high, max, above max)",
+      "input": "20 80 100 20 19 79.9 80 100 101",
+      "expected": [
+        "20 -> IDLE",
+        "19 -> FILLING",
+        "79.9 -> FILLING",
+        "80 -> FULL",
+        "100 -> FULL",
+        "101 -> ALARM",
+        "Pump starts: 1"
+      ],
+      "passesStatement": true
+    }
+  ]
+}

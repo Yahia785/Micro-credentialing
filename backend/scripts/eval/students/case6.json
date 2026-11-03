@@ -1,0 +1,658 @@
+{
+  "caseId": "case6",
+  "mixed": [
+    "short",
+    "vague",
+    "wrong",
+    "good",
+    "idk"
+  ],
+  "gaps": [
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "At 40 the controller stays `FILLING`, because a reading between `low` and `high` keeps the current state."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "At 70 the controller stays `FULL` for the same reason (it does not go back to `IDLE` or `FILLING`)."
+      },
+      {
+        "id": "g3",
+        "criterion": 0,
+        "text": "The pump starts twice (at 18 and at 15), because a start is counted only when entering `FILLING` from another state."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "With a single level, readings that go back and forth around it (49, 51, 49, 51) would turn the pump on and off on every reading."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "The gap between the levels means the pump runs until the tank is high, and stays off until it is low, so it switches rarely."
+      },
+      {
+        "id": "g3",
+        "criterion": 0,
+        "text": "Fewer switches means less wear on the pump (and a more stable level), which is why real controllers do this."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "-5 is invalid because it is negative, so the controller moves to `ALARM`."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "The pump turns off in `ALARM` (it is not `FILLING` any more)."
+      },
+      {
+        "id": "g3",
+        "criterion": 0,
+        "text": "The controller stays in `ALARM` for every later reading, even valid ones, because `step` checks `ALARM` first."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "Only a reading of exactly 80 (exactly `high`) behaves differently."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "An input that shows it, for example `10 80`: the second line becomes `80 -> FILLING` instead of `80 -> FULL`."
+      },
+      {
+        "id": "g3",
+        "criterion": 0,
+        "text": "The pump keeps running at the high level, so the tank fills past the level it should stop at."
+      }
+    ],
+    [
+      {
+        "id": "g1",
+        "criterion": 0,
+        "text": "It can be tested on its own: call it with any state and reading and check the result."
+      },
+      {
+        "id": "g2",
+        "criterion": 0,
+        "text": "There is no hidden state, so the same inputs always give the same next state."
+      },
+      {
+        "id": "g3",
+        "criterion": 0,
+        "text": "`main` stays in control of the current state, which makes the loop easy to read and trace."
+      }
+    ]
+  ],
+  "pairs": [
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "At 70 it stays FULL since it is in the middle, and the pump starts at 18 and 15, so 2 times."
+        },
+        "b": {
+          "gap": "g3",
+          "text": "40 stays FILLING and 70 stays FULL, because they are between the levels so nothing changes."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g2",
+          "text": "40 stays FILLING because it is between 20 and 80, and the pump starts 2 times, at 18 and at 15."
+        },
+        "b": {
+          "gap": "g1",
+          "text": "At 70 it stays FULL because it is in the middle.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "With two levels the pump runs till the tank is high and stays off till it is low, so it does not switch much, which is less wear on the pump."
+        },
+        "b": {
+          "gap": "g3",
+          "text": "With one level at 50 it would flip on and off for 49, 51, 49, 51. Two levels make it run until 80 and then wait until it is under 20."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g2",
+          "text": "A single level would turn the pump on and off for every reading near 50, like 49 and 51.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        },
+        "b": {
+          "gap": "g1",
+          "text": "It runs until the tank is high and then it stays off until the level is low again, so it does not switch all the time.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "The pump is off in ALARM and it stays in ALARM for all later readings, even good ones, since ALARM gets checked first."
+        },
+        "b": {
+          "gap": "g3",
+          "text": "-5 is negative so it is invalid and it goes to ALARM, and the pump is off then."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g2",
+          "text": "-5 is not valid because it is negative so ALARM, and after that every reading stays ALARM because step checks it first."
+        },
+        "b": {
+          "gap": "g1",
+          "text": "The pump turns off, it is not filling in ALARM.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "For 10 80 my second line is 80 -> FILLING and not 80 -> FULL, and the pump keeps running at the high level."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "Only a reading of exactly 80 is different in my program, and then the pump does not stop when it should, it fills past the level."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g3",
+          "text": "Only exactly 80 acts different, and for the input 10 80 my program shows FILLING for 80 and not FULL."
+        },
+        "b": {
+          "gap": "g1",
+          "gaps": [
+            "g1",
+            "g2"
+          ],
+          "text": "My pump would keep going at the top level and the tank would go over where it should stop."
+        }
+      }
+    ],
+    [
+      {
+        "id": "p1",
+        "a": {
+          "gap": "g1",
+          "text": "No hidden state, same inputs always give the same next state, and main holds the current state so the loop is easy to read."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "You can call it with any state and reading and check what comes back, and main controls the state in the loop."
+        }
+      },
+      {
+        "id": "p2",
+        "a": {
+          "gap": "g3",
+          "text": "You can test step alone, and the same reading and state always gives the same result."
+        },
+        "b": {
+          "gap": "g2",
+          "text": "Main stays in charge of the current state, so the loop is simple to follow.",
+          "gaps": [
+            "g1",
+            "g2"
+          ]
+        }
+      }
+    ]
+  ],
+  "gaming": {
+    "keywords": [
+      {
+        "main": "IDLE, FILLING, FULL, 50, 18, 40, 85, 70, 15, pump starts, 2.",
+        "followUp": "States, readings, low, high, pump starts, 2."
+      },
+      {
+        "main": "Hysteresis, 20, 80, 50, switching, pump, wear, 49, 51.",
+        "followUp": "Hysteresis, two levels, switching, pump wear, stable."
+      },
+      {
+        "main": "-5, invalid, negative, ALARM, FILLING, isValid, step, stays.",
+        "followUp": "ALARM, invalid, negative, stays, later readings, step."
+      },
+      {
+        "main": "Greater than, equal to, 80, boundary, FULL, FILLING, 10 80.",
+        "followUp": "Boundary, exactly 80, FULL, FILLING."
+      },
+      {
+        "main": "Pure function, global variable, state, return, testing, main, same input.",
+        "followUp": "Pure, no global, testable, main, loop."
+      }
+    ]
+  },
+  "profiles": {
+    "strong": [
+      {
+        "main": {
+          "label": "good",
+          "text": "OK so it starts at IDLE. 50 is between 20 and 80 so it stays IDLE. 18 is below 20 so FILLING, that is the first pump start. 40 is in the middle so it just stays FILLING. 85 is over 80 so FULL. 70 is in the middle again so it stays FULL, it does not go back to IDLE. Then 15 is below 20 so FILLING again, second start. So the pump starts 2 times."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "The middle ones are the tricky part. 40 and 70 do not change anything because step just returns current when the reading is between low and high. And the pump only counts a start when it goes into FILLING from a different state, so staying in FILLING at 40 is not a start. That is why it is 2 and not 3."
+        }
+      },
+      {
+        "main": {
+          "label": "good",
+          "text": "If there was only one level at 50, then readings like 49, 51, 49, 51 would switch the pump on and off every single reading. With 20 and 80 the pump keeps running until the tank gets to 80, and then it stays off until the level falls under 20. So it switches way less often. That is better for the pump, it wears out less and the level is more stable."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "I think it is called hysteresis. The gap between 20 and 80 means small wiggles in the sensor do not change anything. The pump only changes at the edges, so it does not click on and off all the time and the real pump lasts longer."
+        }
+      },
+      {
+        "main": {
+          "label": "good",
+          "text": "-5 is negative so isValid says it is not valid, and step sends the controller to ALARM. The pump is not FILLING anymore, it turns off in ALARM. For the readings after that, it stays in ALARM even if they are normal like 50, because step checks for ALARM first and returns ALARM right away."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "step looks at current first. If it is ALARM it returns ALARM before it even looks at the reading. So a good reading after the error cannot bring it back. Only restarting the program would reset it."
+        }
+      },
+      {
+        "main": {
+          "label": "good",
+          "text": "My step already has reading > s.high, so in my program exactly 80 does not give FULL. Compared with >=, the only reading that changes is exactly 80: it stays in the middle, so the pump keeps running at the high level and the tank keeps filling.",
+          "gaps": [
+            "g2"
+          ],
+          "ownCode": true
+        },
+        "followUp": {
+          "label": "good",
+          "text": "Take the input 20 80 100 10 80. My program prints 80 -> FILLING, and with >= it would print 80 -> FULL. Readings like 79 or 85 come out the same either way.",
+          "gaps": [
+            "g3"
+          ],
+          "ownCode": true
+        }
+      },
+      {
+        "main": {
+          "label": "good",
+          "text": "Because then step does not depend on anything outside. I can call step with any state and reading and check what it returns, I do not need to run the whole program. Also it always gives the same answer for the same state and reading, nothing hidden that could change it. And main keeps the current state itself, so the loop is easy to read."
+        },
+        "followUp": {
+          "label": "good",
+          "text": "With a global I would have to set it up first and the result could depend on what ran before. This way main has the state variable right there in the loop, so I can follow it line by line when I am debugging."
+        }
+      }
+    ],
+    "vague": [
+      {
+        "main": {
+          "label": "vague",
+          "text": "I just go through them in order. 50 is fine, 18 is low so the pump starts, 85 is high so it gets full, and 15 is low so it starts again. So the pump starts twice I think.",
+          "gaps": [
+            "g1",
+            "g2"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "For 40 I think it just stays how it was. Not sure about the other middle one, and I am not sure how the counting works exactly.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "vague",
+          "text": "With one level the pump would flip back and forth when the level is around 50, like 49 then 51. Two levels is just better, I think it is more normal.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "The pump runs for a while and then it stops for a while, it does not change all the time.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "vague",
+          "text": "The pump stops, because the controller goes to the alarm thing when something is wrong.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "-5 is a bad reading since it is negative, so it goes to ALARM. After that I am not sure what it does.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "vague",
+          "text": "I think only the readings right at the top would act different.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "I would test it with 10 80 and look at the second line, it should be different from before.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "vague",
+          "text": "It is cleaner, and it gives the same result each time you call it with the same stuff.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "vague",
+          "text": "You can test it more easily I guess.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        }
+      }
+    ],
+    "wrong": [
+      {
+        "main": {
+          "label": "wrong",
+          "text": "50 stays IDLE. 18 is FILLING. 40 is in the middle so it stays FILLING. 85 is FULL and 70 is in the middle so it stays FULL. Then 15 is FILLING. The pump starts every time it says FILLING so that is 3 times.",
+          "gaps": [
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "I looked again. 18 and 15 are the starts so 2. And 40 stays FILLING for sure. But 70 goes back to IDLE because it is below 80, the tank is not full any more.",
+          "gaps": [
+            "g2"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "wrong",
+          "text": "Because the pump needs time to warm up. With 20 and 80 it starts early and gets to the high level slowly, and it stays off until the tank is low again. Also it does not wear out as much that way.",
+          "gaps": [
+            "g1"
+          ]
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "The single level would be a problem when the level goes 49, 51, 49, 51, it would switch every time. With two levels the pump just runs all the time so the tank always stays above 20.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "wrong",
+          "text": "-5 is below 0 so it is not valid and the controller goes to ALARM. But then the next reading is fine so it goes back to normal, like if it is 50 it goes to IDLE.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "The pump turns off in ALARM and it stays in ALARM for every reading after that, even good ones, since ALARM is checked first. -5 is just too low for the tank, it is under the low level so it counts as invalid.",
+          "gaps": [
+            "g1"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "wrong",
+          "text": "It would change all the readings above 80, like 85 and 90, they would not be FULL anymore. So 10 85 would print 85 -> FILLING. And the pump keeps running past the level.",
+          "gaps": [
+            "g1",
+            "g2"
+          ]
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "The only one that matters is 80 exactly, and 10 80 shows it, 80 -> FILLING instead of FULL. But the pump would just stop anyway at 80 because the tank reached the level.",
+          "gaps": [
+            "g3"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "wrong",
+          "text": "You can test it on its own with any state you want, and main keeps the state so the loop is easy to read. The function can give a different answer each time even for the same inputs though, because it remembers the last call.",
+          "gaps": [
+            "g2"
+          ]
+        },
+        "followUp": {
+          "label": "wrong",
+          "text": "Mostly it is about speed. Returning a value is faster than a global. And it gives the same result for the same inputs, nothing hidden in there.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        }
+      }
+    ],
+    "short": [
+      {
+        "main": {
+          "label": "short",
+          "text": "40 stays FILLING.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "short",
+          "text": "70 stays FULL, pump starts twice.",
+          "gaps": [
+            "g1"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "short",
+          "text": "Less wear on the pump.",
+          "gaps": [
+            "g1",
+            "g2"
+          ]
+        },
+        "followUp": {
+          "label": "short",
+          "text": "It flickers around 50, stays on until 80.",
+          "gaps": [
+            "g3"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "short",
+          "text": "Pump turns off.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "short",
+          "text": "Negative is invalid, stays ALARM.",
+          "gaps": [
+            "g2"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "short",
+          "text": "Only exactly 80 changes.",
+          "gaps": [
+            "g2",
+            "g3"
+          ]
+        },
+        "followUp": {
+          "label": "short",
+          "text": "The pump keeps going.",
+          "gaps": [
+            "g1",
+            "g2"
+          ]
+        }
+      },
+      {
+        "main": {
+          "label": "short",
+          "text": "Main keeps the state.",
+          "gaps": [
+            "g1",
+            "g2"
+          ]
+        },
+        "followUp": {
+          "label": "short",
+          "text": "Same input, same result.",
+          "gaps": [
+            "g1",
+            "g3"
+          ]
+        }
+      }
+    ],
+    "idk": [
+      {
+        "main": {
+          "label": "idk",
+          "text": "I don't know, I did not really trace it.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "Sorry, I am not sure.",
+          "gaps": "all"
+        }
+      },
+      {
+        "main": {
+          "label": "idk",
+          "text": "I don't know, I just used the numbers from the problem.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "Not sure, sorry.",
+          "gaps": "all"
+        }
+      },
+      {
+        "main": {
+          "label": "idk",
+          "text": "I don't know what happens.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "I really don't know.",
+          "gaps": "all"
+        }
+      },
+      {
+        "main": {
+          "label": "idk",
+          "text": "No idea, I would have to run it.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "I am not sure, I don't know.",
+          "gaps": "all"
+        }
+      },
+      {
+        "main": {
+          "label": "idk",
+          "text": "I don't know, that is how the starter code was.",
+          "gaps": "all"
+        },
+        "followUp": {
+          "label": "idk",
+          "text": "Sorry, not sure.",
+          "gaps": "all"
+        }
+      }
+    ]
+  }
+}

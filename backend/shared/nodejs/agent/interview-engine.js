@@ -13,15 +13,19 @@
 const fs = require('fs');
 const path = require('path');
 const bedrock = require('./bedrock-client');
-const { isYesNo, isMultiPart, firstQuestionOnly } = require('./follow-up-check');
+const { isYesNo, isMultiPart, firstQuestionOnly, leaksCriterion } = require('./follow-up-check');
+const split = require('./split-agent');
 
-const PROMPT_VERSIONS = Object.freeze(['host.v1', 'host.v2', 'host.v3', 'host.v4', 'host.v4.1']);
+const PROMPT_VERSIONS = Object.freeze(['host.v1', 'host.v2', 'host.v3', 'host.v4', 'host.v4.1', 'host.v5']);
 // The prompt versions that receive the instructor's rubric (a list of items r1, r2, ... per main question) and reply with
 // the rubric ids the answer did not show ("missing"), the id a follow-up aims at ("target") and "isHint".
 const RUBRIC_PROMPTS = Object.freeze(['host.v4', 'host.v4.1']);
 // host.v4.1 repairs a reply instead of failing it: a missing or wrong target is set to the first missing id, a follow-up that
 // repeats rubric wording is rewritten once, and a reply that is not JSON is asked for once more.
 const REPAIR_PROMPTS = Object.freeze(['host.v4.1']);
+// host.v5 is the split agent (split-agent.js): one call checks the answer against the rubric, a second writes the follow-up.
+// It works from the rubric too and runs at temperature 0, but it has no single prompt file and sends no host message.
+const SPLIT_PROMPTS = Object.freeze(['host.v5']);
 // A yes/no follow-up is rewritten once as an open question (then the engine falls back), for these versions.
 const OPEN_QUESTION_PROMPTS = Object.freeze(['host.v4', 'host.v4.1']);
 // The temperature an arm of these versions runs at when none is named (the other versions use the client's default).
@@ -73,6 +77,11 @@ function followUpBudget(config) {
 const promptCache = {};
 function loadPrompt(version = resolvePromptVersion()) {
   resolvePromptVersion(version);
+  if (SPLIT_PROMPTS.includes(version)) return `${require('./rubric-check').CHECK_SYSTEM}
+
+---
+
+${split.WRITE_SYSTEM}`; // the two prompts of the split agent
   if (!promptCache[version]) {
     promptCache[version] = fs.readFileSync(path.join(__dirname, 'prompts', `${version}.md`), 'utf8');
   }
@@ -80,7 +89,9 @@ function loadPrompt(version = resolvePromptVersion()) {
 }
 
 /** True for the prompt versions that work from a rubric. */
-const usesRubric = (version) => RUBRIC_PROMPTS.includes(version);
+const usesRubric = (version) => RUBRIC_PROMPTS.includes(version) || SPLIT_PROMPTS.includes(version);
+/** True for the split agent. */
+const usesSplit = (version) => SPLIT_PROMPTS.includes(version);
 /** True for the prompt versions whose invalid replies are repaired where possible. */
 const repairsReplies = (version) => REPAIR_PROMPTS.includes(version);
 
@@ -182,30 +193,6 @@ function buildUserMessage({ config, state, code, turns, rubric }) {
     '</transcript>',
     'Reply with the JSON object only.',
   ].join('\n');
-}
-
-function normalise(text) {
-  return String(text).toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
-const LEAK_WINDOW = 5;
-function words(text) {
-  return normalise(text).replace(/[^a-z0-9' ]/g, ' ').split(' ').filter(Boolean);
-}
-
-/** True if the question repeats a criterion, or any run of five consecutive words of one. */
-function leaksCriterion(question, criteria) {
-  const questionText = ` ${words(question).join(' ')} `;
-  return criteria.some((criterion) => {
-    const w = words(criterion);
-    if (w.length === 0) return false;
-    const size = Math.min(LEAK_WINDOW, w.length);
-    if (size < 3) return false;
-    for (let i = 0; i + size <= w.length; i += 1) {
-      if (questionText.includes(` ${w.slice(i, i + size).join(' ')} `)) return true;
-    }
-    return false;
-  });
 }
 
 /**
@@ -341,7 +328,7 @@ async function guardTwoQuestions({ decision, firstReply, userMessage, system, mo
  *   engineDecision?: true, guard?: object, missing?: string[], target?: string|null, isHint?: boolean
  * }>}
  */
-async function decideNext({ config, state, code, turns, modelId, promptVersion, converseFn = bedrock.converse }) {
+async function decideNext({ config, state, code, turns, modelId, promptVersion, converseFn = bedrock.converse, checkerModelId, writerModelId }) {
   const followUpsRemaining = followUpBudget(config) - state.followUpCount;
   const nextMain = nextMainPosition(config, state);
   const theme = currentTheme(config, state);
@@ -355,6 +342,7 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
   let modelReason = '';
   let guard = null;
   let engineDecision = false;
+  let splitRecord = null; // host.v5: the evidence, the models and every call
   let rejected = null; // host.v4 and later: why the reply was not used (the check that failed) and the raw reply
   const repairs = []; // host.v4.1 and the yes/no guard: what the engine repaired in the reply
 
@@ -368,6 +356,56 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
         ? 'engine: no follow-up left for this main question; asked the next main question'
         : 'engine: no follow-up left and no main question remains; ended',
     };
+  } else if (usesSplit(version)) {
+    const models = split.resolveSplitModels({ checkerModelId, writerModelId });
+    splitRecord = { models, calls: [] };
+    const addUsage = (u) => {
+      usage = { inputTokens: usage.inputTokens + u.inputTokens, outputTokens: usage.outputTokens + u.outputTokens, latencyMs: usage.latencyMs + u.latencyMs };
+    };
+    const lastAnswer = [...turns].reverse().find((t) => t.role === 'student');
+    const mainQuestion = currentMainQuestion(config, state);
+    const checked = await split.checkAnswer({ converseFn, modelId: models.checker, mainQuestion, rubric, answer: lastAnswer ? lastAnswer.text : '' });
+    splitRecord.calls.push(...checked.calls);
+    addUsage(checked.usage);
+    if (checked.retried) repairs.push({ type: 'check_retry', fixed: !!checked.ok });
+    if (checked.unavailable) {
+      fallback = FALLBACKS.MODEL_UNAVAILABLE;
+    } else if (!checked.ok) {
+      fallback = FALLBACKS.INVALID_OUTPUT;
+      rejected = { code: 'check_invalid', reply: `${checked.error}: ${checked.reply}` };
+    } else {
+      splitRecord.evidence = checked.evidence;
+      if (checked.missing.length === 0) {
+        // Nothing missing: move on, no second call.
+        decision = {
+          action: nextMain ? ACTIONS.NEXT_MAIN : ACTIONS.END,
+          question: '',
+          reason: 'check: every rubric item is shown; no follow-up needed',
+          missing: [], target: null, isHint: false,
+        };
+      } else {
+        const written = await split.writeFollowUp({
+          converseFn, modelId: models.writer, code, turns, mainQuestion, rubric, missing: checked.missing, criteria: theme.criteria,
+        });
+        splitRecord.calls.push(...written.calls);
+        addUsage(written.usage);
+        repairs.push(...written.repairs);
+        if (written.guard) guard = written.guard;
+        if (written.unavailable) {
+          fallback = FALLBACKS.MODEL_UNAVAILABLE;
+        } else if (!written.ok) {
+          fallback = FALLBACKS.INVALID_OUTPUT;
+          rejected = { code: written.error, reply: written.reply };
+        } else {
+          decision = {
+            action: ACTIONS.FOLLOW_UP,
+            question: written.question,
+            reason: `check: ${checked.missing.join(', ')} not shown; asked about ${checked.missing[0]}`,
+            missing: checked.missing, target: checked.missing[0], isHint: written.isHint,
+          };
+        }
+      }
+    }
   } else {
     try {
       const system = loadPrompt(version);
@@ -496,6 +534,11 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
     ...(engineDecision && { engineDecision: true }),
     ...(guard && { guard }),
     ...(repairs.length && { repairs }),
+    ...(splitRecord && {
+      models: splitRecord.models,
+      calls: splitRecord.calls,
+      ...(splitRecord.evidence && { evidence: splitRecord.evidence }),
+    }),
     ...(rejected && rubric && { rejected: { code: rejected.code, reply: String(rejected.reply || '').slice(0, 2000) } }),
     ...(decision && Array.isArray(decision.missing) && {
       missing: decision.missing,
@@ -545,6 +588,9 @@ function recordFields(decision) {
   if (decision.engineDecision) out.engineDecision = true;
   if (decision.guard) out.guard = decision.guard;
   if (decision.repairs) out.repairs = decision.repairs;
+  if (decision.models) out.models = decision.models;
+  if (decision.calls) out.calls = decision.calls;
+  if (decision.evidence) out.evidence = decision.evidence;
   if (decision.rejected) out.rejected = decision.rejected;
   if (Array.isArray(decision.missing)) {
     out.missing = decision.missing;
@@ -567,11 +613,14 @@ module.exports = {
   FALLBACK_REASONS,
   MAX_FOLLOW_UP_LENGTH,
   REWRITE_REQUEST,
+  leaksCriterion,
   JSON_RETRY_REQUEST,
   LEAK_REWRITE_REQUEST,
   YES_NO_REWRITE_REQUEST,
   resolvePromptVersion,
   usesRubric,
+  usesSplit,
+  SPLIT_PROMPTS,
   repairsReplies,
   rubricFor,
   followUpBudget,

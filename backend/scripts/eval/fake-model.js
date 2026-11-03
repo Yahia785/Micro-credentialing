@@ -69,6 +69,72 @@ function reply(action, question, reason, hash, extra) {
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// host.v5: the checker (check.v1) and the writer (write.v1) are separate calls with their own system prompts
+// ---------------------------------------------------------------------------------------------
+
+const isCheckCall = (request) => /^You check one student's answer/.test(request.system || '');
+const isWriteCall = (request) => /^You write ONE follow-up/.test(request.system || '');
+const tokenReply = (obj, hash) => ({ text: JSON.stringify(obj), inputTokens: 600 + (hash % 300), outputTokens: 60 + (hash % 40), latencyMs: 150 + (hash % 200) });
+
+function readCheckMessage(text) {
+  const lines = String(text).split('\n');
+  const rubric = [];
+  for (const line of lines) {
+    const m = /^- (r\d+): (.*)$/.exec(line);
+    if (m) rubric.push({ id: m[1], text: m[2] });
+  }
+  const m = /<student_answer>\n([\s\S]*?)\n<\/student_answer>/.exec(text);
+  return { rubric, answer: m ? m[1] : '' };
+}
+
+function fakeCheck(request, { seed, chaos, attempts }) {
+  const text = request.messages[0].content[0].text;
+  const retry = request.messages.length > 1;
+  const hash = hashOf(text, seed);
+  const attempt = attempts.get(hash) || 0;
+  attempts.set(hash, attempt + 1);
+  const { rubric, answer } = readCheckMessage(text);
+  const words = new Set(tokens(answer));
+  const firstWords = (/^\s*(?:\S+\s+){0,3}\S+/.exec(answer) || [''])[0].trim();
+  const evidence = {};
+  const missing = [];
+  rubric.forEach((item) => {
+    const shown = tokens(item.text).filter((w) => words.has(w)).length >= SHOWN_WORDS && firstWords.length > 0;
+    evidence[item.id] = { quote: shown ? firstWords : '', shown };
+    if (!shown) missing.push(item.id);
+  });
+  const normal = tokenReply({ evidence, missing }, hash);
+  if (retry || (hash % 1000) / 1000 >= chaos) return normal;
+  switch ((hash >>> 12) % 5) {
+    case 0:
+      if (attempt === 0) throw new ModelUnavailableError('ThrottlingException');
+      return normal;
+    case 1: return { ...normal, text: 'The answer looks fine to me.' }; // not JSON: the retry gets the real reply
+    case 2: // a quote that is not in the answer: the retry gets the real reply
+      return tokenReply({ evidence: Object.fromEntries(rubric.map((i) => [i.id, { quote: 'words the student never wrote', shown: true }])), missing: [] }, hash);
+    case 3: throw new ModelUnavailableError('InternalServerException');
+    default: return normal;
+  }
+}
+
+function fakeWrite(request, { seed, chaos }) {
+  const text = request.messages[0].content[0].text;
+  const rewrite = request.messages.length > 1;
+  const hash = hashOf(rewrite ? `${text}|rewrite` : text, seed);
+  const target = (/\nTarget: (r\d+)/.exec(text) || [])[1] || 'r1';
+  const rubric = readRubric(`Rubric for this main question${text.slice(text.indexOf('Rubric (private):') + 'Rubric (private):'.length)}`);
+  const item = rubric.find((r) => r.id === target) || { text: 'this part' };
+  const answers = [...text.matchAll(/<student_answer>\n([\s\S]*?)\n<\/student_answer>/g)];
+  const last = answers.length ? answers[answers.length - 1][1] : '';
+  const single = `Walk me through ${tokens(item.text).slice(0, 3).join(' ')} once more?`;
+  let question = single;
+  if (!rewrite && (hash >>> 4) % 5 === 0) question = `${single} How does that work?`;
+  else if (!rewrite && (hash >>> 6) % 7 === 0) question = `Does ${tokens(item.text).slice(0, 3).join(' ')} matter here?`;
+  if ((hash % 1000) / 1000 < chaos / 2 && !rewrite && (hash >>> 12) % 2 === 0) return { ...tokenReply({}, hash), text: 'Here is a good question for the student.' };
+  return tokenReply({ target, isHint: /don't know|not sure|no idea/i.test(last), question }, hash);
+}
+
 /**
  * @param {{ seed?: number|string, chaos?: number }} options chaos is the share of calls (0 to 1)
  *   that misbehave. Default 0.26.
@@ -78,6 +144,8 @@ function createFakeModel({ seed = 1, chaos = 0.26 } = {}) {
   const attempts = new Map();
 
   return async function fakeConverse(request) {
+    if (isCheckCall(request)) return fakeCheck(request, { seed, chaos, attempts });
+    if (isWriteCall(request)) return fakeWrite(request, { seed, chaos });
     const text = request.messages[0].content[0].text;
     const rewrite = request.messages.length > 1; // the two-question guard asking for one question
     const hash = hashOf(rewrite ? `${text}|rewrite` : text, seed);

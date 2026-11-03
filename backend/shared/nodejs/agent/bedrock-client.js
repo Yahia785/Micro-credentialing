@@ -33,6 +33,11 @@ function resolveModelId(modelId = process.env.AGENT_MODEL_ID || DEFAULT_MODEL_ID
   return modelId;
 }
 
+// Direct model ids of the open-weight families (Qwen, DeepSeek, Mistral, Llama, gpt-oss, GLM, Kimi, MiniMax, Nemotron, Gemma). They are
+// called in us-east-1 only, with no inference profile. The split agent's default checker and writer is DeepSeek v3.2 (deepseek.v3.2).
+const OPEN_WEIGHT_PREFIXES = ['qwen.', 'deepseek.', 'mistral.', 'meta.', 'openai.gpt-oss', 'zai.', 'moonshot', 'minimax.', 'nvidia.', 'google.gemma'];
+const isOpenWeightModel = (modelId) => OPEN_WEIGHT_PREFIXES.some((prefix) => String(modelId).startsWith(prefix));
+
 let sharedClient;
 function getClient() {
   if (!sharedClient) {
@@ -88,6 +93,7 @@ async function converse({
 module.exports = {
   converse,
   resolveModelId,
+  isOpenWeightModel,
   ModelUnavailableError,
   AGENT_REGION,
   DEFAULT_MODEL_ID,

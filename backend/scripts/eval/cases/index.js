@@ -49,6 +49,21 @@ const CASES = [
     testsFile: path.join(__dirname, 'tank-controller.tests.json'),
     studentsFile: path.join(students, 'case5.json'),
   },
+  // Cases 6 to 9: the same problem, statement, questions, rubric and gaps as case 4, each submission with ONE bug. The tests file of each
+  // holds what that buggy program prints (the lines the statement expects are in tank-controller.tests.json).
+  ...[
+    ['case6', 'Tank fill controller (bug: reading > s.high, 80 does not stop the pump)', 'tank-controller-gt.cpp'],
+    ['case7', 'Tank fill controller (bug: ALARM does not stick)', 'tank-controller-alarm.cpp'],
+    ['case8', 'Tank fill controller (bug: isValid rejects exactly max)', 'tank-controller-max.cpp'],
+    ['case9', 'Tank fill controller (bug: a pump start is counted on every FILLING reading)', 'tank-controller-count.cpp'],
+  ].map(([id, title, codeFile]) => ({
+    id,
+    title,
+    codeFile: path.join(__dirname, codeFile),
+    configFile: path.join(__dirname, 'tank-controller.json'),
+    testsFile: path.join(__dirname, `tank-controller.tests.${id}.json`),
+    studentsFile: path.join(students, `${id}.json`),
+  })),
 ];
 
 function caseIds() {

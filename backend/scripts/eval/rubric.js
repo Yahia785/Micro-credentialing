@@ -272,5 +272,5 @@ function compareWithHuman(blindText, keyText) {
 
 module.exports = {
   gapToRubric, scriptedMissing, formatIds, tally, summarizeRubric, attachRubric, buildRubricSample, toBlindCsv, toKeyCsv,
-  parseMissing, compareWithHuman, BLIND_HEADER, KEY_HEADER, NONE_TEXT,
+  parseMissing, compareWithHuman, BLIND_HEADER, KEY_HEADER, NONE_TEXT, seededRandom,
 };

@@ -28,7 +28,7 @@ const readDir = (dir) => fs.readdirSync(dir).map((f) => JSON.parse(fs.readFileSy
 const opts = (over = {}) => normalizeOptions(base({ runId: 'test', ...over }));
 
 describe('fixed follow-ups', () => {
-  it.each(['case1', 'case2', 'case3', 'case4', 'case5'])('%s has one good follow-up per main question that the engine accepts', (id) => {
+  it.each(['case1', 'case2', 'case3', 'case4', 'case5', 'case6', 'case7', 'case8', 'case9'])('%s has one good follow-up per main question that the engine accepts', (id) => {
     const c = loadCase(id);
     expect(c.fixedFollowUps).toHaveLength(c.mains.length);
     c.fixedFollowUps.forEach((question, i) => {
@@ -44,7 +44,7 @@ describe('fixed follow-ups', () => {
 
   it('are listed in answers.md', () => {
     const md = fs.readFileSync(path.join(__dirname, '../../../scripts/eval/answers.md'), 'utf8');
-    for (const id of ['case1', 'case2', 'case3', 'case4', 'case5']) {
+    for (const id of ['case1', 'case2', 'case3', 'case4', 'case5', 'case6', 'case7', 'case8', 'case9']) {
       loadCase(id).fixedFollowUps.forEach((question) => expect(md).toContain(`Fixed follow-up (baseline): ${question}`));
     }
   });
@@ -375,13 +375,13 @@ describe('a scripted interview in the runner records the gaps the answer leaves'
 
 describe('case 1 in a run', () => {
   it('is left out of the headline numbers, while the call and cost totals still cover it', async () => {
-    const { report } = await runEval(base({ cases: 'case1,case2', profiles: 'vague', judge: true, judgeSample: 0, noPairs: true }));
+    const { report } = await runEval(base({ cases: 'case1,case4', profiles: 'vague', judge: true, judgeSample: 0, noPairs: true }));
     const r = report.results['host.v3'];
     expect(r.overall.interviews).toBe(1);
     expect(r.byCase.case1.interviews).toBe(1);
     expect(r.allCases.interviews).toBe(2);
     expect(r.headlineExcludes).toEqual(['case1']);
-    expect(report.options.headlineExcludes).toEqual(['case1']);
+    expect(report.options.headlineExcludes).toEqual(['case1', 'case2', 'case3']);
     expect(report.plan.actualCalls).toBe(r.allCases.calls);
     expect(report.notes.join(' ')).toMatch(/case1.*leave it out/);
   });

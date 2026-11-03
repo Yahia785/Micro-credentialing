@@ -232,7 +232,7 @@ describe('planning and confirmation', () => {
 
   it('rejects unknown prompt versions, cases and profiles with the valid choices', async () => {
     await expect(runEval(base({ prompts: 'host.v9' }))).rejects.toThrow(/Unknown prompt version.*host\.v1/);
-    await expect(runEval(base({ cases: 'case9' }))).rejects.toThrow(/Unknown case.*case1/);
+    await expect(runEval(base({ cases: 'case99' }))).rejects.toThrow(/Unknown case.*case1/);
     await expect(runEval(base({ profiles: 'nobody' }))).rejects.toThrow(/Unknown profile.*strong/);
     await expect(runEval(base({ repeats: 0 }))).rejects.toThrow(/repeats/);
   });

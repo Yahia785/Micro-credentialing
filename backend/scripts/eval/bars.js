@@ -55,8 +55,8 @@ function barsFor(result, fixedResult) {
     { note: same === null ? 'needs 2 or more repeats' : '' });
 
   const middle = result.ownCode ? result.ownCode.all.targetsMiddle.rate : null;
-  add('case5_q1', 'Case 5 Q1 follow-ups targeting g1 or g2', `${BARS.case5Middle.min * 100}% or more`, middle, ok(middle, (v) => v >= BARS.case5Middle.min - 1e-9),
-    { note: middle === null ? 'needs case 5 and the judge' : '' });
+  add('own_code', 'Own-code questions (cases 5, 6, 7, 9): follow-ups targeting the gaps the bug contradicts', `${BARS.case5Middle.min * 100}% or more`, middle, ok(middle, (v) => v >= BARS.case5Middle.min - 1e-9),
+    { note: middle === null ? 'needs case 5, 6, 7 or 9 and the judge' : '' });
 
   add('judge_agreement', 'Judge agreement with human hand-check', HAND_CHECK, null, null, { manual: true });
 

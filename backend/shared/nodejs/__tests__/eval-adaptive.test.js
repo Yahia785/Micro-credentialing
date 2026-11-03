@@ -268,8 +268,8 @@ describe('case 1 exclusion in the adaptive numbers', () => {
   it('overall and byProfile leave case1 out; byCase and allCases keep it', () => {
     const transcripts = [
       interview(round, { caseId: 'case1' }), // a hit that would lift the headline if it counted
-      interview(miss, { caseId: 'case2' }),
-      interview(miss, { caseId: 'case3' }),
+      interview(miss, { caseId: 'case4' }),
+      interview(miss, { caseId: 'case5' }),
     ];
     const pairs = [pairSide({ side: 'a', gap: 'g1', target: 'g1', caseId: 'case1' }), pairSide({ side: 'b', gap: 'g2', target: 'g2', caseId: 'case1' })];
     const results = m.summarizeRun(transcripts);
@@ -285,11 +285,11 @@ describe('case 1 exclusion in the adaptive numbers', () => {
   });
 
   it('the markdown has case1 in its own section and says the headline leaves it out', () => {
-    const transcripts = [interview(round, { caseId: 'case1' }), interview(miss, { caseId: 'case2' })];
+    const transcripts = [interview(round, { caseId: 'case1' }), interview(miss, { caseId: 'case4' })];
     const results = m.summarizeRun(transcripts);
     a.attachAdaptive(results, transcripts, []);
     const md = report.toMarkdown({
-      runId: 'r', options: { prompts: ['host.v3'], cases: ['case1', 'case2'], profiles: ['vague'], repeats: 1, fakeModel: true, pairs: true },
+      runId: 'r', options: { prompts: ['host.v3'], cases: ['case1', 'case4'], profiles: ['vague'], repeats: 1, fakeModel: true, pairs: true },
       plan: { interviews: 2 }, pairInterviews: 0, judge: null, results, notes: [],
     });
     expect(md).toContain('## Comparison (overall, without case1)');
@@ -775,9 +775,9 @@ describe('case 5: answer vs own code', () => {
     make('case4', 'strong', round({ gaps: [], targets: ['none'] })),
   ];
 
-  it('counts, for Q1 of case 5, the follow-ups that target g1 or g2, for all profiles and for strong only', () => {
+  it('counts, for Q1 of case 5, the follow-ups that target g1 or g2, for all profiles and for strong only (the own-code questions of cases 5, 6, 7 and 9 are pooled)', () => {
     const o = a.ownCodeCheck(transcripts());
-    expect(o.caseId).toBe('case5');
+    expect(o.cases).toEqual(['case5']);
     expect(o.all).toMatchObject({ answered: 3, judged: 2 });
     expect(o.all.asked).toMatchObject({ num: 2, den: 3 });
     expect(o.all.targetsMiddle).toMatchObject({ num: 1, den: 2 });
@@ -800,13 +800,13 @@ describe('case 5: answer vs own code', () => {
     expect(o.strong.asked).toMatchObject({ num: 2, den: 3 });
   });
 
-  it('is attached to an arm only when case 5 was run, and shown in its own section of summary.md', () => {
+  it('is attached to an arm only when an own-code case (5, 6, 7 or 9) was run, and shown in its own section of summary.md', () => {
     const without = m.summarizeRun([make('case4', 'strong', round({ gaps: [], targets: ['none'] }))]);
     a.attachAdaptive(without, [make('case4', 'strong', round({ gaps: [], targets: ['none'] }))], []);
     expect(without['host.v3'].ownCode).toBeUndefined();
     expect(report.toMarkdown({
       runId: 'x', options: { prompts: ['host.v3'], cases: ['case4'], profiles: ['strong'], repeats: 1 }, plan: { interviews: 1 }, results: without,
-    })).not.toContain('case 5: answer vs own code');
+    })).not.toContain('## Own-code questions: answer vs own code');
 
     const t = transcripts();
     const results = m.summarizeRun(t);
@@ -815,18 +815,30 @@ describe('case 5: answer vs own code', () => {
     const md = report.toMarkdown({
       runId: 'x', options: { prompts: ['host.v3'], cases: ['case4', 'case5'], profiles: ['strong'], repeats: 1 }, plan: { interviews: 5 }, results,
     });
-    expect(md).toContain('## case 5: answer vs own code');
+    expect(md).toContain('## Own-code questions: answer vs own code');
     expect(md).toContain('| host.v3 | 3 | 67% (2/3) | 50% (1/2) | 100% (1/1) | 100% (1/1) | 100% (2/2) | 50% (1/2) |');
   });
 
-  it('headline numbers cover cases 2 to 5 (only case 1 is left out)', () => {
-    const t = [
-      interview([{ label: 'vague', gap: 'g1', action: 'follow_up', target: 'g1' }], { caseId: 'case1' }),
-      ...['case2', 'case3', 'case4', 'case5'].map((caseId) => interview([{ label: 'vague', gap: 'g1', action: 'follow_up', target: 'g1' }], { caseId })),
-    ];
+  it('headline numbers cover cases 4 to 9; cases 1, 2 and 3 are left out (2 and 3 stay a side check)', () => {
+    const ids = ['case1', 'case2', 'case3', 'case4', 'case5', 'case6', 'case7', 'case8', 'case9'];
+    const t = ids.map((caseId) => interview([{ label: 'vague', gap: 'g1', action: 'follow_up', target: 'g1' }], { caseId }));
     const results = m.summarizeRun(t);
-    expect(results['host.v3'].overall.interviews).toBe(4);
-    expect(results['host.v3'].allCases.interviews).toBe(5);
-    expect(Object.keys(results['host.v3'].byCase)).toEqual(['case1', 'case2', 'case3', 'case4', 'case5']);
+    expect(results['host.v3'].overall.interviews).toBe(6);
+    expect(results['host.v3'].allCases.interviews).toBe(9);
+    expect(results['host.v3'].headlineExcludes).toEqual(['case1', 'case2', 'case3']);
+    expect(Object.keys(results['host.v3'].byCase)).toEqual(ids);
   });
+
+  it('pools the own-code questions of cases 5, 6, 7 and 9 (each with its own question and gaps); case 8 has none', () => {
+    const q = (caseId, ordinal, gaps, targets) => {
+      const rounds = Array.from({ length: ordinal }, () => ({ label: 'good', gapCount: 3, action: 'next_main' }));
+      return interview([...rounds, round({ gaps, targets })].flat(), { caseId, profile: 'strong' });
+    };
+    const t = [q('case6', 3, ['g2'], ['g2']), q('case7', 2, ['g3'], ['g1']), q('case9', 0, ['g3'], ['g3']), q('case8', 0, ['g1'], ['g1'])];
+    const o = a.ownCodeCheck(t);
+    expect(o.cases).toEqual(['case6', 'case7', 'case9']);
+    expect(o.all.answered).toBe(3);
+    expect(o.all.targetsMiddle).toMatchObject({ num: 2, den: 3 }); // case 6 g2 is contradicted, case 7 g1 is not, case 9 g3 is
+  });
+
 });

@@ -70,6 +70,8 @@ describe.each(cases)('$id', (c) => {
   });
 });
 
+const TANK_CASES = ['case4', 'case5', 'case6', 'case7', 'case8', 'case9'];
+
 describe('the new cases', () => {
   it.each(['case2', 'case3'])('%s is a 30-60 line program', (id) => {
     const lines = loadCase(id).code.trimEnd().split('\n').length;
@@ -192,7 +194,7 @@ describe.each(cases)('$id gaps, pairs and gaming answers', (c) => {
 
   it('short, idk, wrong and gaming answers leave every gap ("all"); a vague answer leaves some but not all', () => {
     // cases 4 and 5 are written differently: wrong and short answers state some correct facts (see the next test)
-    const leaveAll = ['case4', 'case5'].includes(c.id) ? ['idk'] : ['short', 'idk', 'wrong'];
+    const leaveAll = TANK_CASES.includes(c.id) ? ['idk'] : ['short', 'idk', 'wrong'];
     for (const name of leaveAll) {
       c.studentsRaw.profiles[name].forEach((entry) => expect([entry.main.gaps, entry.followUp.gaps]).toEqual(['all', 'all']));
     }
@@ -208,8 +210,8 @@ describe.each(cases)('$id gaps, pairs and gaming answers', (c) => {
     }
   });
 
-  it('cases 4 and 5: wrong, short and vague answers leave one or two of the three gaps, never all, and no gap is always the missing one', () => {
-    if (!['case4', 'case5'].includes(c.id)) return;
+  it('cases 4 to 9: wrong, short and vague answers leave one or two of the three gaps, never all, and no gap is always the missing one', () => {
+    if (!TANK_CASES.includes(c.id)) return;
     const seen = {};
     for (const name of ['vague', 'wrong', 'short']) {
       c.studentsRaw.profiles[name].forEach((entry, i) => {
@@ -331,9 +333,10 @@ describe('validateStudents: gaps, pairs and gaming', () => {
   });
 });
 
-describe('cases 4 and 5: tank fill controller', () => {
+describe('cases 4 to 9: tank fill controller', () => {
   const c4 = loadCase('case4');
   const c5 = loadCase('case5');
+  const SAME = ['case4', 'case5', 'case6', 'case7', 'case8', 'case9'].map((id) => [id, loadCase(id)]);
 
   const QUESTIONS = [
     'With settings 20, 80, 100, walk me through what your controller does for the readings 50, 18, 40, 85, 70, 15, and how many times the pump starts.',
@@ -350,7 +353,7 @@ describe('cases 4 and 5: tank fill controller', () => {
     'The student explains the benefit of a pure function for a state machine.',
   ];
 
-  it.each([['case4', c4], ['case5', c5]])('%s asks the 5 instructor questions word for word, one theme and one criterion each, 10 minutes, 1 follow-up', (id, c) => {
+  it.each(SAME)('%s asks the 5 instructor questions word for word, one theme and one criterion each, 10 minutes, 1 follow-up', (id, c) => {
     expect(c.mains.map((m) => m.question)).toEqual(QUESTIONS);
     expect(c.config.themes).toHaveLength(5);
     c.config.themes.forEach((theme, i) => {
@@ -361,7 +364,7 @@ describe('cases 4 and 5: tank fill controller', () => {
     expect(c.config.maxFollowUpsPerMainQuestion).toBe(1);
   });
 
-  it.each([['case4', c4], ['case5', c5]])('%s has exactly 3 gaps per question (g1 to g3), each tied to the single criterion, as the instructor wrote them', (id, c) => {
+  it.each(SAME)('%s has exactly 3 gaps per question (g1 to g3), each tied to the single criterion, as the instructor wrote them', (id, c) => {
     const gaps = c.studentsRaw.gaps;
     gaps.forEach((list) => {
       expect(list.map((g) => g.id)).toEqual(['g1', 'g2', 'g3']);

@@ -245,41 +245,52 @@ function discrimination(pairTranscripts) {
 }
 
 /**
- * Case 5 (the student's step returns IDLE between the levels, so their own output disagrees with the
- * problem statement): for Q1, how often the follow-up the Host asks after the main answer targets g1 or g2,
- * the gaps about the middle readings 40 and 70. Reported for every profile and for the strong profile alone
- * (a correct trace of the student's own code is where the answer and the code disagree), with case 4's
- * strong Q1 (same question, correct code, a strong answer leaves no gaps) as the comparison.
+ * Own-code questions: in some tank-controller cases the student's program differs from the problem statement (case 5: `step`
+ * returns IDLE between the levels; case 6: `>` instead of `>=`; case 7: ALARM does not stick; case 9: a start is counted on
+ * every FILLING reading), so on ONE main question the scripted students answer about their own code and their answers
+ * leave open the gaps (from the statement) that the bug contradicts. Case 8 changes no answer. Per case: the main question
+ * (0-based) and the gaps that the bug contradicts. For each, how often the follow-up the Host asks after the main answer
+ * targets one of those gaps, for every profile and for the strong profile alone, with case 4's strong answer to the same
+ * question (correct code, no gap left) as the comparison. The cases are pooled.
  */
-const OWN_CODE_CASE = 'case5';
+const OWN_CODE_QUESTIONS = Object.freeze({
+  case5: { ordinal: 0, gaps: ['g1', 'g2'] },
+  case6: { ordinal: 3, gaps: ['g2', 'g3'] },
+  case7: { ordinal: 2, gaps: ['g3'] },
+  case9: { ordinal: 0, gaps: ['g3'] },
+});
 const OWN_CODE_COMPARISON = 'case4';
-const MIDDLE_GAPS = ['g1', 'g2'];
 
 function ownCodeCheck(transcripts) {
-  const tally = (caseId, profile) => {
+  const tally = (cases, profile, asComparison) => {
     let answered = 0;
     let asked = 0;
     let judged = 0;
     let targets = 0;
-    for (const transcript of transcripts) {
-      if (transcript.caseId !== caseId || transcript.pair || (profile && transcript.profile !== profile)) continue;
-      for (const step of stepsOf(transcript)) {
-        if (!step.answeredMain || step.mainOrdinal !== 0 || step.fallback) continue;
-        answered += 1;
-        if (!asksFollowUp(step)) continue;
-        asked += 1;
-        if (!hasJudgement(step)) continue;
-        judged += 1;
-        if (targetedGaps(step).some((id) => MIDDLE_GAPS.includes(id))) targets += 1;
+    for (const [id, q] of Object.entries(OWN_CODE_QUESTIONS)) {
+      const caseId = asComparison ? OWN_CODE_COMPARISON : id;
+      if (!cases.includes(id)) continue;
+      for (const transcript of transcripts) {
+        if (transcript.caseId !== caseId || transcript.pair || (profile && transcript.profile !== profile)) continue;
+        for (const step of stepsOf(transcript)) {
+          if (!step.answeredMain || step.mainOrdinal !== q.ordinal || step.fallback) continue;
+          answered += 1;
+          if (!asksFollowUp(step)) continue;
+          asked += 1;
+          if (!hasJudgement(step)) continue;
+          judged += 1;
+          if (targetedGaps(step).some((gap) => q.gaps.includes(gap))) targets += 1;
+        }
       }
     }
     return { answered, asked: ratio(asked, answered), judged, targetsMiddle: ratio(targets, judged) };
   };
+  const present = Object.keys(OWN_CODE_QUESTIONS).filter((id) => transcripts.some((t) => t.caseId === id));
   return {
-    caseId: OWN_CODE_CASE,
-    all: tally(OWN_CODE_CASE),
-    strong: tally(OWN_CODE_CASE, 'strong'),
-    comparison: { caseId: OWN_CODE_COMPARISON, strong: tally(OWN_CODE_COMPARISON, 'strong') },
+    cases: present,
+    all: tally(present),
+    strong: tally(present, 'strong'),
+    comparison: { caseId: OWN_CODE_COMPARISON, strong: tally(present, 'strong', true) },
   };
 }
 
@@ -309,7 +320,7 @@ function attachAdaptive(results, transcripts, pairTranscripts = []) {
     const headlinePairs = onlyExcluded ? minePairs : headlineOf(minePairs);
     results[arm].overall.adaptive = summarizeAdaptive(headline, headlinePairs);
     results[arm].allCases.adaptive = summarizeAdaptive(mine, minePairs);
-    if (mine.some((t) => t.caseId === OWN_CODE_CASE)) results[arm].ownCode = ownCodeCheck(mine);
+    if (mine.some((t) => OWN_CODE_QUESTIONS[t.caseId])) results[arm].ownCode = ownCodeCheck(mine);
     for (const caseId of Object.keys(results[arm].byCase)) {
       results[arm].byCase[caseId].adaptive = summarizeAdaptive(
         mine.filter((t) => t.caseId === caseId),

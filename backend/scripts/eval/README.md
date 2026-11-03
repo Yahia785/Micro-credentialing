@@ -229,6 +229,13 @@ Expect action agreement below 100% for a real model: the Host runs at temperatur
 consistency numbers. In a repeat the earlier follow-ups may differ, so the history before a question is not always
 identical; the pair interviews are the controlled version of the comparison.
 
+## host.v5 (the split agent), cases 6 to 9, and the headline
+
+- **host.v5** makes two calls per decision instead of one: step A (`check.v1`, DeepSeek v3.2 by default) checks the latest answer against the rubric and replies evidence first (a quote and a shown flag per item, then `missing`); a shown item needs a non-empty quote that appears in the answer, and `missing` must match the evidence (one retry, then the engine falls back). Nothing missing: move on, no second call. Otherwise step B (`write.v1`, the same model by default) writes ONE follow-up aimed at the first missing item, with the host.v4.1 guards (JSON retry, rubric-wording rewrite, yes/no rewrite, two-question rewrite). Model ids: `--checker-model` and `--writer-model` (direct ids only), else `AGENT_CHECKER_MODEL_ID` / `AGENT_WRITER_MODEL_ID`, else `deepseek.v3.2`. Each Host turn stores `evidence`, `missing`, `target`, `models` and `calls` (model id, tokens, latency of every call). Temperature 0 by default. Prices of the split arm: `--split-price-in/--split-price-out` (default $0.62/$1.85 per million tokens).
+- summary.md for a host.v5 arm adds "Checker of host.v5 (step A) against the scripted gaps" (exact match with the scripted gaps_left, no judge) and, at the very end, "Follow-ups to read": 30 random follow-ups per arm (fixed seed) with the student answer before each.
+- **Cases 6 to 9** are the tank controller with one bug each, sharing case 4's statement, questions, rubric and gaps: case 6 `reading > s.high`, case 7 ALARM does not stick, case 8 `isValid` uses `< s.max`, case 9 a pump start is counted on every FILLING reading. `node scripts/eval/build-tank-cases.js` writes the programs and `cases/tank-controller.tests.case6..9.json` (what each buggy program prints for the seven tests; no compiler was run, the outputs come from a transcription in JavaScript; `--check` fails if a file differs). Students answer about their own code (`ownCode`) on case 6 Q4, case 7 Q3 and case 9 Q1 (and case 5 Q1); case 8 changes no answer.
+- **Headline numbers: cases 4 to 9.** Cases 2 and 3 are a separate side check (their own sections), case 1 stays out. The "own-code questions" table and bar pool case 5 Q1, case 6 Q4, case 7 Q3 and case 9 Q1.
+
 ## host.v4 and the rubric check
 
 `host.v4` is the first prompt that works from the instructor's **rubric**: for each main question, a list of items r1, r2, r3 that a

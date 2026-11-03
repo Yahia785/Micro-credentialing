@@ -290,14 +290,14 @@ describe('summarizeRun', () => {
   it('groups by prompt version, then overall (headline, without case1), by case and by profile', () => {
     const results = m.summarizeRun([
       make('host.v2', 'case1', 'strong', 'good', 'follow_up'),
-      make('host.v2', 'case2', 'vague', 'vague', 'next_main'),
+      make('host.v2', 'case4', 'vague', 'vague', 'next_main'),
       make('host.v3', 'case1', 'strong', 'good', 'next_main'),
-      make('host.v3', 'case2', 'vague', 'vague', 'follow_up'),
+      make('host.v3', 'case4', 'vague', 'vague', 'follow_up'),
     ]);
     expect(Object.keys(results)).toEqual(['host.v2', 'host.v3']);
-    expect(results['host.v2'].overall.interviews).toBe(1); // case1 is not in the headline
+    expect(results['host.v2'].overall.interviews).toBe(1); // case1 is not in the headline (nor are cases 2 and 3)
     expect(results['host.v2'].allCases.interviews).toBe(2);
-    expect(Object.keys(results['host.v2'].byCase)).toEqual(['case1', 'case2']);
+    expect(Object.keys(results['host.v2'].byCase)).toEqual(['case1', 'case4']);
     expect(Object.keys(results['host.v2'].byProfile)).toEqual(['vague']);
 
     expect(results['host.v2'].byCase.case1.unnecessaryFollowUp.rate).toBe(1); // case1 is still reported on its own
@@ -310,8 +310,8 @@ describe('summarizeRun', () => {
   describe('case 1 exclusion', () => {
     const runs = [
       make('host.v3', 'case1', 'vague', 'vague', 'next_main'),
-      make('host.v3', 'case2', 'vague', 'vague', 'follow_up'),
-      make('host.v3', 'case3', 'vague', 'vague', 'follow_up'),
+      make('host.v3', 'case4', 'vague', 'vague', 'follow_up'),
+      make('host.v3', 'case5', 'vague', 'vague', 'follow_up'),
     ];
 
     it('leaves case1 out of overall and byProfile, keeps it in byCase and allCases, and says what was left out', () => {
@@ -325,7 +325,16 @@ describe('summarizeRun', () => {
     });
 
     it('headlineOf filters the transcripts the same way', () => {
-      expect(m.headlineOf(runs).map((t) => t.caseId)).toEqual(['case2', 'case3']);
+      expect(m.headlineOf(runs).map((t) => t.caseId)).toEqual(['case4', 'case5']);
+    });
+
+    it('cases 2 and 3 are a side check: left out of the headline, still reported on their own', () => {
+      const side = [make('host.v3', 'case2', 'vague', 'vague', 'follow_up'), make('host.v3', 'case3', 'vague', 'vague', 'next_main'), make('host.v3', 'case6', 'vague', 'vague', 'follow_up')];
+      const r = m.summarizeRun(side)['host.v3'];
+      expect(r.overall.interviews).toBe(1);
+      expect(r.headlineExcludes).toEqual(['case2', 'case3']);
+      expect(Object.keys(r.byCase)).toEqual(['case2', 'case3', 'case6']);
+      expect(r.allCases.interviews).toBe(3);
     });
 
     it('a run of case1 alone has nothing to leave out: overall is case1', () => {

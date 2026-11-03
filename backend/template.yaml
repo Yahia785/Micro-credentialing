@@ -61,6 +61,17 @@ Parameters:
       Bedrock model ID used by the interview Host agent (Qwen3 Coder 30B A3B Instruct).
       Called directly in us-east-1 only.
 
+  # Split Host agent (host.v5): step A checks the answer against the rubric, step B writes the follow-up. Used only when the
+  # interview prompt version is host.v5. Direct open-weight model IDs, called in us-east-1 only.
+  AgentCheckerModelId:
+    Type: String
+    Default: "deepseek.v3.2"
+    Description: Bedrock model ID for step A (the rubric check) of host.v5 (DeepSeek v3.2). Called directly in us-east-1 only.
+  AgentWriterModelId:
+    Type: String
+    Default: "deepseek.v3.2"
+    Description: Bedrock model ID for step B (the follow-up question) of host.v5 (DeepSeek v3.2). Called directly in us-east-1 only.
+
   InterviewRetentionDays:
     Type: Number
     Default: 0
@@ -112,6 +123,8 @@ Globals:
         SUBMISSIONS_TABLE: Submissions
         INTERVIEWS_TABLE: !Sub "Interviews-${Environment}"
         AGENT_MODEL_ID: !Ref AgentModelId
+        AGENT_CHECKER_MODEL_ID: !Ref AgentCheckerModelId
+        AGENT_WRITER_MODEL_ID: !Ref AgentWriterModelId
         INTERVIEW_RETENTION_DAYS: !Ref InterviewRetentionDays
         COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
         JUDGE0_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${Judge0ApiKeySecretName}"
@@ -1526,13 +1539,15 @@ Resources:
             TableName: !Ref InterviewsTable
         - DynamoDBReadPolicy:
             TableName: Submissions
-        # Converse needs bedrock:InvokeModel on this one model, in us-east-1 only.
+        # Converse needs bedrock:InvokeModel on these models, in us-east-1 only (the Host model, and the checker and writer of host.v5).
         - Statement:
             - Effect: Allow
               Action:
                 - bedrock:InvokeModel
               Resource:
                 - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${AgentModelId}"
+                - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${AgentCheckerModelId}"
+                - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${AgentWriterModelId}"
 
   # ------------------------------------------
   # LAMBDA: Get Interview

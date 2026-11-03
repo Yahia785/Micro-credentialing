@@ -688,7 +688,7 @@ describe('the good-enough bar', () => {
     const r = row({});
     expect(r.checks.map((c) => [c.id, c.pass])).toEqual([
       ['reveals', true], ['two_part', true], ['beyond_scope', true], ['targeting', true], ['skips_strong', true], ['same_action', true],
-      ['case5_q1', true], ['judge_agreement', null],
+      ['own_code', true], ['judge_agreement', null],
     ]);
     expect(r.checks.find((c) => c.id === 'judge_agreement')).toMatchObject({ manual: true, rule: 'fill in by hand' });
     expect(r.overall).toBe('PASS');
@@ -703,7 +703,7 @@ describe('the good-enough bar', () => {
     ['targeting', { hit: 0.7, chance: 0.6 }], // only 10 above chance
     ['skips_strong', { unnecessary: 0.16 }],
     ['same_action', { same: 0.89 }],
-    ['case5_q1', { middle: 0.59 }],
+    ['own_code', { middle: 0.59 }],
   ])('fails %s', (id, over) => {
     const r = row(over);
     expect(passOf(r, id)).toBe(false);
@@ -720,7 +720,7 @@ describe('the good-enough bar', () => {
   it('a bar that cannot be measured is n/a, not a fail, and the arm is incomplete', () => {
     const r = row({ same: null, middle: undefined });
     expect(passOf(r, 'same_action')).toBeNull();
-    expect(passOf(r, 'case5_q1')).toBeNull();
+    expect(passOf(r, 'own_code')).toBeNull();
     expect(r.overall).toBe('incomplete');
     const noFixed = evaluateBars({ 'host.v4': summary() })[0];
     expect(passOf(noFixed, 'targeting')).toBeNull();
@@ -730,7 +730,7 @@ describe('the good-enough bar', () => {
   it('is in summary.md as a table with one row per arm, PASS or FAIL in each cell', async () => {
     const { outDir } = await runEval(base({ prompts: 'host.v4@0,host.v3@0.2', baseline: 'fixed', judge: true, repeats: 2, cases: 'case2,case3,case4,case5', profiles: 'strong,vague,wrong,idk' }));
     const md = fs.readFileSync(path.join(outDir, 'summary.md'), 'utf8');
-    const section = md.slice(md.indexOf('## Good-enough bar (cases 2 to 5)'), md.indexOf('## Two-question guard'));
+    const section = md.slice(md.indexOf('## Good-enough bar (headline cases)'), md.indexOf('## Two-question guard'));
     const rows = section.split('\n').filter((l) => /^\| host\./.test(l));
     expect(rows).toHaveLength(2);
     rows.forEach((l) => {
@@ -739,7 +739,7 @@ describe('the good-enough bar', () => {
       expect(l).toMatch(/(PASS|FAIL|incomplete) \|$/);
     });
     expect(section).toContain('Reveals the answer: 2% or fewer');
-    expect(section).toContain('Case 5 Q1 follow-ups targeting g1 or g2: 60% or more');
+    expect(section).toContain('Own-code questions (cases 5, 6, 7, 9): follow-ups targeting the gaps the bug contradicts: 60% or more');
     expect(md).toContain('## Hint rate per profile (host.v4)');
   });
 });

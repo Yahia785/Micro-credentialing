@@ -17,6 +17,7 @@ const readline = require('readline');
 const crypto = require('crypto');
 
 const engine = require('../../shared/nodejs/agent/interview-engine');
+const splitAgent = require('../../shared/nodejs/agent/split-agent');
 const bedrock = require('../../shared/nodejs/agent/bedrock-client');
 const stores = require('./fake-stores');
 const { createFakeModel } = require('./fake-model');
@@ -30,7 +31,10 @@ const { RUN_PROFILES, GAMING_PROFILES, HEADLINE_EXCLUDED_CASES, validateStudents
 const metrics = require('./metrics');
 const adaptive = require('./adaptive');
 const { writeReports, toJudgeSampleCsv, terminalSummary } = require('./report');
+const { sampleFollowUps } = require('./followups');
 
+// USD per million tokens for the split agent's default model (DeepSeek v3.2, AWS Price List API, us-east-1, 2026-11-03); verify.
+const SPLIT_PRICES = Object.freeze({ inputPerMillion: 0.62, outputPerMillion: 1.85 });
 const T0 = Date.parse('2026-01-01T09:00:00.000Z'); // simulated start of every interview
 const MAX_ANSWERS = 60; // safety stop, far above any real interview
 
@@ -135,7 +139,13 @@ function useEnv(promptVersion, opts) {
   const saved = { prompt: process.env.AGENT_PROMPT_VERSION, model: process.env.AGENT_MODEL_ID };
   process.env.AGENT_PROMPT_VERSION = promptVersion === FIXED_ARM ? engine.PROMPT_VERSION : promptVersion;
   if (!opts.fakeModel) process.env.AGENT_MODEL_ID = opts.modelId;
+  const savedSplit = { checker: process.env.AGENT_CHECKER_MODEL_ID, writer: process.env.AGENT_WRITER_MODEL_ID };
+  process.env.AGENT_CHECKER_MODEL_ID = opts.checkerModelId;
+  process.env.AGENT_WRITER_MODEL_ID = opts.writerModelId;
+  const putBack = (name, value) => { if (value === undefined) delete process.env[name]; else process.env[name] = value; };
   return () => {
+    putBack('AGENT_CHECKER_MODEL_ID', savedSplit.checker);
+    putBack('AGENT_WRITER_MODEL_ID', savedSplit.writer);
     if (saved.prompt === undefined) delete process.env.AGENT_PROMPT_VERSION;
     else process.env.AGENT_PROMPT_VERSION = saved.prompt;
     if (saved.model === undefined) delete process.env.AGENT_MODEL_ID;
@@ -145,6 +155,7 @@ function useEnv(promptVersion, opts) {
 
 const modelIdOf = (promptVersion, opts) => {
   if (promptVersion === FIXED_ARM) return 'fixed-baseline';
+  if (engine.usesSplit(promptVersion)) return `check: ${opts.checkerModelId}, write: ${opts.writerModelId}`;
   return opts.fakeModel ? 'fake-model' : opts.modelId;
 };
 
@@ -426,6 +437,9 @@ function normalizeOptions(raw) {
     throw new Error('The judge must be a different model from the Host. Pass another one with --judge-model.');
   }
   const armSpecs = parseArms(raw.prompts === undefined ? engine.PROMPT_VERSION : raw.prompts, raw.temperatures);
+  // host.v5 (the split agent) calls two models: the checker and the writer. Direct model ids only.
+  const checkerModelId = fakeModel ? 'fake-checker' : bedrock.resolveModelId(raw.checkerModel || process.env.AGENT_CHECKER_MODEL_ID || splitAgent.DEFAULT_SPLIT_MODEL);
+  const writerModelId = fakeModel ? 'fake-writer' : bedrock.resolveModelId(raw.writerModel || process.env.AGENT_WRITER_MODEL_ID || splitAgent.DEFAULT_SPLIT_MODEL);
   const prompts = armSpecs.map((spec) => spec.arm);
 
   return {
@@ -453,6 +467,12 @@ function normalizeOptions(raw) {
     seed: raw.seed === undefined ? 1 : raw.seed,
     yes: !!raw.yes,
     modelId,
+    checkerModelId,
+    writerModelId,
+    splitPrices: {
+      inputPerMillion: Number(raw.splitPriceIn === undefined ? SPLIT_PRICES.inputPerMillion : raw.splitPriceIn),
+      outputPerMillion: Number(raw.splitPriceOut === undefined ? SPLIT_PRICES.outputPerMillion : raw.splitPriceOut),
+    },
     answerSeconds: Number(raw.answerSeconds === undefined ? 30 : raw.answerSeconds),
     delayMs: Number(raw.delayMs === undefined ? (fakeModel ? 0 : 500) : raw.delayMs),
     retryDelayMs: Number(raw.retryDelayMs === undefined ? (fakeModel ? 0 : 3000) : raw.retryDelayMs),
@@ -481,7 +501,10 @@ function planOf(opts, loaded) {
     const budget = engine.followUpBudget(c.config);
     return { min: budget > 0 ? c.mains.length : 0, max: c.mains.length * budget };
   };
-  const total = (pick) => opts.prompts.length * opts.profiles.length * opts.repeats *
+  // host.v5 asks the checker on every decision and the writer too when something is missing: 1 to 2 calls per decision.
+  const specs = opts.armSpecs || opts.prompts.map((p) => ({ promptVersion: String(p).split('@')[0] }));
+  const factor = (pick) => specs.reduce((acc, spec) => acc + (engine.usesSplit(spec.promptVersion) && pick === 'max' ? 2 : 1), 0);
+  const total = (pick) => factor(pick) * opts.profiles.length * opts.repeats *
     perCase.reduce((acc, c) => acc + perInterview(c)[pick], 0);
 
   // One pair interview per case, main question, pair and side, per arm and repeat; one model call each.
@@ -489,7 +512,7 @@ function planOf(opts, loaded) {
     ? perCase.reduce((acc, c) => acc + c.mains.reduce((n, _m, i) => n + 2 * pairsFor(c.studentsRaw, i).length, 0), 0)
     : 0;
   const pairInterviews = pairVariants * arms.length * opts.repeats;
-  const pairCalls = pairVariants * opts.prompts.length * opts.repeats;
+  const pairCalls = (pick) => pairVariants * factor(pick) * opts.repeats;
 
   // The judge labels every follow-up, whatever the answer before it: at most the follow-up budget of each interview, and one per pair interview.
   const followUpsPerRound = perCase.reduce((acc, c) => acc + c.mains.length * engine.followUpBudget(c.config), 0);
@@ -503,8 +526,11 @@ function planOf(opts, loaded) {
   const rubricCalls = opts.judge && rubricArms > 0 ? opts.profiles.length * answersPerProfile : 0;
   return {
     interviews,
-    minCalls: total('min') + pairCalls,
-    maxCalls: total('max') + pairCalls,
+    minCalls: total('min') + pairCalls('min'),
+    maxCalls: total('max') + pairCalls('max'),
+    decisionsPerArm: opts.profiles.length * opts.repeats * perCase.reduce((acc, c) => acc + (engine.followUpBudget(c.config) > 0 ? c.mains.length : 0), 0)
+      + pairVariants * opts.repeats,
+    splitArms: specs.filter((spec) => engine.usesSplit(spec.promptVersion)).length,
     pairInterviews,
     judgeCalls,
     rubricArms,
@@ -527,6 +553,9 @@ async function askToProceed(question) {
 
 const JUDGE_TOKENS = { input: 800, output: 60 }; // typical size of one judge call, for the estimate
 const RUBRIC_TOKENS = { input: 600, output: 70 }; // typical size of one rubric-check call
+const CHECK_TOKENS = { input: 900, output: 90 }; // host.v5, check.v1 call (measured on DeepSeek in the bake-off: ~805 / ~82)
+const WRITE_TOKENS = { input: 2300, output: 70 }; // host.v5, write.v1 call (bake-off: ~2064 / ~54, plus the transcript)
+const WRITE_SHARE = 0.6; // a guess: the share of decisions where the checker finds something missing
 const HOST_TOKENS = { input: 3500, output: 120 }; // typical size of one Host call (host.v1 to host.v3)
 const HOST_V4_TOKENS = { input: 4300, output: 190 }; // host.v4: a longer prompt, the rubric in the message, a longer reply
 const REWRITE_SHARE = 0.1; // a guess: the share of Host calls that get one more call from the two-question guard
@@ -687,26 +716,44 @@ async function runEval(rawOptions) {
   const plan = planOf(opts, loaded);
   log(`Run ${opts.runId}`);
   log(`  arms: ${opts.arms.join(', ')} | cases: ${opts.cases.join(', ')} | profiles: ${opts.profiles.join(', ')} | repeats: ${opts.repeats}`);
-  log(`  ${plan.interviews} interviews, about ${plan.minCalls}-${plan.maxCalls} model calls${opts.fakeModel ? ' (fake model, no Bedrock)' : ` to ${opts.modelId} in us-east-1`}`);
+  log(`  ${plan.interviews} interviews, about ${plan.minCalls}-${plan.maxCalls} model calls${opts.fakeModel ? ' (fake model, no Bedrock)' : ` in us-east-1 (single-model arms: ${opts.modelId}${plan.splitArms ? `; host.v5: checker ${opts.checkerModelId}, writer ${opts.writerModelId}` : ''})`}`);
   if (opts.pairs) log(`  plus ${plan.pairInterviews} minimal-pair interviews (one decision each, already counted in the calls above); --no-pairs skips them`);
   log('  the model is not asked when only one action is allowed (the next main question, or end); the two-question guard can add one rewrite call per follow-up that asks two things (not counted above)');
   if (opts.armSpecs.some((spec) => spec.temperature !== bedrock.DEFAULT_TEMPERATURE)) {
     log(`  temperatures: ${opts.armSpecs.map((spec) => `${spec.arm} = ${spec.temperature}`).join(', ')}`);
   }
   if (!opts.fakeModel) {
-    const typical = Math.round((plan.minCalls + plan.maxCalls) / 2);
-    // The calls are shared evenly between the Host arms; the guard adds a guessed share of rewrite calls.
-    const perArm = (typical * (1 + REWRITE_SHARE)) / opts.armSpecs.length;
-    const tokens = opts.armSpecs.reduce((acc, spec) => {
-      const t = engine.usesRubric(spec.promptVersion) ? HOST_V4_TOKENS : HOST_TOKENS;
-      return { input: acc.input + perArm * t.input, output: acc.output + perArm * t.output };
-    }, { input: 0, output: 0 });
-    const cost = metrics.estimateCost(tokens.input, tokens.output, opts.prices);
-    log(`  rough cost for ${typical} calls plus ~${Math.round(typical * REWRITE_SHARE)} rewrite calls (a guess: ${REWRITE_SHARE * 100}%) at ~${HOST_TOKENS.input.toLocaleString('en-US')} input / ~${HOST_TOKENS.output} output tokens each (host.v4: ~${HOST_V4_TOKENS.input.toLocaleString('en-US')} / ~${HOST_V4_TOKENS.output}): $${cost.toFixed(2)} (prices: $${opts.prices.inputPerMillion}/$${opts.prices.outputPerMillion} per million tokens, third-party figure, verify)`);
+    const single = opts.armSpecs.filter((spec) => !engine.usesSplit(spec.promptVersion));
+    const splitSpecs = opts.armSpecs.filter((spec) => engine.usesSplit(spec.promptVersion));
+    const parts = [];
+    let seconds = 0;
+    if (single.length) {
+      // One call per decision, plus a guessed share of rewrite calls from the guards.
+      const calls = single.length * plan.decisionsPerArm * (1 + REWRITE_SHARE);
+      const tokens = single.reduce((acc, spec) => {
+        const t = engine.usesRubric(spec.promptVersion) ? HOST_V4_TOKENS : HOST_TOKENS;
+        return { input: acc.input + plan.decisionsPerArm * (1 + REWRITE_SHARE) * t.input, output: acc.output + plan.decisionsPerArm * (1 + REWRITE_SHARE) * t.output };
+      }, { input: 0, output: 0 });
+      const cost = metrics.estimateCost(tokens.input, tokens.output, opts.prices);
+      parts.push(cost);
+      seconds += calls * (opts.delayMs / 1000 + 3);
+      log(`  rough cost, single-model arms (${single.map((s) => s.arm).join(', ')}): ${Math.round(calls)} calls including ~${Math.round(calls * REWRITE_SHARE / (1 + REWRITE_SHARE))} rewrite calls (a guess: ${REWRITE_SHARE * 100}%) at ~${HOST_TOKENS.input.toLocaleString('en-US')} input / ~${HOST_TOKENS.output} output tokens each (host.v4 and later: ~${HOST_V4_TOKENS.input.toLocaleString('en-US')} / ~${HOST_V4_TOKENS.output}): $${cost.toFixed(2)} (prices: $${opts.prices.inputPerMillion}/$${opts.prices.outputPerMillion} per million tokens, third-party figure, verify)`);
+    }
+    if (splitSpecs.length) {
+      // host.v5: a check on every decision, a write on the share of decisions that find something missing, and repairs on a guessed share of the writes.
+      const checks = splitSpecs.length * plan.decisionsPerArm;
+      const writes = checks * WRITE_SHARE;
+      const repairs = writes * REWRITE_SHARE;
+      const cost = metrics.estimateCost(checks * CHECK_TOKENS.input + (writes + repairs) * WRITE_TOKENS.input, checks * CHECK_TOKENS.output + (writes + repairs) * WRITE_TOKENS.output, opts.splitPrices);
+      parts.push(cost);
+      seconds += (checks + writes + repairs) * (opts.delayMs / 1000 + 2.5);
+      log(`  rough cost, host.v5 (${splitSpecs.map((s) => s.arm).join(', ')}): ~${Math.round(checks)} check calls (checker ${opts.checkerModelId}) and ~${Math.round(writes + repairs)} write calls (writer ${opts.writerModelId}; a guess: ${WRITE_SHARE * 100}% of the decisions find something missing, ${REWRITE_SHARE * 100}% of the writes are repaired once) at ~${CHECK_TOKENS.input} / ~${CHECK_TOKENS.output} (check) and ~${WRITE_TOKENS.input} / ~${WRITE_TOKENS.output} (write) tokens: $${cost.toFixed(2)} (prices: $${opts.splitPrices.inputPerMillion}/$${opts.splitPrices.outputPerMillion} per million tokens, AWS Price List API for the default model, verify)`);
+    }
+    log(`  Host cost in total: $${parts.reduce((a, b) => a + b, 0).toFixed(2)}`);
     log(`  the code and scripted answers are sent to Bedrock; ${opts.delayMs} ms pause before each call`);
-    // A guess, not a measurement: about 3 s per Host call and 2 s per judge call on top of the pause, one call at a time.
-    const seconds = typical * (1 + REWRITE_SHARE) * (opts.delayMs / 1000 + 3) + (plan.judgeCalls + plan.rubricCalls) * (opts.delayMs / 1000 + 2);
-    log(`  rough time: about ${Math.round(seconds / 60)} minutes (a guess: ~3 s per Host call and ~2 s per judge call, one at a time)`);
+    // A guess, not a measurement: about 3 s per single-model Host call, 2.5 s per split call and 2 s per judge call on top of the pause, one call at a time.
+    seconds += (plan.judgeCalls + plan.rubricCalls) * (opts.delayMs / 1000 + 2);
+    log(`  rough time: about ${Math.round(seconds / 60)} minutes (a guess: ~3 s per single-model Host call, ~2.5 s per split call, ~2 s per judge call, one at a time)`);
   }
   if (opts.judge) {
     if (opts.fakeModel) {
@@ -802,13 +849,16 @@ async function runEval(rawOptions) {
     log(`  ${judgeSummary.judgements} follow-ups judged (${judgeSummary.unjudged} without a usable judgement), ${judgeSummary.calls} judge calls, ${judgeSummary.cached} reused`);
   }
 
-  const results = metrics.summarizeRun(transcripts, opts.prices);
+  const results = metrics.summarizeRun(transcripts, opts.prices, opts.splitPrices);
   adaptive.attachAdaptive(results, transcripts, pairTranscripts);
   rubricStats.attachRubric(results, transcripts);
   const totals = Object.values(results).map((r) => r.allCases); // calls and cost cover every case, not only the headline ones
   const notes = [];
   if (opts.cases.includes('case1') && opts.prompts.some((p) => p !== 'host.v1')) {
-    notes.push(`${HEADLINE_EXCLUDED_CASES.join(', ')} (the linked list) shares code and wording with the examples in host.v2 and host.v3, so those prompts are advantaged there. host.v1 has no examples. The headline numbers leave it out; it is reported on its own in the case 1 section.`);
+    notes.push(`case1 (the linked list) shares code and wording with the examples in host.v2 and host.v3, so those prompts are advantaged there. host.v1 has no examples. The headline numbers leave it out; it is reported on its own in the case 1 section.`);
+  }
+  if (opts.cases.some((c) => ['case2', 'case3'].includes(c))) {
+    notes.push('The headline numbers are cases 4 to 9 (the tank controller). Cases 2 and 3 are kept as a separate side check, reported on their own below.');
   }
   if (opts.fakeModel) notes.push('Fake model: these numbers test the runner, they say nothing about a real model.');
   if (!opts.judge) notes.push('The judge was not run (--judge), so gap targeting, direction agreement and discrimination are n/a.');
@@ -833,6 +883,7 @@ async function runEval(rawOptions) {
     pairInterviews: pairTranscripts.length,
     judge: judgeSummary,
     results,
+    followUps: sampleFollowUps(transcripts, { seed: opts.seed }),
     failures,
     notes,
   };

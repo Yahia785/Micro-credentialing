@@ -86,6 +86,7 @@ function classifyReason(reason) {
   const text = String(reason || '');
   if (text.startsWith('fallback:')) return 'fallback';
   if (text.startsWith('engine:')) return 'engine';
+  if (text.startsWith('check:')) return 'check'; // host.v5 writes its own reason: not a model reason to be checked
   const hit = OVERRIDE_PREFIXES.find(([prefix]) => text.startsWith(prefix));
   return hit ? hit[1] : 'model';
 }
@@ -102,8 +103,8 @@ function isThrottleError(name) {
 const zeroByLabel = (labels) => Object.fromEntries(labels.map((l) => [l, 0]));
 
 /** The checks a host.v4 reply can fail (see parseHostOutput), and the yes/no guard. */
-const REJECT_CODES = ['bad_json', 'bad_action', 'missing_invalid', 'target_invalid', 'question_invalid', 'rubric_word', 'rubric_leak', 'yes_no'];
-const REPAIR_FIELDS = { json_retry: ['json', 'jsonFixed'], leak_rewrite: ['leak', 'leakFixed'], yes_no_rewrite: ['yesNo', 'yesNoFixed'] };
+const REJECT_CODES = ['bad_json', 'bad_action', 'missing_invalid', 'target_invalid', 'question_invalid', 'rubric_word', 'rubric_leak', 'yes_no', 'check_invalid'];
+const REPAIR_FIELDS = { json_retry: ['json', 'jsonFixed'], leak_rewrite: ['leak', 'leakFixed'], yes_no_rewrite: ['yesNo', 'yesNoFixed'], check_retry: ['checkRetry', 'checkRetryFixed'] };
 
 function emptyCounters() {
   return {
@@ -131,7 +132,7 @@ function emptyCounters() {
     fallbacks: { invalidOutput: 0, modelUnavailable: 0, throttled: 0 },
     // host.v4 and later: why a reply was rejected (the check that failed), and what the engine repaired in a reply.
     rejected: Object.fromEntries(REJECT_CODES.map((code) => [code, 0])),
-    repairs: { target: 0, leak: 0, leakFixed: 0, json: 0, jsonFixed: 0, yesNo: 0, yesNoFixed: 0 },
+    repairs: { target: 0, leak: 0, leakFixed: 0, json: 0, jsonFixed: 0, yesNo: 0, yesNoFixed: 0, checkRetry: 0, checkRetryFixed: 0 },
     throttleRetries: 0,
     yesNo: 0,
     multiPart: 0,
@@ -379,6 +380,7 @@ function summarize(counters, prices = DEFAULT_PRICES) {
       leakRewrite: ratio(c.repairs.leakFixed, c.repairs.leak),
       jsonRetry: ratio(c.repairs.jsonFixed, c.repairs.json),
       yesNoRewrite: ratio(c.repairs.yesNoFixed, c.repairs.yesNo),
+      checkRetry: ratio(c.repairs.checkRetryFixed, c.repairs.checkRetry),
     },
     yesNo: ratio(c.yesNo, c.followUps),
     multiPart: ratio(c.multiPart, c.followUps),
@@ -412,10 +414,12 @@ const headlineOf = (list) => list.filter((t) => !HEADLINE_EXCLUDED_CASES.include
  * only excluded cases were run, there is nothing to leave out and `overall` is everything.
  * @returns {{ [promptVersion: string]: { overall, allCases, headlineExcludes: string[], byCase: object, byProfile: object } }}
  */
-function summarizeRun(transcripts, prices) {
+function summarizeRun(transcripts, defaultPrices, splitPrices) {
   const result = {};
   for (const promptVersion of uniq(transcripts.map(armOf))) {
     const mine = transcripts.filter((t) => armOf(t) === promptVersion);
+    // host.v5 calls other models than the single-model versions, so its tokens are priced with the split prices.
+    const prices = splitPrices && require('../../shared/nodejs/agent/interview-engine').usesSplit(mine[0].promptVersion) ? splitPrices : defaultPrices;
     const headline = headlineOf(mine).length > 0 ? headlineOf(mine) : mine;
     const excluded = headline.length === mine.length ? [] : uniq(mine.filter((t) => !headline.includes(t)).map((t) => t.caseId)).sort();
     const group = (key, list) => Object.fromEntries(
