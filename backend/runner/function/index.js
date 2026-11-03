@@ -10,6 +10,10 @@
  *          diagnostics: { seccomp, landlock, ... }. Without seccomp nothing runs (internal_error
  *          "sandbox unavailable"); Landlock is used when the kernel has it and is not required.
  *
+ * Diagnose: the event { "diagnose": true } (no student code) returns what the platform lets the sandbox do, step by
+ *          step with success or errno; see lib/diagnose.js. When the sandbox is unavailable, diagnostics.sandboxStep and
+ *          diagnostics.errno say which launcher step failed.
+ *
  * Student code is untrusted. This function never logs source, stdin or program output.
  */
 
@@ -18,6 +22,7 @@ const os = require('os');
 const path = require('path');
 const { execLimited, sweepProcesses, wipeTmp, MB } = require('./lib/sandbox');
 const { classifyRun, compileFailure, internalError } = require('./lib/classify');
+const { diagnose } = require('./lib/diagnose');
 
 const MAX_SOURCE_BYTES = 256 * 1024;
 const MAX_RUNS = 200;
@@ -78,17 +83,27 @@ async function compile(dir, source) {
   const landlock = meta ? meta.landlock : null;
   const seccomp = meta ? meta.seccomp : null;
   // The seccomp filter is required; Landlock is optional (the kernel may not have it).
-  if (meta && !meta.seccomp) return { ok: false, landlock, seccomp: false, sandboxUnavailable: true };
+  if (meta && !meta.seccomp) return { ok: false, landlock, seccomp: false, sandboxUnavailable: true, meta };
   if (compiled.wallKilled || (meta && meta.signal === 24)) return { ok: false, landlock, seccomp, output: 'Compilation time limit exceeded.' };
   if (!meta) return { ok: false, landlock, seccomp, output: 'Compilation failed: sandbox did not report.', internal: true };
   if (meta.exitCode !== 0 || meta.signal) return { ok: false, landlock, seccomp, output: text || `Compilation failed (exit ${meta.exitCode}, signal ${meta.signal}).` };
-  return { ok: true, landlock, seccomp };
+  return { ok: true, landlock, seccomp, meta };
 }
 
-/** The seccomp filter could not be installed: nothing ran, and every run says so. */
-function sandboxUnavailable(input, diagnostics) {
+/**
+ * The seccomp filter could not be installed: nothing ran, and every run says so.
+ * diagnostics.sandboxStep / errno say which launcher step failed and why (from the launcher's own report).
+ */
+function sandboxUnavailable(input, diagnostics, meta) {
   diagnostics.seccomp = false;
+  if (meta) noteLauncherReport(diagnostics, meta);
   return { results: input.runs.map(() => internalError('sandbox unavailable')), diagnostics };
+}
+
+function noteLauncherReport(diagnostics, meta) {
+  diagnostics.sandboxStep = meta.step;
+  diagnostics.errno = meta.errno;
+  diagnostics.subreaperErrno = meta.subreaperErrno;
 }
 
 /** Keep the reply under Lambda's response limit: results that no longer fit are replaced by an error. */
@@ -104,6 +119,14 @@ function fitResponse(results) {
 
 exports.handler = async (event, context) => {
   const started = Date.now();
+  if (event && event.diagnose === true) {
+    // No student code: just report what the platform lets the sandbox do.
+    try {
+      return await diagnose();
+    } catch (error) {
+      return { diagnose: true, error: error.message };
+    }
+  }
   let input;
   try {
     input = validate(event);
@@ -112,7 +135,7 @@ exports.handler = async (event, context) => {
     throw error;
   }
 
-  const diagnostics = { leftoverKilled: 0, survivors: 0, seccomp: null, landlock: null, compileMs: 0 };
+  const diagnostics = { leftoverKilled: 0, survivors: 0, seccomp: null, landlock: null, sandboxStep: null, errno: null, subreaperErrno: null, compileMs: 0 };
   let dir;
   try {
     wipeTmp(); // nothing from an earlier call may survive in /tmp
@@ -123,7 +146,8 @@ exports.handler = async (event, context) => {
     diagnostics.compileMs = Date.now() - compileStart;
     diagnostics.landlock = compiled.landlock === undefined ? null : compiled.landlock;
     diagnostics.seccomp = compiled.seccomp === undefined ? null : compiled.seccomp;
-    if (compiled.sandboxUnavailable) return sandboxUnavailable(input, diagnostics);
+    if (compiled.meta) noteLauncherReport(diagnostics, compiled.meta);
+    if (compiled.sandboxUnavailable) return sandboxUnavailable(input, diagnostics, compiled.meta);
     if (!compiled.ok) {
       const failure = compiled.internal ? internalError(compiled.output) : compileFailure(compiled.output);
       return { results: input.runs.map(() => failure), diagnostics };
@@ -151,7 +175,7 @@ exports.handler = async (event, context) => {
         diagnostics.seccomp = diagnostics.seccomp && outcome.meta.seccomp;
         diagnostics.leftoverKilled += outcome.meta.reaped;
       }
-      if (outcome.meta && !outcome.meta.seccomp) return sandboxUnavailable(input, diagnostics);
+      if (outcome.meta && !outcome.meta.seccomp) return sandboxUnavailable(input, diagnostics, outcome.meta);
 
       // Kill anything the program left behind before the next run (or the next call).
       const sweep = await sweepProcesses();

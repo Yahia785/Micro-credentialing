@@ -11,7 +11,7 @@ resolve_s3 = true
 # build). The repository is created by scripts/create-repo.ps1 and the image pushed by scripts/push-image.ps1,
 # which writes the template below with the ImageUri filled in.
 resolve_image_repos = false
-image_repositories = ["RunnerFunction=745318019254.dkr.ecr.us-east-1.amazonaws.com/micro-credentialing-runner-dev"]
+image_repository = "745318019254.dkr.ecr.us-east-1.amazonaws.com/micro-credentialing-runner-dev"
 template_file = ".aws-sam/deploy-template.yaml"
 s3_prefix = "micro-credentialing-runner-dev"
 region = "us-east-1"

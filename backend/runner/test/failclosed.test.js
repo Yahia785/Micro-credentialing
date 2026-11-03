@@ -25,7 +25,7 @@ require.cache[sandboxPath] = {
 };
 const { handler } = require('../function/index');
 
-const meta = (extra = {}) => ({ exitCode: 0, signal: 0, cpuMs: 5, rssKb: 900, landlock: true, seccomp: true, reaped: 0, ...extra });
+const meta = (extra = {}) => ({ exitCode: 0, signal: 0, cpuMs: 5, rssKb: 900, landlock: true, seccomp: true, reaped: 0, step: 'none', errno: 0, subreaperErrno: 0, ...extra });
 const done = (m, extra = {}) => ({ meta: m, stdout: Buffer.from('ok\n'), stderr: Buffer.alloc(0), outputTruncated: false, wallKilled: false, ...extra });
 const event = { source: 'int main(){}', runs: [{ stdin: '' }, { stdin: '' }], timeLimitMs: 1000, memoryLimitKb: 64000 };
 const context = { getRemainingTimeInMillis: () => 30000 };
@@ -74,6 +74,76 @@ test('a compile error is still a compile error when seccomp is installed', async
   const out = await handler(event, context);
   assert.deepStrictEqual(out.results.map(r => r.status), ['compile_error', 'compile_error']);
   assert.strictEqual(out.diagnostics.seccomp, true);
+});
+
+// ---- which step failed, and why ----
+
+test('seccomp fails at seccomp_set_mode_filter: diagnostics say which step and which errno', async () => {
+  calls.length = 0;
+  script = [done(meta({ seccomp: false, exitCode: 125, step: 'seccomp_set_mode_filter', errno: 1 }), { stdout: Buffer.alloc(0) })];
+  const out = await handler(event, context);
+  assert.strictEqual(out.diagnostics.seccomp, false);
+  assert.strictEqual(out.diagnostics.sandboxStep, 'seccomp_set_mode_filter');
+  assert.strictEqual(out.diagnostics.errno, 1);
+});
+
+test('no_new_privs fails (EPERM) and PR_SET_CHILD_SUBREAPER also failed: both are reported', async () => {
+  calls.length = 0;
+  script = [done(meta({ seccomp: false, landlock: false, exitCode: 125, step: 'no_new_privs', errno: 1, subreaperErrno: 1 }), { stdout: Buffer.alloc(0) })];
+  const out = await handler(event, context);
+  assert.strictEqual(out.diagnostics.sandboxStep, 'no_new_privs');
+  assert.strictEqual(out.diagnostics.errno, 1);
+  assert.strictEqual(out.diagnostics.subreaperErrno, 1);
+});
+
+test('the failing step is also reported when the failure happens while running the program', async () => {
+  calls.length = 0;
+  script = [done(meta()), done(meta({ seccomp: false, exitCode: 125, step: 'seccomp_set_mode_filter', errno: 22 }), { stdout: Buffer.alloc(0) })];
+  const out = await handler(event, context);
+  assert.deepStrictEqual(calls, ['compile', 'run']);
+  assert.strictEqual(out.diagnostics.sandboxStep, 'seccomp_set_mode_filter');
+  assert.strictEqual(out.diagnostics.errno, 22);
+});
+
+test('when everything works sandboxStep is none, errno 0, and a failed PR_SET_CHILD_SUBREAPER is still visible', async () => {
+  calls.length = 0;
+  script = [done(meta({ subreaperErrno: 1 })), done(meta()), done(meta())];
+  const out = await handler(event, context);
+  assert.strictEqual(out.diagnostics.sandboxStep, 'none');
+  assert.strictEqual(out.diagnostics.errno, 0);
+  assert.strictEqual(out.diagnostics.subreaperErrno, 1);
+  assert.deepStrictEqual(out.results.map(r => r.status), ['accepted', 'accepted']);
+});
+
+// ---- diagnose mode: no student code ----
+
+test('{ diagnose: true } runs the probe and never compiles or runs student code', async () => {
+  calls.length = 0;
+  const seen = [];
+  onExec = options => { seen.push(options); return done(meta(), { stdout: Buffer.from('{"results":[]}\n') }); };
+  const out = await handler({ diagnose: true }, context);
+  onExec = null;
+
+  assert.strictEqual(out.diagnose, true);
+  assert.ok('direct' in out && 'grandchild' in out && 'viaLauncher' in out);
+  assert.strictEqual(out.viaLauncher.launcher.step, 'none'); // the launcher's own report is passed through
+  assert.deepStrictEqual(calls, ['run']);
+  assert.strictEqual(path.basename(seen[0].argv[0]), 'sandbox-probe');
+  assert.ok(!seen.some(o => o.argv.some(a => /main\.cpp|prog$/.test(a))));
+});
+
+test('diagnose ignores any source in the event', async () => {
+  calls.length = 0;
+  onExec = () => done(meta(), { stdout: Buffer.from('{"results":[]}\n') });
+  const out = await handler({ diagnose: true, source: 'int main(){ for(;;); }', runs: [{ stdin: '' }] }, context);
+  onExec = null;
+  assert.strictEqual(out.diagnose, true);
+  assert.ok(!calls.includes('compile'));
+});
+
+test('only diagnose === true switches the mode on', async () => {
+  const out = await handler({ diagnose: 'true' }, context);
+  assert.match(out.error, /source is required/);
 });
 
 // ---- Landlock optional ----

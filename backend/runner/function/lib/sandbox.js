@@ -98,7 +98,7 @@ function execLimited({ mode, dir, argv, stdin, cpuSec, asBytes, stackBytes = 64 
 }
 
 function parseMeta(text) {
-  const match = /exit=(-?\d+) sig=(\d+) cpu_ms=(\d+) rss_kb=(\d+) landlock=(\d) seccomp=(\d) reaped=(\d+)/.exec(text);
+  const match = /exit=(-?\d+) sig=(\d+) cpu_ms=(\d+) rss_kb=(\d+) landlock=(\d) seccomp=(\d) reaped=(\d+)(?: step=(\S+) errno=(-?\d+) subreaper_errno=(-?\d+))?/.exec(text);
   if (!match) return null;
   return {
     exitCode: Number(match[1]),
@@ -107,7 +107,12 @@ function parseMeta(text) {
     rssKb: Number(match[4]),
     landlock: match[5] === '1',
     seccomp: match[6] === '1',
-    reaped: Number(match[7])
+    reaped: Number(match[7]),
+    // Which sandbox step failed first (none, no_new_privs, seccomp_set_mode_filter, no_report) and its errno;
+    // errno of prctl(PR_SET_CHILD_SUBREAPER), which the launcher tries but does not require.
+    step: match[8] || 'none',
+    errno: match[9] ? Number(match[9]) : 0,
+    subreaperErrno: match[10] ? Number(match[10]) : 0
   };
 }
 

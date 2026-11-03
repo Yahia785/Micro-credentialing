@@ -10,6 +10,7 @@
  * so the kernel's own accounting gives exact CPU time and peak memory, and writes one line to fd 3:
  *
  *   exit=<code or -1> sig=<signal or 0> cpu_ms=<n> rss_kb=<n> landlock=<0|1> seccomp=<0|1> reaped=<leftover processes killed>
+ *   step=<none|no_new_privs|seccomp_set_mode_filter|no_report> errno=<errno of the failed step> subreaper_errno=<errno of PR_SET_CHILD_SUBREAPER>
  *
  * The launcher is a "subreaper": every descendant the program leaves behind (fork, daemon, setsid
  * escape) is re-parented to it. When the program ends, or on SIGUSR1 from the Node handler (wall-clock
@@ -29,9 +30,6 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/audit.h>
-#include <linux/filter.h>
-#include <linux/seccomp.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -45,6 +43,8 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include "sandbox_filter.h"
 
 #define LL_EXECUTE (1ULL << 0)
 #define LL_WRITE_FILE (1ULL << 1)
@@ -95,67 +95,17 @@ static int apply_landlock(int is_compile, const char *rwdir) {
   return 1;
 }
 
-#ifndef SECCOMP_RET_KILL_PROCESS
-#define SECCOMP_RET_KILL_PROCESS 0x80000000U
-#endif
-#ifndef SECCOMP_SET_MODE_FILTER
-#define SECCOMP_SET_MODE_FILTER 1
-#endif
-#ifndef SYS_io_uring_setup
-#define SYS_io_uring_setup 425 /* same number on x86_64 and aarch64 */
-#endif
-#ifndef SYS_userfaultfd
-#define SYS_userfaultfd 323
-#endif
+/* What the child tells the launcher before it execs: which sandbox steps worked and, for the first failure, which step and errno. */
+enum { STEP_NONE = 0, STEP_NO_NEW_PRIVS = 1, STEP_SECCOMP = 2, STEP_NO_REPORT = 3 };
+struct report { char landlock; char seccomp; int step; int err; };
 
-#if defined(__x86_64__)
-#define AUDIT_ARCH_CURRENT AUDIT_ARCH_X86_64
-#define X32_SYSCALL_BIT 0x40000000U /* x32 ABI numbers would slip past the number checks below */
-#elif defined(__aarch64__)
-#define AUDIT_ARCH_CURRENT AUDIT_ARCH_AARCH64
-#else
-#error "seccomp filter: unsupported architecture"
-#endif
-
-/* System calls the program (and the compiler) may not make. They fail with EPERM instead of killing the process. */
-static const int denied_syscalls[] = {
-  SYS_socket, SYS_socketpair, SYS_connect, SYS_bind, SYS_listen, SYS_accept, SYS_accept4,
-  SYS_sendto, SYS_sendmsg, SYS_recvfrom, SYS_recvmsg,
-  SYS_ptrace, SYS_process_vm_readv, SYS_process_vm_writev,
-  SYS_mount, SYS_unshare, SYS_setns,
-  SYS_keyctl, SYS_add_key, SYS_request_key,
-  SYS_bpf, SYS_perf_event_open, SYS_userfaultfd, SYS_io_uring_setup
-};
-
-/*
- * Filter layout:  check arch (other arch, e.g. 32-bit int 0x80, kills the process) -> load syscall number ->
- * [x32 range -> EPERM] -> one compare per denied number (match -> EPERM) -> otherwise allow.
- * Uses the seccomp(2) system call directly, no libseccomp.
- */
-static int install_seccomp(void) {
-  const unsigned n = sizeof(denied_syscalls) / sizeof(denied_syscalls[0]);
-  struct sock_filter f[n + 8];
-  unsigned i = 0;
-
-  f[i++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch));
-  f[i++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_CURRENT, 1, 0);
-  f[i++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS);
-  f[i++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr));
-  unsigned first_jump = i;
-#ifdef X32_SYSCALL_BIT
-  f[i++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JGE | BPF_K, X32_SYSCALL_BIT, 0, 0);
-#endif
-  for (unsigned j = 0; j < n; j++) {
-    f[i++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (unsigned)denied_syscalls[j], 0, 0);
+static const char *step_name(int step) {
+  switch (step) {
+    case STEP_NONE: return "none";
+    case STEP_NO_NEW_PRIVS: return "no_new_privs";
+    case STEP_SECCOMP: return "seccomp_set_mode_filter";
+    default: return "no_report";
   }
-  unsigned allow = i;
-  f[i++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
-  unsigned deny = i;
-  f[i++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA));
-  for (unsigned k = first_jump; k < allow; k++) f[k].jt = (unsigned char)(deny - k - 1);
-
-  struct sock_fprog prog = { .len = (unsigned short)i, .filter = f };
-  return syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, 0, &prog) == 0;
 }
 
 static volatile sig_atomic_t interrupted = 0;
@@ -214,7 +164,7 @@ int main(int argc, char **argv) {
   unsigned long nofile = strtoul(argv[8], NULL, 10);
   char **prog_argv = &argv[10];
 
-  prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
+  int subreaper_errno = prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0 ? 0 : errno; /* reported, not fatal */
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = on_usr1; /* no SA_RESTART: wait4 must return EINTR */
@@ -225,12 +175,23 @@ int main(int argc, char **argv) {
   pid_t pid = fork();
   if (pid < 0) return 3;
   if (pid == 0) {
-    int nnp = prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0;
-    char flags[2];
-    flags[0] = nnp && apply_landlock(is_compile, rwdir) ? '1' : '0'; /* optional */
-    flags[1] = nnp && install_seccomp() ? '1' : '0';                 /* required */
-    (void)!write(ll_pipe[1], flags, 2);
-    if (flags[1] == '0') _exit(125); /* fail closed: never run the program without the seccomp filter */
+    struct report rep;
+    memset(&rep, 0, sizeof(rep));
+    rep.step = STEP_NONE;
+    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
+      rep.step = STEP_NO_NEW_PRIVS;
+      rep.err = errno;
+    } else {
+      rep.landlock = apply_landlock(is_compile, rwdir) ? 1 : 0; /* optional */
+      if (install_seccomp()) {                                   /* required */
+        rep.seccomp = 1;
+      } else {
+        rep.step = STEP_SECCOMP;
+        rep.err = errno;
+      }
+    }
+    (void)!write(ll_pipe[1], &rep, sizeof(rep));
+    if (!rep.seccomp) _exit(125); /* fail closed: never run the program without the seccomp filter */
     /* stays in the launcher's process group so one kill(-pgid) reaches it and its children */
     set_limit(RLIMIT_CPU, cpu_s, cpu_s + 1); /* soft: SIGXCPU, hard: SIGKILL */
     set_limit(RLIMIT_AS, as_bytes, as_bytes);
@@ -255,10 +216,14 @@ int main(int argc, char **argv) {
   }
 
   close(ll_pipe[1]);
-  char flags[2] = { '0', '0' };
-  (void)!read(ll_pipe[0], flags, 2);
-  int landlock = flags[0] == '1';
-  int seccomp = flags[1] == '1';
+  struct report rep;
+  memset(&rep, 0, sizeof(rep));
+  if (read(ll_pipe[0], &rep, sizeof(rep)) != (ssize_t)sizeof(rep)) {
+    memset(&rep, 0, sizeof(rep));
+    rep.step = STEP_NO_REPORT;
+  }
+  int landlock = rep.landlock;
+  int seccomp = rep.seccomp;
 
   int status = 0;
   struct rusage ru;
@@ -273,9 +238,9 @@ int main(int argc, char **argv) {
   long reaped = kill_and_reap_all();
 
   long cpu_ms = ru.ru_utime.tv_sec * 1000L + ru.ru_utime.tv_usec / 1000 + ru.ru_stime.tv_sec * 1000L + ru.ru_stime.tv_usec / 1000;
-  dprintf(3, "exit=%d sig=%d cpu_ms=%ld rss_kb=%ld landlock=%d seccomp=%d reaped=%ld\n",
+  dprintf(3, "exit=%d sig=%d cpu_ms=%ld rss_kb=%ld landlock=%d seccomp=%d reaped=%ld step=%s errno=%d subreaper_errno=%d\n",
           WIFEXITED(status) ? WEXITSTATUS(status) : -1,
           WIFSIGNALED(status) ? WTERMSIG(status) : 0,
-          cpu_ms, ru.ru_maxrss, landlock, seccomp, reaped);
+          cpu_ms, ru.ru_maxrss, landlock, seccomp, reaped, step_name(rep.step), rep.err, subreaper_errno);
   return 0;
 }

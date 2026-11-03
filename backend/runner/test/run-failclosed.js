@@ -25,6 +25,7 @@ check('A seccomp blocked', 'message is "sandbox unavailable"', results.every(r =
 check('A seccomp blocked', 'no program output', results.every(r => r.stdout === ''));
 check('A seccomp blocked', 'diagnostics.seccomp is false', !!body.diagnostics && body.diagnostics.seccomp === false);
 check('A seccomp blocked', 'nothing left behind', left.strangers.length === 0 && left.tmp.length === 0);
+check('A seccomp blocked', 'diagnostics.sandboxStep is seccomp_set_mode_filter, errno 1 (EPERM)', !!body.diagnostics && body.diagnostics.sandboxStep === 'seccomp_set_mode_filter' && body.diagnostics.errno === 1);
 
 // B
 c.start({ noLandlock: true });
@@ -44,6 +45,7 @@ const rejected = c.invoke({ source: marker, runs: [{ stdin: '', expectedOutput: 
 c.stop();
 results = body.results || [];
 check('C all available', 'runs are accepted (ran fine)', results.length === 2 && results.every(r => r.status === 'accepted'));
+check('C all available', 'diagnostics.sandboxStep is none, errno 0', !!body.diagnostics && body.diagnostics.sandboxStep === 'none' && body.diagnostics.errno === 0 && body.diagnostics.subreaperErrno === 0);
 check('C all available', 'diagnostics.landlock and seccomp are true', !!body.diagnostics && body.diagnostics.landlock === true && body.diagnostics.seccomp === true);
 check('C all available', 'an event with expectedOutput is rejected', /expectedOutput is not accepted/.test(rejected.error || '') && (rejected.results || []).length === 0);
 

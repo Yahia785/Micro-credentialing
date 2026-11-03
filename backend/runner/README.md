@@ -56,6 +56,14 @@ group. `ecr:GetAuthorizationToken` is the only action on `*` (AWS does not allow
 Needs `sam build --config-file "$PWD\samconfig-dev.toml" --config-env dev` and crane at `D:\tools\crane\crane.exe`. Replaces steps 3 and 4:
 `powershell -File scripts\push-image.ps1` (saves the image to a temporary tar, pushes it with crane in up to 5 resuming attempts, reads the digest from ECR, checks the image exists, writes the same `.aws-sam/deploy-template.yaml`).
 
+### Diagnosing "sandbox unavailable"
+
+`powershell -File scripts\diagnose.ps1` invokes the deployed function with `{ "diagnose": true }` (no student code). The runner image
+contains `sandbox-probe`, which tries every sandbox step (prctl, seccomp with an allow-all filter and with the real filter, Landlock,
+every setrlimit, setpgid/setsid, ptrace, `/proc/<pid>/mem`, kernel and `/proc/self/status`) and reports success or errno, as a direct
+child of the handler, as a grandchild, and through the real launcher. When the sandbox is unavailable, a normal reply also carries
+`diagnostics.sandboxStep` and `diagnostics.errno` (and `diagnostics.subreaperErrno`). Local check: `node test/run-diagnose.js`.
+
 ### Notes
 
 - Always run the image step right before `sam deploy`: a stale `.aws-sam/deploy-template.yaml` points at an older image.
