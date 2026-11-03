@@ -17,7 +17,7 @@ const { runCpp, runCppBatch } = require('../utils/codeRunner');
 
 const run = (extra = {}) => ({ source: 'int main(){}', stdin: '1', expectedOutput: '1', timeLimitMs: 2000, memoryLimitKb: 64000, ...extra });
 const result = (status, extra = {}) => ({
-  status, statusText: status, stdout: '', stderr: '', compileOutput: '', timeMs: 5, memoryKb: 900, runId: null, message: null, ...extra
+  status, statusText: status, stdout: '1', stderr: '', compileOutput: '', timeMs: 5, memoryKb: 900, runId: null, message: null, ...extra
 });
 const reply = (results, extra = {}) => ({ Payload: Buffer.from(JSON.stringify({ results })), ...extra });
 
@@ -34,31 +34,96 @@ afterEach(() => {
 
 describe('own provider', () => {
   it('sends one invocation with the runner payload and returns results in order', async () => {
-    mockSend.mockResolvedValueOnce(reply([result('accepted', { stdout: 'a' }), result('wrong_answer'), result('time_limit')]));
+    mockSend.mockResolvedValueOnce(reply([result('accepted', { stdout: '1' }), result('accepted', { stdout: '2' }), result('time_limit')]));
     const out = await runCppBatch([run({ stdin: 'a' }), run({ stdin: 'b' }), run({ stdin: 'c' })], { deadlineMs: 60000 });
 
     expect(out.map(r => r.status)).toEqual(['accepted', 'wrong_answer', 'time_limit']);
-    expect(out[0]).toMatchObject({ stdout: 'a', timeMs: 5, memoryKb: 900 });
+    expect(out[0]).toMatchObject({ stdout: '1', timeMs: 5, memoryKb: 900 });
     expect(mockSend).toHaveBeenCalledTimes(1);
     const input = mockSend.mock.calls[0][0].input;
     expect(input).toMatchObject({ FunctionName: 'micro-credentialing-runner-dev', InvocationType: 'RequestResponse' });
     expect(JSON.parse(input.Payload)).toEqual({
       source: 'int main(){}',
-      runs: [{ stdin: 'a', expectedOutput: '1' }, { stdin: 'b', expectedOutput: '1' }, { stdin: 'c', expectedOutput: '1' }],
+      runs: [{ stdin: 'a' }, { stdin: 'b' }, { stdin: 'c' }], // the expected output is never sent
       timeLimitMs: 2000,
       memoryLimitKb: 64000
     });
   });
 
   it('keeps the fixed result shape for every status', async () => {
+    // The runner answers accepted for a program that ran fine; the stdout '9' does not match the expected '1'.
     const statuses = ['accepted', 'wrong_answer', 'compile_error', 'runtime_error', 'time_limit', 'memory_limit', 'internal_error'];
-    mockSend.mockResolvedValueOnce(reply(statuses.map(s => result(s, { compileOutput: s === 'compile_error' ? 'bad' : '' }))));
+    const fromRunner = ['accepted', 'accepted', 'compile_error', 'runtime_error', 'time_limit', 'memory_limit', 'internal_error'];
+    mockSend.mockResolvedValueOnce(reply(fromRunner.map((s, i) => result(s, {
+      compileOutput: s === 'compile_error' ? 'bad' : '', stdout: i === 1 ? '9' : '1'
+    }))));
     const out = await runCppBatch(statuses.map(() => run()));
     out.forEach((r, i) => {
       expect(r.status).toBe(statuses[i]);
       ['stdout', 'stderr', 'compileOutput', 'timeMs', 'memoryKb'].forEach(key => expect(r).toHaveProperty(key));
     });
     expect(out[2].compileOutput).toBe('bad');
+  });
+
+  describe('the expected output stays out of the runner and the verdict is decided here', () => {
+    const only = async (runnerResult, runExtra) => {
+      mockSend.mockResolvedValueOnce(reply([runnerResult]));
+      return (await runCppBatch([run(runExtra)]))[0];
+    };
+
+    it('the payload never contains expectedOutput, even when every run has one', async () => {
+      mockSend.mockResolvedValueOnce(reply([result('accepted', { stdout: '1' }), result('accepted', { stdout: '1' })]));
+      await runCppBatch([run({ expectedOutput: 'secret-answer-1' }), run({ stdin: '2', expectedOutput: 'secret-answer-2' })]);
+      const payload = mockSend.mock.calls[0][0].input.Payload;
+      expect(payload).not.toContain('expectedOutput');
+      expect(payload).not.toContain('secret-answer');
+    });
+
+    it('accepted + matching output (Judge0 rules: trailing whitespace and blank lines ignored) stays accepted', async () => {
+      const out = await only(result('accepted', { stdout: '1  \r\n\n', statusText: null }), { expectedOutput: '1' });
+      expect(out).toMatchObject({ status: 'accepted', statusText: 'Accepted' });
+      expect(out).not.toHaveProperty('stdoutInvalidUtf8');
+    });
+
+    it('accepted + different output becomes wrong_answer with Judge0 wording', async () => {
+      const out = await only(result('accepted', { stdout: '2' }), { expectedOutput: '1' });
+      expect(out).toMatchObject({ status: 'wrong_answer', statusText: 'Wrong Answer', stdout: '2' });
+    });
+
+    it('leading whitespace, case and inner blank lines still count', async () => {
+      expect((await only(result('accepted', { stdout: ' x' }), { expectedOutput: 'x' })).status).toBe('wrong_answer');
+      expect((await only(result('accepted', { stdout: 'Yes' }), { expectedOutput: 'yes' })).status).toBe('wrong_answer');
+      expect((await only(result('accepted', { stdout: 'a\n\nb' }), { expectedOutput: 'a\nb' })).status).toBe('wrong_answer');
+    });
+
+    it('no expected output (undefined, null or empty) is accepted whatever the program printed', async () => {
+      for (const expectedOutput of [undefined, null, '']) {
+        expect((await only(result('accepted', { stdout: 'anything' }), { expectedOutput })).status).toBe('accepted');
+      }
+    });
+
+    it('empty stdout only matches when there is no expected output', async () => {
+      expect((await only(result('accepted', { stdout: '' }), { expectedOutput: 'x' })).status).toBe('wrong_answer');
+      expect((await only(result('accepted', { stdout: '' }), { expectedOutput: undefined })).status).toBe('accepted');
+    });
+
+    it('output that is not valid UTF-8 never matches a text answer', async () => {
+      const bad = result('accepted', { stdout: '\ufffd\ufffd\n', stdoutInvalidUtf8: true });
+      expect((await only(bad, { expectedOutput: '\ufffd\ufffd' })).status).toBe('wrong_answer');
+      expect((await only(bad, { expectedOutput: undefined })).status).toBe('accepted');
+    });
+
+    it('other statuses are never turned into wrong_answer, whatever the output', async () => {
+      for (const status of ['compile_error', 'runtime_error', 'time_limit', 'memory_limit', 'internal_error']) {
+        expect((await only(result(status, { stdout: 'zzz' }), { expectedOutput: '1' })).status).toBe(status);
+      }
+    });
+
+    it('runs that share a group are judged against their own expected output', async () => {
+      mockSend.mockResolvedValueOnce(reply([result('accepted', { stdout: 'A' }), result('accepted', { stdout: 'A' })]));
+      const out = await runCppBatch([run({ expectedOutput: 'A' }), run({ stdin: '2', expectedOutput: 'B' })]);
+      expect(out.map(r => r.status)).toEqual(['accepted', 'wrong_answer']);
+    });
   });
 
   it('runs with different source or limits go out as separate invocations, results stay in order', async () => {
