@@ -98,7 +98,7 @@ function execLimited({ mode, dir, argv, stdin, cpuSec, asBytes, stackBytes = 64 
 }
 
 function parseMeta(text) {
-  const match = /exit=(-?\d+) sig=(\d+) cpu_ms=(\d+) rss_kb=(\d+) landlock=(\d) seccomp=(\d) reaped=(\d+)(?: step=(\S+) errno=(-?\d+) subreaper_errno=(-?\d+))?/.exec(text);
+  const match = /exit=(-?\d+) sig=(\d+) cpu_ms=(\d+) rss_kb=(\d+) landlock=(\d) seccomp=(\d) reaped=(\d+) nnp=(\w+) nnp_errno=(-?\d+) seccomp_errno=(-?\d+) subreaper_errno=(-?\d+) step=(\S+) errno=(-?\d+)/.exec(text);
   if (!match) return null;
   return {
     exitCode: Number(match[1]),
@@ -108,70 +108,90 @@ function parseMeta(text) {
     landlock: match[5] === '1',
     seccomp: match[6] === '1',
     reaped: Number(match[7]),
-    // Which sandbox step failed first (none, no_new_privs, seccomp_set_mode_filter, no_report) and its errno;
-    // errno of prctl(PR_SET_CHILD_SUBREAPER), which the launcher tries but does not require.
-    step: match[8] || 'none',
-    errno: match[9] ? Number(match[9]) : 0,
-    subreaperErrno: match[10] ? Number(match[10]) : 0
+    // no_new_privs: 'set' (we set it), 'already' (the platform had), 'failed'
+    nnp: match[8],
+    nnpErrno: Number(match[9]),
+    seccompErrno: Number(match[10]),
+    subreaperErrno: Number(match[11]),
+    // 'none', or the launch step that failed and made the launcher refuse to run the program
+    // (setrlimit, chdir, exec, no_report), with its errno
+    step: match[12],
+    errno: Number(match[13])
   };
 }
 
 // ---- cleanup between runs: Lambda reuses warm containers ----
+//
+// The launcher kills the tree it started (it is a subreaper where the platform allows that). Standard Lambda refuses
+// PR_SET_CHILD_SUBREAPER, so a daemon that escapes (double fork, setsid) is re-parented elsewhere and the launcher
+// cannot see it. This sweep does not depend on any of that: at start-up we note every process that exists (the Lambda
+// runtime, this handler, whatever else the platform runs), and after each run every live process of our user that is
+// NOT in that list is killed, until none remain or a short deadline passes.
 
-function readStatus(pid) {
+/** pid, uid, state, ppid and start time (so a re-used pid is not mistaken for an old process); null if it vanished. */
+function readProc(pid) {
   try {
     const status = fs.readFileSync(`/proc/${pid}/status`, 'utf-8');
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf-8');
+    const rest = stat.slice(stat.lastIndexOf(')') + 2).split(' '); // state is field 3; start time is field 22
     return {
+      pid,
       uid: Number(/^Uid:\s+(\d+)/m.exec(status)[1]),
-      state: /^State:\s+(\S)/m.exec(status)[1],
-      ppid: Number(/^PPid:\s+(\d+)/m.exec(status)[1])
+      state: rest[0],
+      ppid: Number(rest[1]),
+      start: rest[19]
     };
   } catch {
     return null; // process vanished
   }
 }
 
-function ancestorsOfSelf() {
-  const keep = new Set([process.pid]);
-  let pid = process.pid;
-  while (pid > 1) {
-    const info = readStatus(pid);
-    if (!info || keep.has(info.ppid)) break;
-    keep.add(info.ppid);
-    pid = info.ppid;
-  }
-  return keep;
-}
-
-/** Live processes owned by our user that are not us or one of our ancestors (zombies ignored). */
-function findStrangers() {
-  const keep = ancestorsOfSelf();
-  const uid = process.getuid();
+function listProcesses() {
   return fs.readdirSync('/proc')
     .filter(name => /^\d+$/.test(name))
-    .map(Number)
-    .filter(pid => !keep.has(pid))
-    .filter(pid => {
-      const info = readStatus(pid);
-      return info && info.uid === uid && info.state !== 'Z';
-    });
+    .map(name => readProc(Number(name)))
+    .filter(Boolean);
+}
+
+const keyOf = proc => `${proc.pid}:${proc.start}`;
+
+// Taken once, when the function initialises: before any student code can have run.
+let baseline = new Set();
+try { baseline = new Set(listProcesses().map(keyOf)); } catch { /* no /proc (not Linux): the sweep then finds nothing */ }
+
+/** Live processes of our user that were not there at start-up (zombies ignored). */
+function findStrangers() {
+  const uid = process.getuid();
+  return listProcesses()
+    .filter(proc => proc.pid !== process.pid && proc.uid === uid && proc.state !== 'Z' && !baseline.has(keyOf(proc)))
+    .map(proc => proc.pid);
 }
 
 /**
- * Kill every leftover process (a program can escape its group with setsid or fork a daemon) and
- * wait until none remain. Returns how many were killed and how many survived.
+ * Zombies of our user. Only their parent (or, once the parent is gone, PID 1) can reap them, and every one of them uses a
+ * slot of RLIMIT_NPROC. Where PID 1 does not reap orphans, a fork bomb leaves its zombies behind for good.
  */
-async function sweepProcesses() {
+function countZombies() {
+  const uid = process.getuid();
+  return listProcesses().filter(proc => proc.uid === uid && proc.state === 'Z').length;
+}
+
+/**
+ * Kill every leftover process and wait until none remain, or until deadlineMs has passed.
+ * Returns how many were killed and how many survived (the caller fails the call if any survived).
+ */
+async function sweepProcesses(deadlineMs = 1500) {
+  const until = Date.now() + deadlineMs;
   let killed = 0;
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (;;) {
     const strangers = findStrangers();
     if (strangers.length === 0) return { killed, survivors: 0 };
     for (const pid of strangers) {
       try { process.kill(pid, 'SIGKILL'); killed++; } catch { /* already gone */ }
     }
+    if (Date.now() >= until) return { killed, survivors: findStrangers().length };
     await sleep(25);
   }
-  return { killed, survivors: findStrangers().length };
 }
 
 /** Empty /tmp completely (students may write anywhere in it). */
@@ -181,4 +201,4 @@ function wipeTmp() {
   }
 }
 
-module.exports = { execLimited, sweepProcesses, wipeTmp, MB };
+module.exports = { execLimited, sweepProcesses, wipeTmp, countZombies, baselineSize: () => baseline.size, MB };

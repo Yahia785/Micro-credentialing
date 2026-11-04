@@ -272,6 +272,44 @@ static int p_uname(char *d, size_t n) {
   return 0;
 }
 
+/*
+ * Does whoever adopts orphans (PID 1 on Lambda, since PR_SET_CHILD_SUBREAPER is refused) reap them? A -> B, B exits first
+ * (a zombie, as A does not wait), then A exits: B is re-parented. If it is still a zombie 400 ms later, nobody reaps it,
+ * and every orphaned child of a student program (a fork bomb) stays a zombie that uses up RLIMIT_NPROC.
+ */
+static int p_orphan_reaped(char *d, size_t n) {
+  int fds[2];
+  if (pipe(fds) != 0) return errno;
+  pid_t a = fork();
+  if (a < 0) return errno;
+  if (a == 0) {
+    close(fds[0]);
+    pid_t b = fork();
+    if (b == 0) _exit(0);
+    (void)!write(fds[1], &b, sizeof(b));
+    _exit(0); /* without waiting for b */
+  }
+  close(fds[1]);
+  pid_t b = 0;
+  (void)!read(fds[0], &b, sizeof(b));
+  close(fds[0]);
+  waitpid(a, NULL, 0);
+  usleep(400 * 1000);
+  char path[64], buf[256];
+  snprintf(path, sizeof(path), "/proc/%d/stat", (int)b);
+  FILE *f = fopen(path, "r");
+  char comm1[64] = "?";
+  FILE *p1 = fopen("/proc/1/comm", "r");
+  if (p1) { if (fgets(comm1, sizeof(comm1), p1)) comm1[strcspn(comm1, "\n")] = 0; fclose(p1); }
+  if (!f) { snprintf(d, n, "orphan zombie was reaped (PID 1 is %s)", comm1); return 0; }
+  char state = '?';
+  if (fgets(buf, sizeof(buf), f)) { char *p = strrchr(buf, ')'); if (p) state = p[2]; }
+  fclose(f);
+  if (state == 'Z') { snprintf(d, n, "orphan zombie %d is still a zombie after 400 ms: PID 1 (%s) does not reap", (int)b, comm1); return ECHILD; }
+  snprintf(d, n, "orphan %d is gone or alive (state %c; PID 1 is %s)", (int)b, state, comm1);
+  return 0;
+}
+
 /* The Seccomp / NoNewPrivs / Cap lines of /proc/self/status, on one line. */
 static int p_status(char *d, size_t n) {
   FILE *f = fopen("/proc/self/status", "r");
@@ -310,6 +348,7 @@ static int do_run(void) {
   struct { const char *name; probe_fn fn; } probes[] = {
     { "/proc/self/status: Seccomp, NoNewPrivs, CapEff", p_status },
     { "uname -r", p_uname },
+    { "orphaned zombies are reaped by PID 1", p_orphan_reaped },
     { "prctl(PR_SET_NO_NEW_PRIVS)", p_no_new_privs },
     { "seccomp(SET_MODE_FILTER) allow-all, flags=0 [launcher uses this]", p_seccomp_flags0 },
     { "seccomp(SET_MODE_FILTER) allow-all, flags=TSYNC [launcher does not use]", p_seccomp_tsync },

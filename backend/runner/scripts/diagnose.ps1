@@ -2,11 +2,15 @@
 # the sandbox do: every step with success or errno, once as a direct child of the handler, once as a grandchild, and
 # once through the real launcher (including the launcher's own report of the step that failed).
 #
-#   powershell -File scripts\diagnose.ps1 [-FunctionName micro-credentialing-runner-dev] [-Region us-east-1] [-Json out.json]
+#   powershell -File scripts\diagnose.ps1 [-FunctionName micro-credentialing-runner-dev-tenant] [-Region us-east-1] [-NoTenant] [-Json out.json]
+#
+# The runner is deployed with tenant isolation, so every invocation needs a tenant id: this script sends the SHA-256 of
+# "diagnose". Use -NoTenant for the fallback deployment (function name ...-recycle), which has no tenant isolation.
 #   powershell -File scripts\diagnose.ps1 -ReplyFile saved.json     (print a saved reply, no AWS call)
 param(
-  [string]$FunctionName = 'micro-credentialing-runner-dev',
+  [string]$FunctionName = 'micro-credentialing-runner-dev-tenant',
   [string]$Region = 'us-east-1',
+  [switch]$NoTenant,
   [string]$Json = '',       # optional: also save the raw reply here
   [string]$ReplyFile = ''   # optional: print this saved reply instead of invoking the function
 )
@@ -23,7 +27,13 @@ try {
     Copy-Item $ReplyFile $outFile -Force
   } else {
     [System.IO.File]::WriteAllText($payloadFile, '{"diagnose":true}', (New-Object System.Text.UTF8Encoding($false)))
-    $r = Invoke-Native { aws lambda invoke --region $Region --function-name $FunctionName --payload "fileb://$payloadFile" --cli-read-timeout 120 $outFile }
+    $tenantArgs = @()
+    if (-not $NoTenant) {
+      $sha = [System.Security.Cryptography.SHA256]::Create()
+      $tenantId = -join ($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes('diagnose')) | ForEach-Object { $_.ToString('x2') })
+      $tenantArgs = @('--tenant-id', $tenantId)
+    }
+    $r = Invoke-Native { aws lambda invoke --region $Region --function-name $FunctionName @tenantArgs --payload "fileb://$payloadFile" --cli-read-timeout 120 $outFile }
     if ($r.Code -ne 0) { throw "lambda invoke failed: $($r.Stderr)" }
     $meta = $r.Stdout | ConvertFrom-Json
     $text = Get-Content -Raw -Encoding UTF8 $outFile
@@ -62,9 +72,15 @@ try {
   Write-Host 'Launcher report (the real launcher, as the handler uses it):'
   $l = $body.viaLauncher.launcher
   if ($l) {
-    Write-Host ("  seccomp={0}  landlock={1}  step={2}  errno={3}  subreaper_errno={4}  exit={5}  signal={6}" -f $l.seccomp, $l.landlock, $l.step, $l.errno, $l.subreaperErrno, $l.exitCode, $l.signal)
+    Write-Host ("  step={0} errno={1}  seccomp={2} (errno {3})  landlock={4}  nnp={5}  subreaper_errno={6}  exit={7}  signal={8}" -f $l.step, $l.errno, $l.seccomp, $l.seccompErrno, $l.landlock, $l.nnp, $l.subreaperErrno, $l.exitCode, $l.signal)
   } else {
     Write-Host '  the launcher did not report (it was killed or did not start)'
+  }
+
+  if ($body.environment) {
+    $e = $body.environment
+    Write-Host ''
+    Write-Host ("Environment: id={0} call#{1} pid={2} baseline processes={3} tenantRequired={4} recycle={5}" -f $e.environmentId, $e.callsInEnvironment, $e.pid, $e.baselineProcesses, $e.tenantRequired, $e.recycle)
   }
 
   Write-Host ''

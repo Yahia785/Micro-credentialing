@@ -1,21 +1,28 @@
-// node run-hostile.js [--no-landlock] [--seccomp-unconfined]
+// node run-hostile.js [--no-landlock] [--lambda-like] [--seccomp-unconfined]
 // Runs every hostile program in the container, then checks status, wall time, what the program printed, and that
 // nothing was left behind (no student process, empty /tmp). Also checks the NEXT call is clean.
 //
 // --no-landlock starts the container with a Docker profile that blocks the Landlock syscalls, which is what standard
 // Lambda (kernel 5.10) looks like: seccomp is installed, Landlock is not. Cases that rely on the Landlock file
 // policy (needsLandlock) are skipped there; every other case must still pass.
+//
+// --lambda-like mimics standard Lambda as seen by diagnose: NoNewPrivs already 1, and the platform refuses seccomp(), Landlock,
+// PR_SET_CHILD_SUBREAPER, PR_SET_PDEATHSIG, PR_SET_DUMPABLE and PR_SET_NO_NEW_PRIVS. Cases that need Landlock or our seccomp
+// filter are skipped; everything else, including the background-process and daemon cases (cleaned up by the handler's /proc
+// sweep, since the launcher cannot be a subreaper), must pass.
 const c = require('./container');
 const cases = require('./hostile');
 
-const startOptions = { seccompUnconfined: process.argv.includes('--seccomp-unconfined'), noLandlock: process.argv.includes('--no-landlock') };
+const lambdaLike = process.argv.includes('--lambda-like');
+const startOptions = { seccompUnconfined: process.argv.includes('--seccomp-unconfined'), noLandlock: process.argv.includes('--no-landlock'), lambdaLike };
 c.start(startOptions);
 
 const rows = [];
 let failures = 0;
 let skipped = 0;
 for (const t of cases) {
-  if (t.needsLandlock && startOptions.noLandlock) { skipped++; rows.push({ name: t.name, status: '-', ms: '', cpu: '', killed: '', out: '', result: 'skipped (needs Landlock)' }); continue; }
+  if (t.needsLandlock && (startOptions.noLandlock || lambdaLike)) { skipped++; rows.push({ name: t.name, status: '-', ms: '', cpu: '', killed: '', out: '', result: 'skipped (needs Landlock)' }); continue; }
+  if (t.needsSeccomp && lambdaLike) { skipped++; rows.push({ name: t.name, status: '-', ms: '', cpu: '', killed: '', out: '', result: 'skipped (needs our seccomp filter)' }); continue; }
   console.log('>', t.name);
   const limits = { timeLimitMs: t.timeLimitMs || 1000, memoryLimitKb: t.memoryLimitKb || 128000 };
   const { body, wallMs } = c.invoke({ source: t.source, runs: [{ stdin: '' }], ...limits });
@@ -35,7 +42,7 @@ for (const t of cases) {
     if (t.check && !t.check(r)) problems.push('content check failed');
     if (r.status === 'internal_error' && !t.allowInternal) problems.push(`internal_error: ${r.message}`);
   }
-  if (d.seccomp === false) problems.push('seccomp false');
+  if (d.sandboxStep && d.sandboxStep !== 'none') problems.push(`sandbox step ${d.sandboxStep} failed (errno ${d.errno})`);
   if (wallMs > (t.maxWallMs || 6000)) problems.push(`took ${wallMs} ms`);
   if (left.strangers.length) problems.push(`processes left: ${left.strangers.join(',')}`);
   if (left.tmp.length && !t.expectDeath) problems.push(`/tmp not empty: ${left.tmp.join(',')}`);

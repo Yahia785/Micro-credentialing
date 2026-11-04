@@ -10,20 +10,26 @@
  * so the kernel's own accounting gives exact CPU time and peak memory, and writes one line to fd 3:
  *
  *   exit=<code or -1> sig=<signal or 0> cpu_ms=<n> rss_kb=<n> landlock=<0|1> seccomp=<0|1> reaped=<leftover processes killed>
- *   step=<none|no_new_privs|seccomp_set_mode_filter|no_report> errno=<errno of the failed step> subreaper_errno=<errno of PR_SET_CHILD_SUBREAPER>
+ *   nnp=<failed|set|already> nnp_errno=<n> seccomp_errno=<errno of the seccomp call> subreaper_errno=<errno of PR_SET_CHILD_SUBREAPER>
+ *   step=<none|setrlimit|setpgid|chdir|exec|no_report> errno=<errno of the failed step>
  *
- * The launcher is a "subreaper": every descendant the program leaves behind (fork, daemon, setsid
- * escape) is re-parented to it. When the program ends, or on SIGUSR1 from the Node handler (wall-clock
- * timeout), the launcher SIGKILLs and reaps the whole tree, so nothing survives into the next run and no
- * zombie piles up (Lambda reuses warm containers, and zombies count against the process limit).
+ * Fail closed (the program is not run, step is not "none") only when launching it safely is impossible: a resource
+ * limit cannot be set, the program's own process group cannot be created, the work folder cannot be entered, the program
+ * cannot be executed, or the child never reported.
+ * Landlock, seccomp, no_new_privs and CHILD_SUBREAPER are best effort: they are applied when the platform allows it and
+ * reported either way. (Standard Lambda runs its own seccomp filter that refuses all of them, and that filter is then
+ * the sandbox.) The handler decides what the reported flags mean.
  *
- * Before exec the child sets no_new_privs and then:
+ * The launcher tries to become a "subreaper": every descendant the program leaves behind (fork, daemon, setsid
+ * escape) is then re-parented to it. When the program ends, or on SIGUSR1 from the Node handler (wall-clock
+ * timeout), the launcher SIGKILLs and reaps the whole tree. Where the platform refuses PR_SET_CHILD_SUBREAPER
+ * (Lambda does) orphans go elsewhere; the Node handler then finds and kills them by scanning /proc.
+ *
+ * Before exec the child sets no_new_privs (skipped when /proc/self/status already shows NoNewPrivs: 1) and then:
  *
  *   - Landlock (optional, needs kernel 5.13+): read/execute on system directories only, read/write on RWDIR
- *     only. That hides /proc, /etc, /var/task etc. from the program. If the kernel has no Landlock the
- *     program still runs and landlock=0 is reported (standard Lambda runs kernel 5.10).
- *   - seccomp (required): a filter that makes network, ptrace and a few other system calls fail with EPERM.
- *     If it cannot be installed the program is NOT run: the child exits 125 and seccomp=0 is reported.
+ *     only. That hides /proc, /etc, /var/task etc. from the program.
+ *   - seccomp (optional): a filter that makes network, ptrace and a few other system calls fail with EPERM.
  *     The same filter is installed for the compiler ("compile" mode).
  */
 #define _GNU_SOURCE
@@ -95,26 +101,56 @@ static int apply_landlock(int is_compile, const char *rwdir) {
   return 1;
 }
 
-/* What the child tells the launcher before it execs: which sandbox steps worked and, for the first failure, which step and errno. */
-enum { STEP_NONE = 0, STEP_NO_NEW_PRIVS = 1, STEP_SECCOMP = 2, STEP_NO_REPORT = 3 };
-struct report { char landlock; char seccomp; int step; int err; };
+/*
+ * What the child tells the launcher over a pipe. First a `report` right after the best-effort steps (always sent), then,
+ * only if launching fails afterwards, a `failure`. The pipe is close-on-exec, so after a successful exec the launcher
+ * simply sees end-of-file instead of a failure.
+ */
+enum { STEP_NONE = 0, STEP_SETRLIMIT = 1, STEP_CHDIR = 2, STEP_EXEC = 3, STEP_NO_REPORT = 4, STEP_SETPGID = 5 };
+enum { NNP_FAILED = 0, NNP_SET = 1, NNP_ALREADY = 2 };
+struct report { char landlock; char seccomp; char nnp; int nnp_err; int seccomp_err; };
+struct failure { int step; int err; };
 
 static const char *step_name(int step) {
   switch (step) {
     case STEP_NONE: return "none";
-    case STEP_NO_NEW_PRIVS: return "no_new_privs";
-    case STEP_SECCOMP: return "seccomp_set_mode_filter";
+    case STEP_SETRLIMIT: return "setrlimit";
+    case STEP_CHDIR: return "chdir";
+    case STEP_EXEC: return "exec";
+    case STEP_SETPGID: return "setpgid";
     default: return "no_report";
   }
+}
+
+static const char *nnp_name(int nnp) {
+  return nnp == NNP_ALREADY ? "already" : (nnp == NNP_SET ? "set" : "failed");
+}
+
+/* True when /proc/self/status already shows NoNewPrivs: 1 (Lambda sets it, and then refuses the prctl with EPERM). */
+static int no_new_privs_already_set(void) {
+  FILE *f = fopen("/proc/self/status", "r");
+  if (!f) return 0;
+  char line[256];
+  int set = 0;
+  while (fgets(line, sizeof(line), f)) {
+    if (strncmp(line, "NoNewPrivs:", 11) == 0) { set = atoi(line + 11) == 1; break; }
+  }
+  fclose(f);
+  return set;
 }
 
 static volatile sig_atomic_t interrupted = 0;
 static void on_usr1(int sig) { (void)sig; interrupted = 1; }
 
-/* Kill and reap everything that is our descendant or shares our process group. */
-static long kill_and_reap_all(void) {
+/*
+ * Kill and reap everything the program started. The program runs in its own process group (child pgid == child pid), and one
+ * kill(-pgid) signals every member atomically, even while a fork bomb is still forking, so this is fast. Anything that
+ * escaped the group (setsid, daemons) is found by scanning /proc for our children, which only works when we are a subreaper;
+ * otherwise the Node handler's own /proc sweep kills those.
+ */
+static long kill_and_reap_all(pid_t pgid) {
   long total = 0;
-  pid_t self = getpid(), pg = getpgrp();
+  pid_t self = getpid();
   for (int iter = 0; iter < 500; iter++) {
     int killed = 0;
     DIR *d = opendir("/proc");
@@ -134,12 +170,14 @@ static long kill_and_reap_all(void) {
       char state;
       int ppid, pgrp;
       if (!p || sscanf(p + 1, " %c %d %d", &state, &ppid, &pgrp) != 3) continue;
-      if (ppid == self || pgrp == pg) {
-        if (kill(pid, SIGKILL) == 0 && state != 'Z') total++;
+      if (state == 'Z') continue; /* only its parent (or init) can reap a zombie: waitpid below, or nobody */
+      if (ppid == self || pgrp == pgid) {
+        if (kill(pid, SIGKILL) == 0) total++;
         killed++;
       }
     }
     if (d) closedir(d);
+    kill(-pgid, SIGKILL); /* the whole group again, atomically: nothing that is forking right now survives this */
     while (waitpid(-1, NULL, WNOHANG) > 0) { /* reap */ }
     if (killed == 0 && waitpid(-1, NULL, WNOHANG) < 0 && errno == ECHILD) return total;
     usleep(2000);
@@ -147,9 +185,17 @@ static long kill_and_reap_all(void) {
   return total;
 }
 
-static void set_limit(int resource, rlim_t soft, rlim_t hard) {
+/* Returns 0, or the errno of the failed setrlimit. */
+static int set_limit(int resource, rlim_t soft, rlim_t hard) {
   struct rlimit rl = { soft, hard };
-  setrlimit(resource, &rl);
+  return setrlimit(resource, &rl) == 0 ? 0 : errno;
+}
+
+/* Tell the launcher why the program could not be started, then stop (the launcher reports it; nothing was run). */
+static void child_fail(int fd, int step, int err) {
+  struct failure f = { step, err };
+  (void)!write(fd, &f, sizeof(f));
+  _exit(125);
 }
 
 int main(int argc, char **argv) {
@@ -177,31 +223,33 @@ int main(int argc, char **argv) {
   if (pid == 0) {
     struct report rep;
     memset(&rep, 0, sizeof(rep));
-    rep.step = STEP_NONE;
-    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) {
-      rep.step = STEP_NO_NEW_PRIVS;
-      rep.err = errno;
+    if (no_new_privs_already_set()) {
+      rep.nnp = NNP_ALREADY; /* do not call prctl: Lambda refuses it with EPERM even though the bit is set */
+    } else if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0) {
+      rep.nnp = NNP_SET;
     } else {
+      rep.nnp = NNP_FAILED;
+      rep.nnp_err = errno;
+    }
+    if (rep.nnp != NNP_FAILED) { /* both need no_new_privs */
       rep.landlock = apply_landlock(is_compile, rwdir) ? 1 : 0; /* optional */
-      if (install_seccomp()) {                                   /* required */
-        rep.seccomp = 1;
-      } else {
-        rep.step = STEP_SECCOMP;
-        rep.err = errno;
-      }
+      if (install_seccomp()) rep.seccomp = 1;                    /* optional */
+      else rep.seccomp_err = errno;
     }
     (void)!write(ll_pipe[1], &rep, sizeof(rep));
-    if (!rep.seccomp) _exit(125); /* fail closed: never run the program without the seccomp filter */
-    /* stays in the launcher's process group so one kill(-pgid) reaches it and its children */
-    set_limit(RLIMIT_CPU, cpu_s, cpu_s + 1); /* soft: SIGXCPU, hard: SIGKILL */
-    set_limit(RLIMIT_AS, as_bytes, as_bytes);
-    set_limit(RLIMIT_STACK, stack_bytes, stack_bytes);
-    set_limit(RLIMIT_NPROC, nproc, nproc);
-    set_limit(RLIMIT_FSIZE, fsize, fsize);
-    set_limit(RLIMIT_NOFILE, nofile, nofile);
-    set_limit(RLIMIT_CORE, 0, 0);
-    for (int fd = 3; fd < 1024; fd++) close(fd);
-    if (chdir(rwdir) != 0) _exit(126);
+
+    /* own process group: the launcher kills the whole group with one kill(-pgid) */
+    if (setpgid(0, 0) != 0) child_fail(ll_pipe[1], STEP_SETPGID, errno);
+    int e;
+    if ((e = set_limit(RLIMIT_CPU, cpu_s, cpu_s + 1)) != 0) child_fail(ll_pipe[1], STEP_SETRLIMIT, e); /* soft: SIGXCPU, hard: SIGKILL */
+    if ((e = set_limit(RLIMIT_AS, as_bytes, as_bytes)) != 0) child_fail(ll_pipe[1], STEP_SETRLIMIT, e);
+    if ((e = set_limit(RLIMIT_STACK, stack_bytes, stack_bytes)) != 0) child_fail(ll_pipe[1], STEP_SETRLIMIT, e);
+    if ((e = set_limit(RLIMIT_NPROC, nproc, nproc)) != 0) child_fail(ll_pipe[1], STEP_SETRLIMIT, e);
+    if ((e = set_limit(RLIMIT_FSIZE, fsize, fsize)) != 0) child_fail(ll_pipe[1], STEP_SETRLIMIT, e);
+    if ((e = set_limit(RLIMIT_NOFILE, nofile, nofile)) != 0) child_fail(ll_pipe[1], STEP_SETRLIMIT, e);
+    if ((e = set_limit(RLIMIT_CORE, 0, 0)) != 0) child_fail(ll_pipe[1], STEP_SETRLIMIT, e);
+    for (int fd = 3; fd < 1024; fd++) if (fd != ll_pipe[1]) close(fd);
+    if (chdir(rwdir) != 0) child_fail(ll_pipe[1], STEP_CHDIR, errno);
 
     char tmpdir[4200], path[] = "PATH=/usr/bin:/bin";
     char *envp_compile[3];
@@ -212,15 +260,17 @@ int main(int argc, char **argv) {
     envp_compile[2] = NULL;
 
     execve(prog_argv[0], prog_argv, is_compile ? envp_compile : envp_run);
-    _exit(127);
+    child_fail(ll_pipe[1], STEP_EXEC, errno); /* only reached when exec failed */
   }
 
   close(ll_pipe[1]);
+  setpgid(pid, pid); /* same call as the child makes: whichever runs first wins, so the group exists before we may kill it */
   struct report rep;
   memset(&rep, 0, sizeof(rep));
+  int step = STEP_NONE, step_err = 0;
   if (read(ll_pipe[0], &rep, sizeof(rep)) != (ssize_t)sizeof(rep)) {
     memset(&rep, 0, sizeof(rep));
-    rep.step = STEP_NO_REPORT;
+    step = STEP_NO_REPORT;
   }
   int landlock = rep.landlock;
   int seccomp = rep.seccomp;
@@ -230,17 +280,26 @@ int main(int argc, char **argv) {
   memset(&ru, 0, sizeof(ru));
   while (wait4(pid, &status, 0, &ru) < 0) {
     if (errno == EINTR && interrupted) {
-      kill(pid, SIGKILL);
+      kill(-pid, SIGKILL); /* the program's whole group */
       continue; /* keep waiting for the (now dying) child so its rusage is collected */
     }
     if (errno != EINTR) return 4;
   }
-  long reaped = kill_and_reap_all();
+  long reaped = kill_and_reap_all(pid);
+
+  /* A launch failure (setrlimit, chdir, exec) arrives on the pipe before the child exits; success closes the pipe. */
+  fcntl(ll_pipe[0], F_SETFL, fcntl(ll_pipe[0], F_GETFL) | O_NONBLOCK);
+  struct failure fl;
+  if (step == STEP_NONE && read(ll_pipe[0], &fl, sizeof(fl)) == (ssize_t)sizeof(fl)) {
+    step = fl.step;
+    step_err = fl.err;
+  }
 
   long cpu_ms = ru.ru_utime.tv_sec * 1000L + ru.ru_utime.tv_usec / 1000 + ru.ru_stime.tv_sec * 1000L + ru.ru_stime.tv_usec / 1000;
-  dprintf(3, "exit=%d sig=%d cpu_ms=%ld rss_kb=%ld landlock=%d seccomp=%d reaped=%ld step=%s errno=%d subreaper_errno=%d\n",
+  dprintf(3, "exit=%d sig=%d cpu_ms=%ld rss_kb=%ld landlock=%d seccomp=%d reaped=%ld nnp=%s nnp_errno=%d seccomp_errno=%d subreaper_errno=%d step=%s errno=%d\n",
           WIFEXITED(status) ? WEXITSTATUS(status) : -1,
           WIFSIGNALED(status) ? WTERMSIG(status) : 0,
-          cpu_ms, ru.ru_maxrss, landlock, seccomp, reaped, step_name(rep.step), rep.err, subreaper_errno);
+          cpu_ms, ru.ru_maxrss, landlock, seccomp, reaped,
+          nnp_name(rep.nnp), rep.nnp_err, rep.seccomp_err, subreaper_errno, step_name(step), step_err);
   return 0;
 }

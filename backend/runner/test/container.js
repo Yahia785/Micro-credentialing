@@ -23,7 +23,7 @@ const s=fs.readFileSync('/proc/'+n+'/status','utf-8');
 out.push({pid:+n,comm:/^Name:\s+(.*)$/m.exec(s)[1],uid:+/^Uid:\s+(\d+)/m.exec(s)[1],state:/^State:\s+(\S)/m.exec(s)[1]})}catch{}}
 process.stdout.write(JSON.stringify({ps:out,tmp:fs.readdirSync('/tmp')}))`;
 
-function start({ seccompUnconfined = false, noLandlock = false, noSeccomp = false } = {}) {
+function start({ seccompUnconfined = false, noLandlock = false, noSeccomp = false, profile = null, noNewPrivileges = false, lambdaLike = false, init = null } = {}) {
   stop();
   const args = ['run', '-d', '--name', NAME, '--network', 'none', '--read-only', '--tmpfs', '/tmp:rw,exec,mode=1777,size=512m',
     '--user', String(UID), '--memory', '1769m', '--cpus', '1',
@@ -32,6 +32,13 @@ function start({ seccompUnconfined = false, noLandlock = false, noSeccomp = fals
   if (noLandlock) args.push('--security-opt', `seccomp=${require('path').join(__dirname, 'seccomp-no-landlock.json')}`);
   // Docker profiles that make the launcher's own sandbox calls fail, to test the "Landlock missing" and "seccomp missing" paths.
   if (noSeccomp) args.push('--security-opt', `seccomp=${require('path').join(__dirname, 'seccomp-no-seccomp.json')}`);
+  // lambdaLike: what standard Lambda looks like (its own filter refuses seccomp, Landlock and several prctls; NoNewPrivs is already 1).
+  if (lambdaLike) { profile = 'seccomp-lambda-like.json'; noNewPrivileges = true; }
+  // Without a subreaper, orphans go to PID 1. The Lambda emulator as PID 1 never reaps them; --init puts a reaping init (tini) in front.
+  if (init === null) init = lambdaLike;
+  if (init) args.push('--init');
+  if (profile) args.push('--security-opt', `seccomp=${require('path').join(__dirname, profile)}`);
+  if (noNewPrivileges) args.push('--security-opt', 'no-new-privileges');
   docker([...args, IMAGE]);
   spawnSync('node', ['-e', 'setTimeout(()=>{},2500)']);
 }

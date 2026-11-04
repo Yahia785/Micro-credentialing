@@ -3,8 +3,8 @@
 This document describes how the runner (the Lambda in `backend/runner/`) protects the platform from the code students
 submit, and, just as important, what it does **not** protect against. The goal is "secure enough for a sophomore
 course", not "bulletproof". The design follows what other Lambda-based judges do (for example the cpinitiative online
-judge and LambdaJudge): the Lambda itself is the sandbox, the credentials the sandbox holds are made worthless instead of
-hidden, and the runner never learns the answers.
+judge and LambdaJudge): **the Lambda itself is the sandbox**, the credentials it holds are **made worthless instead of
+hidden**, the runner **never learns the answers**, and **students are kept apart** by Lambda's tenant isolation.
 
 ## 1. What we are defending against
 
@@ -15,8 +15,8 @@ controls code that executes inside our AWS account, as well as the compiler's in
 
 | Goal | Example |
 |---|---|
-| Steal secrets | read the runner's AWS credentials, other students' code, the answer key |
-| Reach other systems | call the internet, the Lambda Runtime API, other AWS services, our database |
+| Steal secrets | read the runner's AWS credentials, another student's code, the answer key |
+| Reach other systems | call the internet, other AWS services, our database |
 | Cheat the grader | make a wrong program pass, change the verdict of someone else's submission |
 | Break the service | infinite loops, memory or fork bombs, huge output, filling the disk, killing the handler |
 | Persist | leave something behind that affects the next submission run in the same container |
@@ -25,103 +25,153 @@ controls code that executes inside our AWS account, as well as the compiler's in
 compromised backend, timing and CPU side channels, and ordinary academic dishonesty (plagiarism, sharing solutions). Test
 *inputs* are visible to the program on purpose; that is how a program reads its input.
 
-## 2. How the runner is built
+## 2. What real Lambda lets us do (measured, not assumed)
 
-1. **The Lambda is the sandbox.** Every invocation runs in an AWS Lambda execution environment, which is a
-   Firecracker micro-VM, as an unprivileged user (not root). The runner is its own function and its own stack, separate
-   from the rest of the backend. It has no environment variables and no secrets of its own.
-2. **No network.** The function lives in a VPC with private subnets only: no NAT gateway, no internet gateway, no VPC
-   endpoints, and a security group whose only outbound rule points at `127.0.0.1/32`, so nothing can leave.
+We first planned a sandbox of our own (a seccomp system-call filter, a Landlock file policy, `no_new_privs`, and a launcher that
+adopts leftover processes). The probe tool `sandbox-probe` (run through `scripts/diagnose.ps1`) showed what standard Lambda
+allows. Result on the deployed function:
+
+| Step | Result on Lambda |
+|---|---|
+| Kernel | 5.10.255 |
+| `/proc/self/status` | `Seccomp: 2` with **6 filters installed by Lambda**, `NoNewPrivs: 1` already set, `CapEff: 0` (no capabilities) |
+| `prctl(PR_SET_NO_NEW_PRIVS)` | EPERM (although the bit is already 1) |
+| `seccomp(SET_MODE_FILTER)`, every variant, and `prctl(PR_SET_SECCOMP)` | EPERM |
+| `prctl(PR_SET_CHILD_SUBREAPER)`, `PR_SET_PDEATHSIG`, `PR_SET_DUMPABLE` | EPERM |
+| `ptrace(PTRACE_TRACEME)` | EPERM |
+| Landlock (`landlock_create_ruleset`) | ENOSYS (kernel too old, needs 5.13) |
+| `setrlimit` (all the limits we use), `setpgid`, `setsid` | work |
+| Yama `ptrace_scope` | file absent (no extra ptrace restriction) |
+| `/proc/<parent pid>/mem` from student code | opens for reading **and** writing |
+
+So **Lambda's own seccomp filter is the system-call sandbox, and ours cannot be added on top.** Consequences for the design:
+
+* Our seccomp filter, Landlock and `no_new_privs` are **optional**. The launcher applies them when the platform allows it
+  (they work in local Docker tests and on any kernel that permits them), reports what happened in `diagnostics`
+  (`seccomp`, `seccompErrno`, `landlock`, `nnp`, `subreaperErrno`), and never fails because of them.
+* The launcher **fails closed** (the program is not run, every run returns `internal_error` "sandbox unavailable" with
+  `diagnostics.sandboxStep` / `errno`) only when it cannot start the program safely: a resource limit (`setrlimit`), the
+  program's own process group (`setpgid`), the work folder, or `exec` fails, or the child never reported.
+* Leftover processes (fork bombs, daemons, `setsid` escapes) cannot be adopted by the launcher without
+  `CHILD_SUBREAPER`, so the Node handler finds and kills them itself (section 3, item 8).
+
+## 3. How the runner is built
+
+1. **The Lambda is the sandbox.** Every invocation runs in an AWS Lambda execution environment (a Firecracker micro-VM) as an
+   unprivileged user with no capabilities. The runner is its own function and its own stack, separate from the rest of the
+   backend. It has no secrets of its own.
+2. **No network.** The function lives in a VPC with private subnets only: no NAT gateway, no internet gateway, no VPC endpoints,
+   and a security group whose only outbound rule points at `127.0.0.1/32`, so nothing can leave the VPC. (The Lambda
+   Runtime API on `127.0.0.1` is local to the environment and is **not** blocked, see limit 1 in section 5.)
 3. **The expected output never enters the runner.** The runner receives `{ source, runs: [{ stdin }], timeLimitMs,
-   memoryLimitKb }` and answers with what the program printed. `accepted` only means "the program ran fine". The
-   comparison with the expected output happens in the backend (`shared/nodejs/utils/codeRunnerOwn.js`, rule in
-   `outputCompare.js`, identical to Judge0's), which turns a mismatch into `wrong_answer`. An event that contains
-   `expectedOutput` is **rejected** by the runner, not ignored. So even a student who completely takes over the runner
-   finds no answer key there.
-4. **System-call filter (seccomp, required).** Right before the program starts, the launcher sets `no_new_privs` and
-   installs a seccomp filter that makes these system calls fail with `EPERM` (the program is not killed, it just gets
-   an error): `socket, socketpair, connect, bind, listen, accept, accept4, sendto, sendmsg, recvfrom, recvmsg` (no network
-   of any kind, including local sockets, so the Lambda Runtime API at `127.0.0.1:9001` is unreachable), `ptrace,
-   process_vm_readv, process_vm_writev` (no debugging of other processes), `mount, unshare, setns` (no namespace or
-   mount tricks), `keyctl, add_key, request_key, bpf, perf_event_open, userfaultfd, io_uring_setup` (kernel features
-   that are common exploit surface). The filter also checks the architecture (a 32-bit `int 0x80` call is killed) and
-   the x32 system-call range (answered with `EPERM`), so the list cannot be bypassed by calling the same service
-   through another ABI. **The same filter is installed for the compiler.**
-   **It fails closed:** if the filter cannot be installed, nothing runs and every run returns `internal_error`
-   "sandbox unavailable" with `diagnostics.seccomp: false`.
-5. **Worthless credentials.** The function's execution role can only write to its own log group and use the network
-   interface actions Lambda needs to put a function in a VPC. On top of that it has an explicit **Deny** on those network
-   interface actions whenever the request carries `lambda:SourceFunctionArn` equal to the runner (AWS sets that on
-   requests made with the function's own credentials; this is AWS's documented way to stop function code from using
-   them; Lambda's own networking does not carry it and keeps working). Nothing else is allowed: no S3, DynamoDB,
-   Secrets Manager, Lambda, IAM. A student who finds the credentials can do almost nothing with them (see limits).
+   memoryLimitKb }` and answers with what the program printed. `accepted` only means "the program ran fine". The comparison
+   with the expected output happens in the backend (`shared/nodejs/utils/codeRunnerOwn.js`, rule in `outputCompare.js`,
+   identical to Judge0's), which turns a mismatch into `wrong_answer`. An event that contains `expectedOutput` is **rejected**
+   by the runner, not ignored. So a student who takes over the runner finds no answer key there, and cannot read one from
+   memory either.
+4. **Students are kept apart (Lambda tenant isolation).** The function is deployed with `TenancyConfig: TenantIsolationMode:
+   PER_TENANT`. Every invocation must carry a tenant id; the backend sends the **SHA-256 of the user id** (64 hex
+   characters, never the raw id). AWS documents the guarantee: "Execution environments are never reused across different
+   tenants", while "Multiple invocation requests from the same tenant can re-use the same function execution environment".
+   So whatever a student's program does to the memory, files or processes of its environment, only that same student's later
+   calls can ever see it. The runner also refuses a call without a tenant id (`REQUIRE_TENANT_ID`), and the backend refuses to
+   call the runner without a user id. A fallback exists in case Lambda does not accept tenant isolation for this kind of
+   function (a container image in a VPC is not documented either way): the handler then ends its own process right after every
+   response (`RECYCLE_AFTER_CALL`), so no call ever sees the memory of an earlier one. This is chosen by the template
+   parameter `TenantIsolation` (`on`/`off`).
+5. **Worthless credentials.** The execution role can only write to its own log group and use the network-interface actions Lambda
+   needs to put a function in a VPC. On top of that it has an explicit **Deny** on those network-interface actions whenever the
+   request carries `lambda:SourceFunctionArn` equal to the runner (AWS sets that on requests made with the function's own
+   credentials; Lambda's own networking does not carry it and keeps working). Nothing else is allowed: no S3, DynamoDB, Secrets
+   Manager, Lambda, IAM. A student who finds the credentials can do almost nothing with them (see limit 2).
 6. **Resource limits for every run** (set by the launcher with `setrlimit`, so the kernel enforces them): CPU time, address
    space (memory), stack, number of processes, file size, open files, no core dumps. On top: a wall-clock kill at twice the
    time limit, at most 1 MB of output (more is a runtime error), 64 KB of compiler output and of stderr, 5 MB for the whole
-   reply, and the function's own 30-second timeout. Compilation has its own CPU, memory and time limits and
-   `-fmax-errors=50`, which stops compile-time bombs (template recursion, macro explosions, `constexpr` loops).
-7. **Clean slate for every run.** The program starts with an **empty environment** (no `AWS_*` variables). Every process
-   it leaves behind (fork bombs, daemons, `setsid` escapes) is found and killed, the launcher reaps the whole tree, and
-   `/tmp` is emptied before and after every call, because Lambda reuses a container for later calls.
-8. **Landlock file policy (optional).** If the kernel supports Landlock (5.13 or newer), the program can only read system
-   directories and read/write its own work folder, which hides `/proc`, `/etc` and the runner's code. Standard Lambda
-   currently runs kernel 5.10, so **this protection is not active there**. The runner uses it automatically when it is
-   there and reports `diagnostics.landlock`. It is no longer required, because the security model does not depend on it.
+   reply, and the function's own 30-second timeout. Compilation has its own limits and `-fmax-errors=50`, which stops
+   compile-time bombs (template recursion, macro explosions, `constexpr` loops).
+7. **Own process group.** The program runs in its own process group; when it ends or times out the launcher kills the whole group
+   with one `kill(-pgid)`, which is atomic even while a fork bomb is forking.
+8. **Clean slate for every run.** The program starts with an **empty environment** (no `AWS_*` variables). At start-up the handler
+   records every process that exists (the Lambda runtime and itself). After every run, every live process of the same user that
+   is not in that list is killed, repeatedly, until none remain or a deadline passes; if any survive, the call fails with
+   `internal_error`. `/tmp` is emptied before and after every call. If zombie processes (orphans that nobody reaps) have used up the
+   process limit, the call says so at once and the handler ends its process, instead of hanging.
+9. **Optional extras when the platform allows them:** a seccomp filter that makes network, `ptrace`, `mount`, `bpf` and similar system
+   calls fail with `EPERM` (also installed for the compiler), and a Landlock file policy that hides `/proc`, `/etc` and the
+   runner's code. They are used in the local Docker tests, where the corpus below verifies them. On standard Lambda they are
+   absent and the protections above carry the weight.
 
-## 3. How we check it
+## 4. How we check it
 
-* `test/hostile.js`: 37 hostile programs run in a Docker container with no network, a read-only file system and the same
-  limits as Lambda: infinite loops, sleeping, memory bombs, fork bombs, output floods, sockets and `curl`, reading
-  `/proc` and `/etc`, writing outside the work folder, stack overflow, killing the launcher or the handler, daemons,
-  compile-time bombs, and a program that tries every denied system call. Each must end with the expected status, leave
-  no process and no file behind, and the next call must be healthy. The corpus is also run with Landlock switched off,
-  which is what Lambda looks like.
-* Both fail-closed paths and the "no Landlock" path are tested (`test/failclosed.test.js`, `test/run-failclosed.js`).
-* `test/run-deployed.js` checks the **deployed** function: seccomp is on; sockets to `1.1.1.1:443`,
-  `169.254.100.1:9001` and `127.0.0.1:9001` fail; the program sees no AWS variables; no event ever contains
-  `expectedOutput` and the runner refuses one that does; IAM simulation shows the network-interface deny and that S3,
-  DynamoDB and Secrets Manager are denied; and the whole hostile corpus passes.
+* `test/hostile.js`: 37 hostile programs run in a Docker container with no network and the same limits as Lambda: infinite
+  loops, sleeping, memory bombs, fork bombs, output floods, sockets and `curl`, reading `/proc` and `/etc`, writing outside the
+  work folder, stack overflow, killing the launcher or the handler, daemons and background processes, compile-time bombs, and a
+  program that tries every denied system call. Each must end with the expected status, leave no process and no file behind, and
+  the next call must be healthy. It runs in three configurations: everything available; Landlock missing; and **Lambda-like**
+  (`--lambda-like`: the platform refuses seccomp, Landlock and the prctls, and `NoNewPrivs` is already 1), where cases that
+  need Landlock or our filter are skipped and all the rest, including the daemon and background-process cases, must pass.
+* `test/run-failclosed.js` and `test/failclosed.test.js` cover the paths: Lambda-like, seccomp refused, prctl refused, Landlock
+  missing, `setrlimit` refused (fails closed), `chdir` and `exec` failures, a PID 1 that never reaps zombies, the tenant rules, and
+  the process recycling.
+* `scripts/diagnose.ps1` (and `sandbox-probe`) report what the deployed platform allows, step by step.
+* `test/run-deployed.js` checks the **deployed** function: the launcher starts the program safely; sockets to the internet and
+  `169.254.100.1:9001` fail; the program sees no AWS variables; no event ever contains `expectedOutput` and the runner refuses
+  one that does; IAM simulation shows the network-interface deny and that S3, DynamoDB and Secrets Manager are denied; calls with
+  different tenant ids never share an execution environment (and a call without a tenant id is refused); and the whole hostile
+  corpus passes. It also reports, as information, what our seccomp/Landlock did, whether the Runtime API is reachable and what
+  `/proc/<pid>/mem` allows.
 
-## 4. What is NOT protected (read this before trusting the runner)
+## 5. What is NOT protected (read this before trusting the runner)
 
 These are known, accepted limits.
 
-1. **Student code can read and write the memory of the runner's own process.** On standard Lambda there is no Landlock, and
-   the student's program runs as the same user as the Node handler. Blocking `ptrace` does not close `/proc/<pid>/mem`.
-   Consequences: the program can read the handler's environment (the role's temporary credentials, see 3), the inputs of the
-   current call, and it can **change the handler's behaviour**. The most serious case is persistence: a warm Lambda
-   container is reused, so a student who patches the handler could try to affect the next submission (leak its source code
-   or change its result) until the container is recycled. Impact is bounded because the runner holds no answer key and no
-   secrets, but it is a real academic-integrity risk. A cheap improvement, not implemented: end the handler's process after
-   every call so Lambda starts a fresh one (costs some warm-up per call). The cleanest fix is a kernel with Landlock or a
-   different runtime that can use a separate user.
-2. **The credentials are readable, only worthless.** A student can print the role's temporary credentials (they come back
-   in the output). The only things they allow are writing log lines to the runner's own log group (log spam and a little
-   cost, no reading) for the few hours the credentials last. They cannot be used to create or change network interfaces
-   (explicit deny), and they allow nothing else. Writing logs from inside the sandbox is impossible anyway (no network).
-3. **The file system is readable.** Without Landlock the program can read any file that the Lambda user can read: the runner's
-   code in `/var/task`, `/etc`, `/proc`. None of these hold secrets other than the credentials above, and `#include
-   "/proc/..."` can print them in a compile error. The root file system is read-only, so writes are limited to `/tmp`, which
-   is cleaned between calls.
-4. **The system-call filter is a deny list.** It removes the network, debugging and a few large exploit surfaces, but the
-   Linux kernel has many other system calls. A kernel exploit is not prevented by this filter. If one succeeds the attacker is
-   root inside the Lambda micro-VM, which holds only the worthless credentials, and AWS's own isolation is the next
-   boundary (out of scope here). In particular, creating a new user namespace with `clone` is not blocked.
-5. **Denial of service is limited, not prevented.** One submission can occupy one container for up to the function's 30-second
-   timeout with 1769 MB of memory. Many submissions in parallel cost money and can hit the account's Lambda concurrency
-   limit. Use reserved concurrency and AWS budget alarms for the runner if the course is large.
-6. **The output is a channel.** A program can print anything it can read (for example the credentials, or other files) and the
-   student sees it. Test inputs are visible to the program by design; hidden test *inputs* are therefore visible to a
-   submission that is run against them, but expected outputs are not.
-7. **A student can know the expected output of a public test** and print it (hard-coding). This is a problem of course design
-   (use hidden tests), not of the sandbox.
-8. **Side channels and AWS-level attacks** (CPU timing, shared hardware, a flaw in Firecracker) are not addressed.
+1. **The Lambda Runtime API is reachable from student code.** It listens on `127.0.0.1` inside the environment and nothing on
+   standard Lambda stops a program from connecting to it (our seccomp filter would, but Lambda refuses it). Through it, a program can
+   read the event of the call it runs in (its own source and test inputs), call `/runtime/invocation/next` or post an
+   error, and **post its own response for the current call**. That last one matters for grading: the program can make the runner
+   *report* any output it likes. It cannot make that output *correct* unless it knows the expected output, because the comparison
+   happens in the backend and the expected output never reaches the runner. The practical consequence: **hidden test
+   outputs must stay hidden**, and tests whose answers can be guessed or looked up can be passed by printing the answer, which is
+   also possible without any tampering (hard-coding). Because of tenant isolation, a program can only affect calls of its own
+   tenant (itself).
+2. **Student code can read and write the memory of the runner's own process**, and read its environment, including the
+   role's temporary credentials. There is no Landlock and no Yama on standard Lambda, the program runs as the same user as the
+   Node handler, and `/proc/<pid>/mem` of its parent and of the handler opens for reading and writing. Within one student's
+   calls this means a student can tamper with their own environment, for example to change what the handler reports for a
+   later call of **the same student**. With tenant isolation this cannot reach any other student. The credentials are
+   readable but worthless: the only things they allow are writing log lines to the runner's own log group (log spam and a
+   little cost, no reading) for the few hours they last, and they cannot create or change network interfaces (explicit deny).
+3. **No file restrictions.** Without Landlock the program can read any file the Lambda user can read: the runner's code in
+   `/var/task`, `/etc`, `/proc` (and `#include "/proc/..."` can print some of it in a compile error). None of it holds secrets other than the
+   credentials above. The root file system is read-only, so writes are limited to `/tmp`, which is cleaned between calls.
+4. **Lambda's seccomp filter, not ours, is the system-call boundary.** We cannot add a deny list on Lambda. A kernel exploit is not
+   prevented by anything of ours; if one succeeds the attacker is root inside the Lambda micro-VM, which holds only the worthless
+   credentials, and AWS's own isolation is the next boundary (out of scope here).
+5. **Orphaned zombie processes.** Without `CHILD_SUBREAPER`, a fork bomb's orphans go to PID 1. If PID 1 on Lambda does not reap
+   them, they stay as zombies and use up the per-user process limit of that environment. The handler detects this and
+   refuses to continue in that environment (and ends its process), and tenant isolation confines the damage to the student who
+   did it. The probe `orphaned zombies are reaped by PID 1` in `diagnose.ps1` shows whether Lambda's PID 1 reaps.
+6. **Denial of service is limited, not prevented.** One submission can occupy one container for up to the function's 30-second
+   timeout with 1769 MB of memory. Tenant isolation makes every student their own set of environments (and Lambda charges a small
+   fee for each new tenant-specific environment and counts at most 2,500 of them per 1,000 concurrent executions), so many
+   students mean more cold starts and some cost. Use reserved concurrency and AWS budget alarms for the runner if the course
+   is large.
+7. **The output is a channel.** A program can print anything it can read (the credentials, other files, the event) and its
+   own student sees it. Test inputs are visible to the program by design; the expected outputs are not.
+8. **Side channels and AWS-level attacks** (CPU timing, shared hardware, a flaw in Firecracker or in tenant isolation) are not addressed.
 
-## 5. If you want to tighten it later
+## 6. Why grades cannot be faked
 
-* End the Node process after every call to throw away any in-memory tampering (limit 1).
-* Use a kernel with Landlock if Lambda offers one (the runner switches it on by itself) or run the program under a
-  different user.
-* Add `clone`/`clone3` filtering for new user namespaces and move from a deny list to an allow list.
-* Reserved concurrency and a budget alarm for the runner (limit 5).
-* A tiny account for the runner and its logs, so a leak can never reach other resources.
+A student who wants a wrong program to pass needs the backend to see output equal to the expected output. The expected output
+is never sent to the runner, so a program cannot read it (not from its input, its memory, the event or the Runtime API); the
+comparison happens in the backend, outside the sandbox, on the text the runner reports. The runner can be made to report
+arbitrary text (limit 1), so the only thing that can be faked is output the student can already guess; with hidden tests that
+is no better than not solving the problem. A student also cannot change another student's result: different students never
+share an execution environment, and the runner rejects an event that carries expected output or no tenant id.
+
+## 7. If you want to tighten it later
+
+* A kernel with Landlock, or a way to run the program as another user, would close limits 2 and 3 (and make limit 1 harder to use).
+* Reserved concurrency and a budget alarm for the runner (limit 6).
+* A tiny AWS account for the runner and its logs, so a leak can never reach other resources.
+* A second, independent check of the output in the backend for tests whose answers are easy to guess.

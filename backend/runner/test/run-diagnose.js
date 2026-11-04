@@ -19,7 +19,7 @@ console.log('launcher report (via launcher):', JSON.stringify(body.viaLauncher &
 
 // Steps that must work in the local container (the Docker default profile allows them). Failures that are expected here:
 // seccomp without no_new_privs (EACCES), and /proc/<parent>/mem when the parent is not a visible process.
-const mustWork = names.filter(n => !/without no_new_privs|yama|<parent>\/mem|status|\[launcher does not use\]/.test(n));
+const mustWork = names.filter(n => !/without no_new_privs|yama|<parent>\/mem|status|orphaned zombies|\[launcher does not use\]/.test(n));
 const bad = [];
 for (const mode of ['direct', 'grandchild']) for (const n of mustWork) if (cell(mode, n) !== 'ok') bad.push(`${mode}: ${n} -> ${cell(mode, n)}`);
 const launcher = body.viaLauncher && body.viaLauncher.launcher;

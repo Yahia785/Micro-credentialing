@@ -3,8 +3,8 @@
 Container-image Lambda that compiles and runs student C++ in a locked-down sandbox. Own stack
 (`micro-credentialing-runner-<env>`), separate from `backend/template.yaml`.
 
-- `function/` image: AWS Node 22 Lambda base + g++ (multi-stage: the launcher is built in a first stage and only the binary is copied), `launcher.c` (setrlimit, seccomp filter, Landlock when the kernel has it, subreaper), handler in `index.js`
-- `template.yaml` VPC with private subnets only, no NAT/IGW/endpoints, no egress; role = own logs + ENI actions only, with an explicit Deny on the ENI actions for requests that carry `lambda:SourceFunctionArn` of the runner
+- `function/` image: AWS Node 22 Lambda base + g++ (multi-stage: the launcher and the probe are built in a first stage and only the binaries are copied), `launcher.c` (setrlimit, own process group, and, when the platform allows, seccomp / Landlock / no_new_privs / subreaper), `probe.c` (diagnose tool), handler in `index.js`
+- `template.yaml` VPC with private subnets only, no NAT/IGW/endpoints, no egress; role = own logs + ENI actions only, with an explicit Deny on the ENI actions for requests that carry `lambda:SourceFunctionArn` of the runner; the function is an `AWS::Lambda::Function` with Lambda tenant isolation (`TenancyConfig: PER_TENANT`)
 - `SECURITY.md` threat model, every protection and the remaining limits
 - `build/` separate stack with a CodeBuild project that builds and pushes the image inside AWS (`buildspec.yml` is what it runs)
 - `scripts/` ECR repository creation, image build/push (CodeBuild or crane) and deploy-template generation (see below)
@@ -20,9 +20,9 @@ the Judge0 rule (`shared/nodejs/utils/outputCompare.js`) and turns a mismatch in
 
 ```powershell
 docker build -t cpp-runner:test function
-node test/run-hostile.js                 # add --no-landlock to see standard Lambda (kernel 5.10: seccomp yes, Landlock no)
+node test/run-hostile.js                 # add --no-landlock, or --lambda-like (what standard Lambda allows: no seccomp/Landlock/prctls, NoNewPrivs already 1)
 node test/run-fixtures.js
-node test/run-failclosed.js              # seccomp blocked (fails closed), Landlock missing (still runs), all available
+node test/run-failclosed.js              # Lambda-like, seccomp/prctl/Landlock refused (still runs), setrlimit refused (fails closed), chdir/exec, zombies
 node test/run-timing.js
 node --test test/classify.test.js test/failclosed.test.js
 ```
@@ -46,7 +46,7 @@ CodeBuild pulls the public GitHub repo, so the branch must be committed and push
 3. Commit and push the branch: `git push origin feature/cpp-runner`
 4. Build and push the image in AWS: `powershell -File scripts\build-in-aws.ps1 -Branch feature/cpp-runner`. It starts the build, waits for it, tags the image `runnerfunction-<12-char commit>-<env>`, reads the digest from ECR with `aws ecr describe-images`, checks the image exists, and writes `.aws-sam/deploy-template.yaml` (UTF-8, no BOM) with `ImageUri` set to `<repo>@<digest>`.
 5. Deploy the runner: `sam deploy --config-file "$PWD\samconfig-dev.toml" --config-env dev`. `samconfig-dev.toml` sets `template_file = ".aws-sam/deploy-template.yaml"` and `resolve_image_repos = false`, so SAM builds and pushes nothing.
-6. Check the deployed function: `node test\run-deployed.js micro-credentialing-runner-dev [--region us-east-1]`. It prints PASS/FAIL tables for: seccomp on; sockets to 1.1.1.1:443, 169.254.100.1:9001 and 127.0.0.1:9001 fail; no AWS variables in the program's environment; no event contains `expectedOutput`; IAM (uses your own AWS credentials, needs `iam:SimulatePrincipalPolicy`); and the full hostile corpus. Cases that depend on Landlock show SKIP on standard Lambda.
+6. Check the deployed function: `node test\run-deployed.js micro-credentialing-runner-dev-tenant [--region us-east-1]`. It prints PASS/FAIL tables for: the launcher started the program safely (seccomp and Landlock are INFO only); sockets to 1.1.1.1:443 and 169.254.100.1:9001 fail (127.0.0.1:9001, the Runtime API, is INFO); different tenant ids never share an execution environment and a call without a tenant id is refused; no AWS variables in the program's environment; no event contains `expectedOutput`; IAM (uses your own AWS credentials, needs `iam:SimulatePrincipalPolicy`); and the full hostile corpus. Cases that depend on Landlock show SKIP on standard Lambda.
 
 For a later runner change, repeat steps 3 to 6. The build role can only push to the one repository and write its own log
 group. `ecr:GetAuthorizationToken` is the only action on `*` (AWS does not allow limiting it).
@@ -62,11 +62,25 @@ Needs `sam build --config-file "$PWD\samconfig-dev.toml" --config-env dev` and c
 contains `sandbox-probe`, which tries every sandbox step (prctl, seccomp with an allow-all filter and with the real filter, Landlock,
 every setrlimit, setpgid/setsid, ptrace, `/proc/<pid>/mem`, kernel and `/proc/self/status`) and reports success or errno, as a direct
 child of the handler, as a grandchild, and through the real launcher. When the sandbox is unavailable, a normal reply also carries
-`diagnostics.sandboxStep` and `diagnostics.errno` (and `diagnostics.subreaperErrno`). Local check: `node test/run-diagnose.js`.
+`diagnostics.sandboxStep` and `diagnostics.errno` (and `diagnostics.subreaperErrno`, `seccompErrno`, `nnp`). Local check: `node test/run-diagnose.js`.
+The diagnose reply also says whether PID 1 reaps orphaned zombies (`orphaned zombies are reaped by PID 1`).
 
 ### Notes
 
 - Always run the image step right before `sam deploy`: a stale `.aws-sam/deploy-template.yaml` points at an older image.
 - If a first deploy ends in `CREATE_FAILED` (rollback is disabled in `samconfig-dev.toml`), delete the stack before deploying again:
   `aws cloudformation delete-stack --stack-name micro-credentialing-runner-dev --region us-east-1`
+
+### Tenant isolation and the function name
+
+The function is `micro-credentialing-runner-<env>-tenant` (logical id `RunnerFunctionV2`). Tenant isolation is a property of a function that
+cannot be added later or changed, and a function with a fixed name cannot be replaced under the same name, so this is a **new function with a new
+name**: the first deploy of this version creates the new function and its log group, and then CloudFormation deletes the old
+`micro-credentialing-runner-<env>` function and log group (the stack, VPC, role and ECR repository stay). The backend's `CODE_RUNNER_FUNCTION` must
+be changed to the new name when `CODE_RUNNER=own` is turned on. The backend sends a tenant id (SHA-256 of the user id) with every call; set
+`CODE_RUNNER_TENANT_ISOLATION=off` only for the fallback below.
+
+Fallback: if CloudFormation or Lambda rejects `TenancyConfig` for this function (a container image in a VPC is not documented either way), deploy with
+`sam deploy ... --parameter-overrides Environment=dev TenantIsolation=off`. The function is then `...-<env>-recycle`, has no tenant isolation, and its handler
+ends its own process right after every response. Set `CODE_RUNNER_TENANT_ISOLATION=off` in the backend and use `diagnose.ps1 -NoTenant`.
 - The scripts call `aws`, `docker`, `crane` and `git` through `scripts/native.ps1`, so stderr output never stops a script by itself; only exit codes do.

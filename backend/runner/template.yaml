@@ -3,7 +3,8 @@ Transform: AWS::Serverless-2016-10-31
 Description: >-
   C++ runner for student code. A container-image Lambda in a VPC with private subnets only:
   no NAT, no internet gateway, no VPC endpoints, and a security group that allows no outbound
-  traffic. Its role can only write logs and manage its own network interfaces.
+  traffic. Its role can only write logs and manage its own network interfaces. Lambda tenant isolation
+  (one execution environment per tenant, tenant = hash of the user id) keeps students apart.
 
 Parameters:
   Environment:
@@ -12,6 +13,27 @@ Parameters:
     AllowedValues:
       - dev
       - production
+  # 'on': Lambda tenant isolation mode (TenancyConfig PER_TENANT). Every invocation carries a tenant id (a hash of the user
+  # id) and Lambda never runs two tenants in the same execution environment. The handler requires the tenant id.
+  # 'off' (fallback, only if CloudFormation or Lambda rejects tenant isolation for a container image in a VPC): no tenant id;
+  # instead the handler ends its process right after every response. Tenant isolation cannot be changed on an existing
+  # function, so switching replaces the function, and the function name carries the mode (tenant / recycle).
+  TenantIsolation:
+    Type: String
+    Default: 'on'
+    AllowedValues:
+      - 'on'
+      - 'off'
+
+Mappings:
+  Mode:
+    'on':
+      Suffix: tenant
+    'off':
+      Suffix: recycle
+
+Conditions:
+  UseTenantIsolation: !Equals [!Ref TenantIsolation, 'on']
 
 Resources:
   # ------------------------------------------
@@ -86,7 +108,10 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/micro-credentialing-runner-${Environment}:*
+                Resource:
+                  Fn::Sub:
+                    - arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/micro-credentialing-runner-${Environment}-${Suffix}:*
+                    - Suffix: !FindInMap [Mode, !Ref TenantIsolation, Suffix]
               - Sid: LambdaVpcNetworking
                 Effect: Allow
                 Action:
@@ -109,23 +134,44 @@ Resources:
                 Resource: '*'
                 Condition:
                   ArnEquals:
-                    lambda:SourceFunctionArn: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:micro-credentialing-runner-${Environment}
+                    lambda:SourceFunctionArn:
+                      Fn::Sub:
+                        - arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:micro-credentialing-runner-${Environment}-${Suffix}
+                        - Suffix: !FindInMap [Mode, !Ref TenantIsolation, Suffix]
 
   # ------------------------------------------
   # FUNCTION
   # ------------------------------------------
-  RunnerFunction:
-    Type: AWS::Serverless::Function
+  # AWS::Lambda::Function and not AWS::Serverless::Function: SAM (1.145) does not know TenancyConfig. The image is not built by
+  # SAM (CodeBuild builds it, scripts/build-in-aws.ps1); scripts/deploy-template.ps1 writes the real ImageUri (an ECR digest)
+  # into .aws-sam/deploy-template.yaml, which is what `sam deploy` uses.
+  # Not a replacement of the old RunnerFunction in place: a new logical id and a new name, because tenant isolation cannot be
+  # added to an existing function and a function with a fixed name cannot be replaced under the same name.
+  RunnerFunctionV2:
+    Type: AWS::Lambda::Function
     DependsOn: RunnerLogGroup # the group exists before the first invocation, so Lambda never has to create it
     Properties:
-      FunctionName: !Sub micro-credentialing-runner-${Environment}
+      FunctionName:
+        Fn::Sub:
+          - micro-credentialing-runner-${Environment}-${Suffix}
+          - Suffix: !FindInMap [Mode, !Ref TenantIsolation, Suffix]
       PackageType: Image
+      Code:
+        ImageUri: set-by-scripts-push-image-or-build-in-aws
       Architectures:
         - x86_64
       MemorySize: 1769 # one full vCPU
       Timeout: 30
-      # Only logs and network interfaces (RunnerRole). No other policy, no environment variables, no secrets.
+      # Only logs and network interfaces (RunnerRole). No other policy, no secrets. The two variables are switches, not secrets.
       Role: !GetAtt RunnerRole.Arn
+      Environment:
+        Variables:
+          REQUIRE_TENANT_ID: !If [UseTenantIsolation, 'true', 'false']
+          RECYCLE_AFTER_CALL: !If [UseTenantIsolation, 'false', 'true']
+      TenancyConfig: !If
+        - UseTenantIsolation
+        - TenantIsolationMode: PER_TENANT
+        - !Ref AWS::NoValue
       VpcConfig:
         SecurityGroupIds:
           - !Ref RunnerSecurityGroup
@@ -140,13 +186,18 @@ Resources:
   RunnerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/micro-credentialing-runner-${Environment}
+      LogGroupName:
+        Fn::Sub:
+          - /aws/lambda/micro-credentialing-runner-${Environment}-${Suffix}
+          - Suffix: !FindInMap [Mode, !Ref TenantIsolation, Suffix]
       RetentionInDays: 14
 
 Outputs:
   RunnerFunctionName:
-    Value: !Ref RunnerFunction
+    Value: !Ref RunnerFunctionV2
   RunnerFunctionArn:
-    Value: !GetAtt RunnerFunction.Arn
+    Value: !GetAtt RunnerFunctionV2.Arn
+  TenantIsolation:
+    Value: !Ref TenantIsolation
   RunnerRoleArn:
     Value: !GetAtt RunnerRole.Arn

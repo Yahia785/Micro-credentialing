@@ -2,7 +2,8 @@
 // process and no file behind. The runner never sees an expected output, so `expectStdout` (trimmed) is checked by
 // the test harness on what the program printed. `needsLandlock` marks cases whose protection is the Landlock file
 // policy: they are skipped when the kernel has no Landlock (standard Lambda runs 5.10), where that protection is
-// absent by design (see SECURITY.md).
+// absent by design (see SECURITY.md). `needsSeccomp` marks the cases that check our own seccomp filter, which standard Lambda
+// does not let us install (its own filter is the sandbox there).
 const SECRET = 'FAKE-SECRET-VALUE-12345';
 
 const base = { timeLimitMs: 1000, memoryLimitKb: 128000, stdin: '' };
@@ -30,7 +31,7 @@ module.exports = [
     source: `#include <cstdio>\nint main(){ while(true){ fputc('e', stderr); } }` },
 
   // ---- seccomp: the filter the launcher installs before exec (this is what stops the network on Lambda) ----
-  { name: 'seccomp: every denied syscall fails with EPERM and the program keeps running', expect: 'accepted', expectStdout: 'all denied',
+  { name: 'seccomp: every denied syscall fails with EPERM and the program keeps running', needsSeccomp: true, expect: 'accepted', expectStdout: 'all denied',
     source: `#include <unistd.h>
 #include <sys/syscall.h>
 #include <cerrno>
@@ -51,7 +52,7 @@ int main(){
   puts(bad ? "FAIL" : "all denied");
 }` },
 
-  { name: 'seccomp: socket(), socketpair() and ptrace() through libc give EPERM', expect: 'accepted', expectStdout: 'EPERM EPERM EPERM EPERM',
+  { name: 'seccomp: socket(), socketpair() and ptrace() through libc give EPERM', needsSeccomp: true, expect: 'accepted', expectStdout: 'EPERM EPERM EPERM EPERM',
     source: `#include <sys/socket.h>
 #include <sys/ptrace.h>
 #include <cerrno>
