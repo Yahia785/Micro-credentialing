@@ -162,6 +162,16 @@ export function faceShape(lm: ArrayLike<Landmark>, w: number, h: number, scale: 
   });
 }
 
+/** Bounding box [x, y, w, h] of a mask shape in pixels, rounded to whole pixels. */
+export function boundingBox(shape: Pt[]): [number, number, number, number] {
+  if (shape.length === 0) return [0, 0, 0, 0];
+  const xs = shape.map((p) => p.x);
+  const ys = shape.map((p) => p.y);
+  const x0 = Math.floor(Math.min(...xs));
+  const y0 = Math.floor(Math.min(...ys));
+  return [x0, y0, Math.ceil(Math.max(...xs)) - x0, Math.ceil(Math.max(...ys)) - y0];
+}
+
 /** Percentile (0..100) with linear interpolation. */
 export function percentile(values: number[], pct: number): number {
   if (values.length === 0) return NaN;

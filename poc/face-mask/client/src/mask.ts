@@ -1,15 +1,21 @@
-import { LM, faceShape, type Landmark, type Pt } from "./math";
+import { LM, boundingBox, faceShape, type Landmark, type Pt } from "./math";
 import type { MaskOptions } from "./config";
 
 type Ctx = CanvasRenderingContext2D;
 
 /** Draw the privacy mask for ONE face on top of an already-drawn frame. */
-export function drawFaceMask(ctx: Ctx, lm: ArrayLike<Landmark>, w: number, h: number, o: MaskOptions): void {
+export function drawFaceMask(
+  ctx: Ctx,
+  lm: ArrayLike<Landmark>,
+  w: number,
+  h: number,
+  o: MaskOptions,
+): [number, number, number, number] | null {
   const px = (i: number): Pt => ({ x: lm[i].x * w, y: lm[i].y * h });
 
   // 1. Solid face shape (nothing of the real face is visible through it).
   const shape = faceShape(lm, w, h, o.maskScale, o.foreheadLift);
-  if (shape.length < 3) return;
+  if (shape.length < 3) return null;
   ctx.beginPath();
   shape.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
   ctx.closePath();
@@ -83,6 +89,7 @@ export function drawFaceMask(ctx: Ctx, lm: ArrayLike<Landmark>, w: number, h: nu
   ctx.lineWidth = 2;
   ctx.strokeStyle = o.outlineColor;
   ctx.stroke();
+  return boundingBox(shape);
 }
 
 /** Scratch canvas reused for pixelation. */

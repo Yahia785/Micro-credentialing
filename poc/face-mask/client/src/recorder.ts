@@ -11,6 +11,8 @@ export interface FrameRecord {
   gazeH: number | null;
   gazeV: number | null;
   procMs: number;
+  /** One [x, y, w, h] per masked face, in video pixels (after scaling and forehead lift). */
+  maskBoxes: [number, number, number, number][];
 }
 
 export interface SessionInfo {
@@ -139,6 +141,7 @@ export class RecordingSession {
           gazeH: round(f.gazeH),
           gazeV: round(f.gazeV),
           procMs: round(f.procMs, 1),
+          maskBoxes: f.maskBoxes,
         }),
       );
     }

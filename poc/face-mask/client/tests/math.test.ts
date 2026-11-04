@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { convexHull, eyeGaze, EYES, faceShape, gazeFromLandmarks, headPoseFromMatrix, LM, percentile, summarize, type Landmark } from "../src/math";
+import { boundingBox, convexHull, eyeGaze, EYES, faceShape, gazeFromLandmarks, headPoseFromMatrix, LM, percentile, summarize, type Landmark } from "../src/math";
 
 const rad = (d: number) => (d * Math.PI) / 180;
 
@@ -131,6 +131,17 @@ describe("face shape", () => {
     // bottom: 50 + 10*1.3 = 63. top: 50 - 13 - 0.25*20 = 32.
     expect(Math.max(...ys)).toBeCloseTo(63);
     expect(Math.min(...ys)).toBeCloseTo(32);
+  });
+});
+
+describe("boundingBox", () => {
+  it("matches the scaled and lifted shape", () => {
+    const lm: Landmark[] = [{ x: 0.4, y: 0.4 }, { x: 0.6, y: 0.4 }, { x: 0.6, y: 0.6 }, { x: 0.4, y: 0.6 }, { x: 0.5, y: 0.5 }];
+    // x: 50 +/- 13 -> 37..63 ; y: 32..63
+    expect(boundingBox(faceShape(lm, 100, 100, 1.3, 0.25))).toEqual([37, 32, 26, 31]);
+  });
+  it("is empty for no shape", () => {
+    expect(boundingBox([])).toEqual([0, 0, 0, 0]);
   });
 });
 

@@ -26,7 +26,7 @@ Only the masked view is shown on the page. The raw camera element is hidden and 
 | `raw-<id>.webm` | raw camera video plus audio. Research only. On by default, untick "Also save raw video" to skip |
 | `sidecar-<id>.jsonl` | one JSON object per line: `header`, many `frame` lines, `key` lines, last line `summary` |
 
-`frame` lines: `t` (ms since recording start), `faces`, `lost`, `yaw`, `pitch`, `roll` (deg), `gazeH`, `gazeV` ([-1,1]), `procMs`. `key` lines hold the **time only, never the key**. Readings are for the first face; `null` when tracking is lost.
+`frame` lines: `t` (ms since recording start), `faces`, `lost`, `yaw`, `pitch`, `roll` (deg), `gazeH`, `gazeV` ([-1,1]), `procMs`, `maskBoxes` (one `[x, y, w, h]` in video pixels per masked face, after scaling and forehead lift; empty when tracking is lost). `key` lines hold the **time only, never the key**. Readings are for the first face; `null` when tracking is lost.
 
 Sign conventions: `yaw > 0` = face turns toward the right side of the image (your own left, the image is not mirrored); `pitch > 0` = looking down; `gazeH > 0` = iris toward image right; `gazeV > 0` = iris low.
 
@@ -53,6 +53,7 @@ cd poc\face-mask\analysis
 python -m venv ..\.venv
 ..\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+python setup_models.py          # one time: downloads the YuNet face detector for test 2 (git-ignored)
 python -m pytest tests -q        # unit tests of the look-away rule
 ```
 
@@ -99,9 +100,22 @@ python test3_lookaway.py ..\recordings\laptopA
 | Test | Measures | Passes when |
 | --- | --- | --- |
 | 1 speed | average fps, 10th-percentile fps, % lost frames, ms per frame | average fps >= 15 on every recording (check the low-end laptop especially) |
-| 2 leaks | OpenCV Haar frontal and profile (profile also on the mirrored frame) on every frame of `masked-*.webm`. Flagged frames go to `analysis\out\leaks\<recording>\` plus `summary.csv` | **No real face visible in any flagged frame, checked by eye.** A flag is only a candidate: the cartoon mask can fool a detector (the synthetic demo flags every frame). Also glance through unflagged frames of hand-over-face, fast-motion and leave-frame |
+| 2 leaks | Face detectors (Haar frontal, Haar profile on the frame and its mirror, and YuNet) on every frame of `masked-*.webm`. Each hit is classed **OUTSIDE** (not covered by a mask box from the sidecar, so possibly a real face) or **INSIDE** (on the mask, usually just the cartoon fooling the detector). See below | **0 OUTSIDE hits that show a real face, and none of the reviewed INSIDE samples show a real face**, judged by eye |
 | 3 look-away | sidecar events vs your labels: labels, found, extra events, events with a key press within 2 s | 90% or more of all labels are found |
 | 4 identity (manual) | see below | people do no better than chance |
+
+#### Test 2 in detail
+
+```powershell
+python setup_models.py                      # once
+python test2_leaks.py ..ecordings\laptopA   # add --every 2 to go faster, --no-yunet for Haar only (weaker)
+```
+
+- Each video frame is matched to the nearest sidecar frame by time (using the masked recorder's start offset from the header), which gives the mask boxes for that frame.
+- A hit is INSIDE if at least 50% of its area is covered by one mask box (`INSIDE_MIN_FRACTION` in the script), otherwise OUTSIDE. This is slightly stricter than "no overlap at all" on purpose: a real face that only half-sticks out of a mask box must be reviewed, not waved through. Without a sidecar (or with an old one without `maskBoxes`) every hit counts as OUTSIDE.
+- Saved to `analysis\out\leaks\<recording>\` with the class in the file name: every `OUTSIDE_*` frame; every frame with a hit within 0.5 s of a tracking-lost change (`*_lostedge_*`); and a random sample of 20 `INSIDE_sample_*` frames. Green boxes = INSIDE, red = OUTSIDE, thin white = mask box.
+- The printout and `out\leaks\summary.csv` list per recording: frames, OUTSIDE hits, INSIDE hits, frames saved for review.
+- **The script does not decide pass or fail.** You open the saved images. PASS = no OUTSIDE image and no INSIDE sample shows a real face. Detector misses prove nothing, so also scrub a few unflagged frames of hand-over-face, fast-motion and leave-frame.
 
 Look-away rule (constants at the top of `analysis\common.py`): `|yaw| > 25` degrees or `|gazeH| > 0.5`, lasting at least 1.0 s, merging gaps under 0.5 s. Tracking-lost frames never count as looking away; they are reported separately (`lost s`).
 

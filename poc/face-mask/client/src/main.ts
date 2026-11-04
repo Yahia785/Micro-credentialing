@@ -83,12 +83,16 @@ function processFrame(): void {
 
   // 3. Draw from the SAME snapshot, so the mask cannot lag the face.
   const lost = faces.length === 0;
+  const maskBoxes: [number, number, number, number][] = [];
   if (lost) {
     drawPixelated(outCtx, snap, w, h, maskOptions.pixelBlockSize);
     drawLostBanner(outCtx, w, h);
   } else {
     outCtx.drawImage(snap, 0, 0, w, h);
-    for (const lm of faces) drawFaceMask(outCtx, lm, w, h, maskOptions);
+    for (const lm of faces) {
+      const box = drawFaceMask(outCtx, lm, w, h, maskOptions);
+      if (box) maskBoxes.push(box);
+    }
   }
 
   // Readings (first face only).
@@ -123,7 +127,7 @@ function processFrame(): void {
   Object.assign(live, { faces: faces.length, lost, yaw: yaw ?? NaN, pitch: pitch ?? NaN, gazeH: gazeH ?? NaN, gazeV: gazeV ?? NaN });
 
   if (session && !stopping) {
-    const rec: FrameRecord = { t: session.now(), faces: faces.length, lost, yaw, pitch, roll, gazeH, gazeV, procMs };
+    const rec: FrameRecord = { t: session.now(), faces: faces.length, lost, yaw, pitch, roll, gazeH, gazeV, procMs, maskBoxes };
     session.addFrame(rec);
   }
 
