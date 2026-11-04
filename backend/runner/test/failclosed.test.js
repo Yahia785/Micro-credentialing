@@ -4,8 +4,7 @@
 //   ours, so runs must work without them and diagnostics must say what was applied.
 //   The call fails closed (internal_error "sandbox unavailable", diagnostics.sandboxStep / errno, nothing runs) only when the
 //   launcher cannot start the program safely: a resource limit, the work folder or exec failed, or the child never reported.
-// The handler also rejects any event that contains expectedOutput, requires a tenant id when REQUIRE_TENANT_ID=true, and can
-// end its process after each response (RECYCLE_AFTER_CALL=true).
+// The handler also rejects any event that contains expectedOutput and requires a tenant id when REQUIRE_TENANT_ID=true.
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
@@ -241,37 +240,26 @@ test('every reply names the environment, and calls in the same environment share
   assert.strictEqual(b.diagnostics.callsInEnvironment, a.diagnostics.callsInEnvironment + 1);
 });
 
-// ---- fallback: end the process after each response ----
+// ---- the handler never ends the process: once.js does, after posting the response ----
 
-test('RECYCLE_AFTER_CALL=true ends the process shortly after the response; otherwise it does not', async () => {
+test('the handler itself never ends the process (once.js posts the response, then exits)', async () => {
   const realExit = process.exit;
   let exitedWith = null;
   process.exit = code => { exitedWith = code; };
   try {
     script = [done(meta()), done(meta()), done(meta())];
-    await handler(event, context);
-    await new Promise(r => setTimeout(r, 250));
-    assert.strictEqual(exitedWith, null, 'no recycle unless asked');
-
-    process.env.RECYCLE_AFTER_CALL = 'true';
-    script = [done(meta()), done(meta()), done(meta())];
     const out = await handler(event, context);
-    assert.deepStrictEqual(out.results.map(r => r.status), ['accepted', 'accepted']); // the response is returned first
-    assert.strictEqual(exitedWith, null, 'not in the same tick as the response');
+    assert.deepStrictEqual(out.results.map(r => r.status), ['accepted', 'accepted']);
     await new Promise(r => setTimeout(r, 250));
-    assert.strictEqual(exitedWith, 0);
+    assert.strictEqual(exitedWith, null);
   } finally {
-    delete process.env.RECYCLE_AFTER_CALL;
     process.exit = realExit;
   }
 });
 
 // ---- zombies that nobody reaps ----
 
-test('when leftover zombies have used up the process limit the call says so at once, and the process is recycled', async () => {
-  const realExit = process.exit;
-  let exitedWith = null;
-  process.exit = code => { exitedWith = code; };
+test('when leftover zombies have used up the process limit the call says so at once', async () => {
   calls.length = 0;
   zombies = 150;
   try {
@@ -279,11 +267,8 @@ test('when leftover zombies have used up the process limit the call says so at o
     assert.deepStrictEqual(calls, []); // nothing was started
     assert.ok(out.results.every(r => r.status === 'internal_error' && /exhausted/.test(r.message)));
     assert.strictEqual(out.diagnostics.zombies, 150);
-    await new Promise(r => setTimeout(r, 250));
-    assert.strictEqual(exitedWith, 1);
   } finally {
     zombies = 0;
-    process.exit = realExit;
   }
 });
 

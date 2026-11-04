@@ -39,7 +39,9 @@ function start({ seccompUnconfined = false, noLandlock = false, noSeccomp = fals
   if (init) args.push('--init');
   if (profile) args.push('--security-opt', `seccomp=${require('path').join(__dirname, profile)}`);
   if (noNewPrivileges) args.push('--security-opt', 'no-new-privileges');
-  docker([...args, IMAGE]);
+  // The image is a custom runtime (ENTRYPOINT = bootstrap). The Lambda Runtime Interface Emulator plays Lambda: it serves the
+  // Runtime API to the bootstrap and takes invocations on :8080, like on the real service.
+  docker([...args, '--entrypoint', '/usr/local/bin/aws-lambda-rie', IMAGE, '/usr/local/bin/runner-bootstrap']);
   spawnSync('node', ['-e', 'setTimeout(()=>{},2500)']);
 }
 
@@ -61,7 +63,7 @@ function invoke(event, timeoutMs = 120000) {
 /** Root's view of the container: processes owned by the runner user and what is left in /tmp. */
 function inspect() {
   const out = JSON.parse(docker(['exec', '-u', '0', NAME, 'node', '-e', b64(PS_SRC)]));
-  const allowed = new Set(['node', 'aws-lambda-rie', 'bootstrap', 'MainThread']);
+  const allowed = new Set(['node', 'aws-lambda-rie', 'bootstrap', 'runner-bootstra', 'MainThread']);
   const strangers = out.ps.filter(p => p.uid === UID && p.state !== 'Z' && !allowed.has(p.comm));
   return { strangers: strangers.map(p => `${p.comm}(${p.pid})`), tmp: out.tmp };
 }

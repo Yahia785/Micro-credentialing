@@ -13,14 +13,15 @@ Parameters:
     AllowedValues:
       - dev
       - production
+  # 'off' (default; our account cannot use tenant isolation in us-east-1): no tenant id. Either way the image is a custom
+  # runtime that runs every invocation in a fresh process (bootstrap.c / once.js), so calls never share process memory.
   # 'on': Lambda tenant isolation mode (TenancyConfig PER_TENANT). Every invocation carries a tenant id (a hash of the user
   # id) and Lambda never runs two tenants in the same execution environment. The handler requires the tenant id.
-  # 'off' (fallback, only if CloudFormation or Lambda rejects tenant isolation for a container image in a VPC): no tenant id;
-  # instead the handler ends its process right after every response. Tenant isolation cannot be changed on an existing
-  # function, so switching replaces the function, and the function name carries the mode (tenant / recycle).
+  # Tenant isolation cannot be changed on an existing function, so switching replaces the function, and the function name
+  # carries the mode (tenant / recycle).
   TenantIsolation:
     Type: String
-    Default: 'on'
+    Default: 'off'
     AllowedValues:
       - 'on'
       - 'off'
@@ -162,12 +163,12 @@ Resources:
         - x86_64
       MemorySize: 1769 # one full vCPU
       Timeout: 30
-      # Only logs and network interfaces (RunnerRole). No other policy, no secrets. The two variables are switches, not secrets.
+      # Only logs and network interfaces (RunnerRole). No other policy, no secrets. The variable is a switch, not a secret.
+      # No ImageConfig: the image's own ENTRYPOINT (the bootstrap of the custom runtime) is used.
       Role: !GetAtt RunnerRole.Arn
       Environment:
         Variables:
           REQUIRE_TENANT_ID: !If [UseTenantIsolation, 'true', 'false']
-          RECYCLE_AFTER_CALL: !If [UseTenantIsolation, 'false', 'true']
       TenancyConfig: !If
         - UseTenantIsolation
         - TenantIsolationMode: PER_TENANT

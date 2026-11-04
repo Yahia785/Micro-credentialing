@@ -18,7 +18,7 @@ region = "us-east-1"
 confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
 disable_rollback = true
-parameter_overrides = "Environment=\"dev\""
+parameter_overrides = "Environment=\"dev\" TenantIsolation=\"off\""
 tags = "Environment=\"dev\" Project=\"micro-credentialing\""
 
 [dev.global.parameters]

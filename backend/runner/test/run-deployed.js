@@ -13,8 +13,9 @@
 //   (f) the full hostile corpus (hostile.js). Cases that rely on Landlock or on our seccomp filter are marked SKIP when the
 //       platform did not give us that protection.
 //   (g) isolation between students: with tenant isolation, calls with different tenant ids never share an execution
-//       environment (environment ids compared), and a call without a tenant id is refused; in the fallback (recycle) mode,
-//       every call starts a fresh process. Also prints how long a call takes.
+//       environment (environment ids compared), and a call without a tenant id is refused; and, always (custom runtime,
+//       one fresh worker process per invocation), every call reports call #1 and none returns a FunctionError.
+//       Also prints the wall time of each of 10 sequential calls.
 // Plus a few extra / informational rows. Exit code 0 only when nothing FAILED (SKIP and INFO do not count).
 //
 // Needs: lambda:InvokeFunction and lambda:GetFunctionConfiguration on the runner, iam:SimulatePrincipalPolicy, and the
@@ -170,13 +171,13 @@ async function sandboxChecks(config) {
   record(t, '(d) the runner rejects an event that contains expectedOutput', pass(/expectedOutput is not accepted/.test(rejected.body.error || '') && (rejected.body.results || []).length === 0),
     rejected.body.error || rejected.functionError || 'not rejected');
 
-  // Only two switches, no secrets: REQUIRE_TENANT_ID and RECYCLE_AFTER_CALL.
+  // One switch, no secrets: REQUIRE_TENANT_ID.
   const variables = (config.Environment && config.Environment.Variables) || {};
-  const allowed = new Set(['REQUIRE_TENANT_ID', 'RECYCLE_AFTER_CALL']);
-  record(t, '(extra) the function\'s only environment variables are the two mode switches (no secrets)',
-    pass(Object.keys(variables).every(k => allowed.has(k)) && variables.REQUIRE_TENANT_ID === (tenantMode ? 'true' : 'false') && variables.RECYCLE_AFTER_CALL === (tenantMode ? 'false' : 'true')),
+  const allowed = new Set(['REQUIRE_TENANT_ID']);
+  record(t, '(extra) the function\'s only environment variable is the REQUIRE_TENANT_ID switch (no secrets)',
+    pass(Object.keys(variables).every(k => allowed.has(k)) && variables.REQUIRE_TENANT_ID === (tenantMode ? 'true' : 'false')),
     JSON.stringify(variables));
-  record(t, `(extra) tenant isolation is ${tenantMode ? 'on (TenancyConfig PER_TENANT)' : 'OFF: fallback mode, the process ends after every call'}`, 'INFO',
+  record(t, `(extra) tenant isolation is ${tenantMode ? 'on (TenancyConfig PER_TENANT)' : 'OFF (default): every call still runs in a fresh worker process'}`, 'INFO',
     JSON.stringify(config.TenancyConfig || null));
   record(t, '(extra) the function runs inside a VPC', pass(!!config.VpcConfig && (config.VpcConfig.SubnetIds || []).length > 0),
     `${((config.VpcConfig || {}).SubnetIds || []).length} subnets, ${((config.VpcConfig || {}).SecurityGroupIds || []).length} security group(s)`);
@@ -285,24 +286,27 @@ async function isolationChecks() {
 
     const none = await call(null);
     record(t, '(g) a call without a tenant id is refused', pass(!!none.error && !none.env), none.error ? String(none.error).slice(0, 160) : 'it ran!');
-  } else {
-    const ids = [];
-    const counts = [];
-    for (let i = 0; i < 6; i++) {
-      const r = await call(undefined);
-      ids.push(r.env);
-      counts.push(r.calls);
-    }
-    record(t, '(g) every call starts a fresh process (the handler ends its process after each response)',
-      pass(ids.every(Boolean) && new Set(ids).size === ids.length && counts.every(n => n === 1)), `environment ids ${ids.length - new Set(ids).size} repeated, calls-in-environment ${JSON.stringify(counts)}`);
   }
 
-  // How long a trivial call takes (compile + run), sequentially in one tenant. In recycle mode this includes the restart.
+  // Every call runs in a brand-new worker process (custom runtime: bootstrap + one-shot worker), tenant isolation or not:
+  // every call reports call #1 and no call returns a FunctionError. Per-call wall time over 10 sequential calls.
+  const ids = [];
+  const counts = [];
+  const errors = [];
   const times = [];
-  for (let i = 0; i < 6; i++) times.push((await call(undefined)).ms);
-  times.sort((x, y) => x - y);
-  record(t, `(info) wall time of 6 sequential trivial calls (${tenantMode ? 'tenant isolation' : 'recycle after each call'})`, 'INFO',
-    `min ${times[0]} ms, median ${times[Math.floor(times.length / 2)]} ms, max ${times[times.length - 1]} ms`);
+  for (let i = 0; i < 10; i++) {
+    const r = await call(tenantMode ? tenantFor('isolation-A') : undefined);
+    ids.push(r.env);
+    counts.push(r.calls);
+    times.push(r.ms);
+    if (r.error) errors.push(`#${i + 1}: ${String(r.error).slice(0, 80)}`);
+  }
+  record(t, '(g) every call runs in a fresh worker: call #1 each time, no FunctionError (10 sequential calls)',
+    pass(errors.length === 0 && ids.every(Boolean) && new Set(ids).size === ids.length && counts.every(n => n === 1)),
+    `calls-in-environment ${JSON.stringify(counts)}, ${ids.length - new Set(ids).size} repeated environment id(s)${errors.length ? `, errors: ${errors.join('; ')}` : ''}`);
+  const sorted = [...times].sort((x, y) => x - y);
+  record(t, '(info) wall time per call, 10 sequential trivial calls (compile + run + worker start)', 'INFO',
+    `${times.join(', ')} ms; min ${sorted[0]}, median ${sorted[Math.floor(sorted.length / 2)]}, max ${sorted[sorted.length - 1]}`);
 }
 
 (async () => {
@@ -316,7 +320,7 @@ async function isolationChecks() {
   }
 
   tenantMode = !!(config.TenancyConfig && config.TenancyConfig.TenantIsolationMode === 'PER_TENANT');
-  console.log(`Tenant isolation: ${tenantMode ? 'on (PER_TENANT)' : 'off (fallback: recycle after each call)'}`);
+  console.log(`Tenant isolation: ${tenantMode ? 'on (PER_TENANT)' : 'off (default; every call runs in a fresh worker process)'}`);
 
   const protections = await sandboxChecks(config);
   iamChecks(config);

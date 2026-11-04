@@ -2,15 +2,16 @@
 # the sandbox do: every step with success or errno, once as a direct child of the handler, once as a grandchild, and
 # once through the real launcher (including the launcher's own report of the step that failed).
 #
-#   powershell -File scripts\diagnose.ps1 [-FunctionName micro-credentialing-runner-dev-tenant] [-Region us-east-1] [-NoTenant] [-Json out.json]
+#   powershell -File scripts\diagnose.ps1 [-FunctionName micro-credentialing-runner-dev-recycle] [-Region us-east-1] [-Tenant] [-Json out.json]
 #
-# The runner is deployed with tenant isolation, so every invocation needs a tenant id: this script sends the SHA-256 of
-# "diagnose". Use -NoTenant for the fallback deployment (function name ...-recycle), which has no tenant isolation.
+# The default deployment has no tenant isolation (function name ...-recycle; every call runs in a fresh worker process).
+# For the optional tenant-isolation deployment (...-tenant) pass -Tenant: every invocation then needs a tenant id, and this
+# script sends the SHA-256 of "diagnose".
 #   powershell -File scripts\diagnose.ps1 -ReplyFile saved.json     (print a saved reply, no AWS call)
 param(
-  [string]$FunctionName = 'micro-credentialing-runner-dev-tenant',
+  [string]$FunctionName = 'micro-credentialing-runner-dev-recycle',
   [string]$Region = 'us-east-1',
-  [switch]$NoTenant,
+  [switch]$Tenant,
   [string]$Json = '',       # optional: also save the raw reply here
   [string]$ReplyFile = ''   # optional: print this saved reply instead of invoking the function
 )
@@ -28,7 +29,7 @@ try {
   } else {
     [System.IO.File]::WriteAllText($payloadFile, '{"diagnose":true}', (New-Object System.Text.UTF8Encoding($false)))
     $tenantArgs = @()
-    if (-not $NoTenant) {
+    if ($Tenant) {
       $sha = [System.Security.Cryptography.SHA256]::Create()
       $tenantId = -join ($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes('diagnose')) | ForEach-Object { $_.ToString('x2') })
       $tenantArgs = @('--tenant-id', $tenantId)
@@ -80,7 +81,7 @@ try {
   if ($body.environment) {
     $e = $body.environment
     Write-Host ''
-    Write-Host ("Environment: id={0} call#{1} pid={2} baseline processes={3} tenantRequired={4} recycle={5}" -f $e.environmentId, $e.callsInEnvironment, $e.pid, $e.baselineProcesses, $e.tenantRequired, $e.recycle)
+    Write-Host ("Environment: id={0} call#{1} pid={2} baseline processes={3} tenantRequired={4}" -f $e.environmentId, $e.callsInEnvironment, $e.pid, $e.baselineProcesses, $e.tenantRequired)
   }
 
   Write-Host ''

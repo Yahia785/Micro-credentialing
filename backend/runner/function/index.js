@@ -12,11 +12,14 @@
  *          (internal_error "sandbox unavailable", diagnostics.sandboxStep / errno) only when the launcher cannot start the
  *          program safely: a resource limit, the work folder or exec failed.
  *
- * Tenant isolation: the function is deployed with TenancyConfig PER_TENANT, so Lambda gives every tenant (a hash of the
- *          user id, chosen by the caller) its own execution environments and never shares one between tenants. With
- *          REQUIRE_TENANT_ID=true the handler also refuses a call that carries no tenant id (context.tenantId).
- *          Where tenant isolation is not available the fallback is RECYCLE_AFTER_CALL=true: the process ends right after
- *          each response, so student code can never see the memory of an earlier call.
+ * Process model: this file is only the request handling. The image runs a custom runtime: bootstrap.c (the ENTRYPOINT)
+ *          loops forever starting once.js, which fetches ONE event from the Runtime API, calls this handler, posts the
+ *          response and exits. Every invocation therefore runs in a fresh process, and student code can never see the
+ *          memory of an earlier call's handler.
+ *
+ * Tenant isolation (optional, template parameter TenantIsolation): with TenancyConfig PER_TENANT Lambda gives every
+ *          tenant (a hash of the user id, chosen by the caller) its own execution environments. With REQUIRE_TENANT_ID=true
+ *          the handler also refuses a call that carries no tenant id (context.tenantId).
  *
  * Diagnose: the event { "diagnose": true } (no student code) returns what the platform lets the sandbox do, step by
  *          step with success or errno; see lib/diagnose.js.
@@ -45,11 +48,11 @@ const MIN_MEMORY_LIMIT_KB = 16384;
 const LIBRARY_SLACK_BYTES = 16 * MB; // address space needed by libstdc++ itself
 const SAFETY_MARGIN_MS = 1500;
 
-const RECYCLE_DELAY_MS = 100; // the response is posted well within this; then the process ends
 const ZOMBIE_LIMIT = 120;     // of the 200 processes a run may have: more zombies than this and nothing can start any more
 
-// Random id of this process. A new process (a new execution environment, or a recycled one) gets a new id, and
-// calls in the same environment share it. run-deployed.js uses it to prove that tenants never share an environment.
+// Random id of this process. Every invocation runs in a new worker process, so every call reports callsInEnvironment 1
+// and a new id. run-deployed.js uses it to prove that calls never share a process (and, with tenant isolation, that
+// tenants never share an environment).
 const environmentId = crypto.randomBytes(8).toString('hex');
 let callsInEnvironment = 0;
 
@@ -136,12 +139,7 @@ function fitResponse(results) {
 }
 
 function environmentInfo() {
-  return { environmentId, callsInEnvironment, baselineProcesses: baselineSize(), pid: process.pid, tenantRequired: process.env.REQUIRE_TENANT_ID === 'true', recycle: process.env.RECYCLE_AFTER_CALL === 'true' };
-}
-
-/** Fallback when tenant isolation is unavailable: end the process right after the response, so nothing in memory survives. */
-function recycleAfterResponse() {
-  if (process.env.RECYCLE_AFTER_CALL === 'true') setTimeout(() => process.exit(0), RECYCLE_DELAY_MS);
+  return { environmentId, callsInEnvironment, baselineProcesses: baselineSize(), pid: process.pid, tenantRequired: process.env.REQUIRE_TENANT_ID === 'true' };
 }
 
 exports.handler = async (event, context) => {
@@ -149,11 +147,7 @@ exports.handler = async (event, context) => {
     return { results: [], error: 'tenant id required: this runner only accepts invocations that carry a tenant id' };
   }
   callsInEnvironment++;
-  try {
-    return await handle(event, context);
-  } finally {
-    recycleAfterResponse();
-  }
+  return handle(event, context);
 };
 
 async function handle(event, context) {
@@ -185,8 +179,7 @@ async function handle(event, context) {
     diagnostics.zombies = countZombies();
     if (diagnostics.zombies >= ZOMBIE_LIMIT) {
       // An earlier program left zombies that PID 1 never reaped. They use up the process limit, so nothing could start.
-      // Say so now (instead of hanging in the compiler) and end this process so the next call starts with a fresh one.
-      setTimeout(() => process.exit(1), RECYCLE_DELAY_MS);
+      // Say so now instead of hanging in the compiler.
       return { results: input.runs.map(() => internalError('Runner environment exhausted by leftover processes; try again')), diagnostics };
     }
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-'));
