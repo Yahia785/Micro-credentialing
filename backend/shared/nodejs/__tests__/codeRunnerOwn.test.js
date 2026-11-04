@@ -13,9 +13,14 @@ jest.mock('@aws-sdk/client-lambda', () => ({
 }));
 
 const judge0 = require('../utils/judge0');
-const { runCpp, runCppBatch } = require('../utils/codeRunner');
+const { runCpp, runCppBatch: runBatchRaw } = require('../utils/codeRunner');
+const { tenantIdFor } = require('../utils/codeRunnerOwn');
+const crypto = require('crypto');
 
-const run = (extra = {}) => ({ source: 'int main(){}', stdin: '1', expectedOutput: '1', timeLimitMs: 2000, memoryLimitKb: 64000, ...extra });
+// Every grading call knows the student: the own runner needs the user id for its tenant id.
+const runCppBatch = (runs, options) => runBatchRaw(runs, { userId: 'user-1', ...options });
+
+const run = (extra = {}) => ({ source: 'int main(){}', stdin: '1', expectedOutput: '1', timeLimitMs: 2000, memoryLimitKb: 64000, userId: 'user-1', ...extra });
 const result = (status, extra = {}) => ({
   status, statusText: status, stdout: '1', stderr: '', compileOutput: '', timeMs: 5, memoryKb: 900, runId: null, message: null, ...extra
 });
@@ -195,6 +200,81 @@ describe('own provider errors become internal_error', () => {
     await jest.advanceTimersByTimeAsync(200);
     expectInternal(await pending, 'Lambda timeout');
     jest.useRealTimers();
+  });
+});
+
+describe('tenant isolation: every invocation carries a hash of the user id', () => {
+  const hash = id => crypto.createHash('sha256').update(id).digest('hex');
+  const okReply = () => reply([result('accepted')]);
+
+  afterEach(() => { delete process.env.CODE_RUNNER_TENANT_ISOLATION; });
+
+  it('sends TenantId = SHA-256(user id) as 64 lowercase hex characters', async () => {
+    mockSend.mockResolvedValueOnce(okReply());
+    await runCppBatch([run()], { userId: 'student-42' });
+    const input = mockSend.mock.calls[0][0].input;
+    expect(input.TenantId).toBe(hash('student-42'));
+    expect(input.TenantId).toMatch(/^[0-9a-f]{64}$/);
+    expect(tenantIdFor('student-42')).toBe(hash('student-42'));
+  });
+
+  it('never sends the raw user id, neither as tenant id nor in the payload', async () => {
+    mockSend.mockResolvedValueOnce(okReply());
+    await runCppBatch([run()], { userId: 'student-42-raw' });
+    const input = mockSend.mock.calls[0][0].input;
+    expect(JSON.stringify(input)).not.toContain('student-42-raw');
+  });
+
+  it('the same user always gets the same tenant id, different users get different ones', async () => {
+    mockSend.mockResolvedValue(okReply());
+    await runCppBatch([run()], { userId: 'a' });
+    await runCppBatch([run()], { userId: 'a' });
+    await runCppBatch([run()], { userId: 'b' });
+    const ids = mockSend.mock.calls.map(call => call[0].input.TenantId);
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[0]).not.toBe(ids[2]);
+  });
+
+  it('numeric user ids are hashed as their string form', async () => {
+    mockSend.mockResolvedValueOnce(okReply());
+    await runCppBatch([run()], { userId: 12345 });
+    expect(mockSend.mock.calls[0][0].input.TenantId).toBe(hash('12345'));
+  });
+
+  it('runCpp forwards the user id too', async () => {
+    mockSend.mockResolvedValueOnce(okReply());
+    await runCpp(run({ userId: 'solo' }));
+    expect(mockSend.mock.calls[0][0].input.TenantId).toBe(hash('solo'));
+  });
+
+  it('all groups of one batch use the same tenant id', async () => {
+    mockSend.mockResolvedValue(okReply());
+    await runCppBatch([run(), run({ source: 'other' })], { userId: 'g' });
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(new Set(mockSend.mock.calls.map(call => call[0].input.TenantId)).size).toBe(1);
+  });
+
+  it.each([undefined, null, ''])('refuses a call without a user id (%p): nothing is invoked, the result is internal_error', async userId => {
+    const out = await runBatchRaw([run()], { userId });
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(out[0]).toMatchObject({ status: 'internal_error', message: expect.stringContaining('user id') });
+  });
+
+  it('CODE_RUNNER_TENANT_ISOLATION=off (fallback deployment) sends no tenant id and needs no user id', async () => {
+    process.env.CODE_RUNNER_TENANT_ISOLATION = 'off';
+    mockSend.mockResolvedValueOnce(okReply());
+    const out = await runBatchRaw([run()], {});
+    expect(out[0].status).toBe('accepted');
+    expect(mockSend.mock.calls[0][0].input).not.toHaveProperty('TenantId');
+  });
+
+  it('the Judge0 provider ignores the user id', async () => {
+    process.env.CODE_RUNNER = 'judge0';
+    judge0.submitBatch.mockResolvedValueOnce([{ token: 't' }]);
+    judge0.pollResults.mockResolvedValueOnce([{ token: 't', status: { id: 3, description: 'Accepted' }, stdout: '1', time: '0.01', memory: 100 }]);
+    await runCppBatch([run()], { userId: 'someone' });
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(JSON.stringify(judge0.submitBatch.mock.calls)).not.toContain('someone');
   });
 });
 

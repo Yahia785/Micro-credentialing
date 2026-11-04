@@ -8,7 +8,9 @@
  *   }
  * plus informational extras: statusText, runId, message (message holds the reason for internal_error).
  *
- * runCppBatch(runs, { deadlineMs }) takes an array of the same inputs and returns results in order.
+ * runCppBatch(runs, { deadlineMs, userId }) takes an array of the same inputs and returns results in order. userId is the
+ * student whose code this is: the own runner turns it into a tenant id (SHA-256) so that different students never share an
+ * execution environment. Judge0 ignores it.
  *
  * Optional inputs: expectedOutput (the provider compares stdout and returns status 'wrong_answer'
  * on a mismatch) and deadlineMs (Lambda time budget, so polling can stop early).
@@ -48,8 +50,8 @@ function loadProvider() {
   return { name, provider: load() };
 }
 
-async function runCpp({ source, stdin, expectedOutput, timeLimitMs, memoryLimitKb, deadlineMs } = {}) {
-  const [result] = await runCppBatch([{ source, stdin, expectedOutput, timeLimitMs, memoryLimitKb }], { deadlineMs });
+async function runCpp({ source, stdin, expectedOutput, timeLimitMs, memoryLimitKb, deadlineMs, userId } = {}) {
+  const [result] = await runCppBatch([{ source, stdin, expectedOutput, timeLimitMs, memoryLimitKb }], { deadlineMs, userId });
   return result;
 }
 
@@ -58,14 +60,14 @@ async function runCpp({ source, stdin, expectedOutput, timeLimitMs, memoryLimitK
  * Results come back in the same order and shape as runCpp. Never throws: if the batch fails,
  * every entry is an internal_error carrying the provider's message.
  */
-async function runCppBatch(runs, { deadlineMs } = {}) {
+async function runCppBatch(runs, { deadlineMs, userId } = {}) {
   if (!runs.length) return [];
 
   const { name, provider, error } = loadProvider();
   if (error) return runs.map(() => internalError(error));
 
   try {
-    return await provider.runBatch(runs, { deadlineMs });
+    return await provider.runBatch(runs, { deadlineMs, userId });
   } catch (err) {
     // Provider errors, quota and polling timeouts all become internal_error; callers decide what to do.
     log.error('Code runner error', { provider: name, error: err.message });

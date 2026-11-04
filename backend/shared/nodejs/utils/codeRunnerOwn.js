@@ -5,6 +5,12 @@
  * once per call and runs every input, so runs that share the same source and limits go out in one
  * invocation; grading always sends a single group.
  *
+ * Tenant isolation: the runner Lambda is deployed with TenancyConfig PER_TENANT, so every invocation carries a tenant id and
+ * Lambda never runs two tenants in the same execution environment (student code can read the runner's memory, so one
+ * student's code must never share an environment with another student's). The tenant id is the SHA-256 of the user id
+ * (hex, 64 characters), never the raw id. A call without a user id is refused. CODE_RUNNER_TENANT_ISOLATION=off is for the
+ * fallback deployment (no tenant isolation, the runner ends its process after each call): no tenant id is sent then.
+ *
  * The runner never receives the expected output (a student's code runs next to it). It answers "accepted"
  * when the program ran fine, and this provider compares the output with Judge0's rule (outputCompare.js)
  * and turns a mismatch into wrong_answer.
@@ -12,6 +18,7 @@
  * Nothing here logs source, stdin or program output.
  */
 
+const crypto = require('crypto');
 const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 const { outputMatches } = require('./outputCompare');
 
@@ -23,6 +30,11 @@ const getClient = () => {
   if (!client) client = new LambdaClient({});
   return client;
 };
+
+/** Lambda tenant id for a user: a hash, so the user id itself never leaves the backend. */
+function tenantIdFor(userId) {
+  return crypto.createHash('sha256').update(String(userId), 'utf8').digest('hex');
+}
 
 function toResult(raw) {
   return {
@@ -49,7 +61,7 @@ function withVerdict({ stdoutInvalidUtf8, ...result }, expectedOutput) {
   return { ...result, status: 'wrong_answer', statusText: 'Wrong Answer' };
 }
 
-async function invokeRunner(functionName, payload, deadlineMs) {
+async function invokeRunner(functionName, payload, deadlineMs, tenantId) {
   const controller = new AbortController();
   let timer;
   if (deadlineMs !== undefined && deadlineMs !== null) {
@@ -60,7 +72,12 @@ async function invokeRunner(functionName, payload, deadlineMs) {
 
   try {
     const response = await getClient().send(
-      new InvokeCommand({ FunctionName: functionName, InvocationType: 'RequestResponse', Payload: JSON.stringify(payload) }),
+      new InvokeCommand({
+        FunctionName: functionName,
+        InvocationType: 'RequestResponse',
+        Payload: JSON.stringify(payload),
+        ...(tenantId ? { TenantId: tenantId } : {})
+      }),
       { abortSignal: controller.signal }
     );
     const body = response.Payload ? Buffer.from(response.Payload).toString('utf-8') : '';
@@ -81,9 +98,15 @@ async function invokeRunner(functionName, payload, deadlineMs) {
   }
 }
 
-async function runBatch(runs, { deadlineMs } = {}) {
+async function runBatch(runs, { deadlineMs, userId } = {}) {
   const functionName = process.env.CODE_RUNNER_FUNCTION;
   if (!functionName) throw new Error('CODE_RUNNER_FUNCTION is not set');
+
+  let tenantId;
+  if (process.env.CODE_RUNNER_TENANT_ISOLATION !== 'off') {
+    if (userId === undefined || userId === null || userId === '') throw new Error('Own runner needs a user id for tenant isolation');
+    tenantId = tenantIdFor(userId);
+  }
 
   const groups = new Map();
   runs.forEach((run, index) => {
@@ -99,10 +122,10 @@ async function runBatch(runs, { deadlineMs } = {}) {
       runs: indexes.map(i => ({ stdin: runs[i].stdin })), // never the expected output
       timeLimitMs: first.timeLimitMs,
       memoryLimitKb: first.memoryLimitKb
-    }, deadlineMs);
+    }, deadlineMs, tenantId);
     indexes.forEach((runIndex, i) => { results[runIndex] = withVerdict(groupResults[i], runs[runIndex].expectedOutput); });
   }));
   return results;
 }
 
-module.exports = { runBatch };
+module.exports = { runBatch, tenantIdFor };

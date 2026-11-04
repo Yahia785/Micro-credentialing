@@ -77,14 +77,14 @@ async function saveGradingFailure({ submissionRecord, alreadyCreated, reason, er
  * objects parseJudge0Result produces. An internal_error (provider failure, quota, polling
  * timeout) is thrown with the provider's message so the caller's grading_failed handling is unchanged.
  */
-async function gradeCppTestCases({ code, testCasesToRun, milestone, deadlineMs }) {
+async function gradeCppTestCases({ code, testCasesToRun, milestone, deadlineMs, userId }) {
   const runs = await runCppBatch(testCasesToRun.map(testCase => ({
     source: code,
     stdin: testCase.input,
     expectedOutput: testCase.expectedOutput,
     timeLimitMs: milestone.timeLimit || 5000,
     memoryLimitKb: milestone.memoryLimit || 256000
-  })), { deadlineMs });
+  })), { deadlineMs, userId });
 
   const failed = runs.find(run => run.status === 'internal_error');
   if (failed) {
@@ -252,7 +252,7 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
   let metrics;
   try {
     if (language.toLowerCase() === 'cpp') {
-      testResults = await gradeCppTestCases({ code, testCasesToRun, milestone, deadlineMs });
+      testResults = await gradeCppTestCases({ code, testCasesToRun, milestone, deadlineMs, userId });
     } else {
       const judge0Response = await submitBatch(judge0Submissions, judge0ApiKey, judge0ApiHost);
 
