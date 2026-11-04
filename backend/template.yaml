@@ -41,6 +41,21 @@ Parameters:
     Description: Name of the Judge0 API Key secret in Secrets Manager
     Default: "micro-credentialing/judge0-api-key"
 
+  # Which code runner grades C++ submissions. judge0 (default) = Judge0; own = the C++ runner Lambda (backend/runner).
+  CodeRunner:
+    Type: String
+    Default: judge0
+    AllowedValues:
+      - judge0
+      - own
+    Description: Code runner provider for C++ grading (judge0 or own)
+
+  # Name of the deployed runner function (backend/runner stack). Only used when CodeRunner is own.
+  RunnerFunctionName:
+    Type: String
+    Default: micro-credentialing-runner-dev-recycle
+    Description: Name of the C++ runner Lambda function (used when CodeRunner is own)
+
   EmbeddedGradingMode:
     Type: String
     Default: "manual"
@@ -93,6 +108,7 @@ Globals:
         MILESTONES_TABLE: Milestones
         TESTCASES_TABLE: TestCases
         SUBMISSIONS_TABLE: Submissions
+        RUN_USAGE_TABLE: !Sub "RunUsage-${Environment}"
         COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
         JUDGE0_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${Judge0ApiKeySecretName}"
         JUDGE0_API_HOST: "judge0-ce.p.rapidapi.com"
@@ -911,8 +927,14 @@ Resources:
     Properties:
       CodeUri: functions/submissions/create/
       Handler: index.handler
-      Description: Submit code for grading with Judge0
+      Description: Submit code for grading (Judge0, or the own C++ runner when CodeRunner is own)
       Timeout: 90
+      Environment:
+        Variables:
+          CODE_RUNNER: !Ref CodeRunner
+          CODE_RUNNER_FUNCTION: !Ref RunnerFunctionName
+          # The runner deployment has no Lambda tenant isolation (our account cannot use it), so no tenant id is sent.
+          CODE_RUNNER_TENANT_ISOLATION: "off"
       Events:
         SubmitCode:
           Type: Api
@@ -946,6 +968,13 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource:
                 - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${Judge0ApiKeySecretName}*"
+        # Only this function (the one that grades C++) may invoke the runner, and only that function.
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerFunctionName}"
 
   # ------------------------------------------
   # LAMBDA: Get Submission
@@ -1580,6 +1609,26 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  # ------------------------------------------
+  # TABLE: RunUsage (counters for the Run limits; counts only, never code)
+  # ------------------------------------------
+  # pk = run#<user>#<assessment> | agent#<user>#<interview> | minute#<user>#<minute>. Only the per-minute counters carry
+  # expiresAt, which the TTL below removes. Name includes the environment, so dev and production never share it.
+  RunUsageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "RunUsage-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
 # ==========================================
 # OUTPUTS
 # ==========================================
@@ -1613,6 +1662,10 @@ Outputs:
   SubmissionsTableName:
     Description: "DynamoDB Submissions Table"
     Value: Submissions
+
+  RunUsageTableName:
+    Description: "DynamoDB table with the Run usage counters"
+    Value: !Ref RunUsageTable
 
   SharedCodeLayerArn:
     Description: "ARN of the shared code layer"

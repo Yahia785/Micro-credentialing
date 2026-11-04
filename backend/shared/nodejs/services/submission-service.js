@@ -12,7 +12,7 @@ const {
   parseJudge0Result,
   calculateMetrics
 } = require('../utils/judge0');
-const { runCppBatch } = require('../utils/codeRunner');
+const { runCppBatch, getCodeRunnerName } = require('../utils/codeRunner');
 const { ValidationError, NotFoundError, ExternalServiceError } = require('../utils/errors');
 const { END_REASONS, parseEndedBy } = require('../utils/submission-end-reason');
 
@@ -183,42 +183,47 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
     updatedAt: new Date().toISOString()
   };
 
-  // Get Judge0 credentials from Secrets Manager
-  let judge0Credentials;
-  try {
-    judge0Credentials = await getJudge0Credentials();
-  } catch (error) {
-    log.error('Could not load Judge0 credentials', { error: error.message });
-    // Nothing has been saved yet: save the student's work for instructor review.
-    return saveGradingFailure({ submissionRecord, alreadyCreated: false, reason: 'error', errorMessage: error.message });
-  }
-  const { apiKey: judge0ApiKey, apiHost: judge0ApiHost } = judge0Credentials;
+  // Judge0 credentials are only needed when Judge0 will run the code: any non-C++ language, or C++ with CODE_RUNNER=judge0.
+  // With CODE_RUNNER=own, C++ goes to our own runner and the Judge0 key is never read.
+  let judge0ApiKey;
+  let judge0ApiHost;
+  if (language.toLowerCase() !== 'cpp' || getCodeRunnerName() === 'judge0') {
+    let judge0Credentials;
+    try {
+      judge0Credentials = await getJudge0Credentials();
+    } catch (error) {
+      log.error('Could not load Judge0 credentials', { error: error.message });
+      // Nothing has been saved yet: save the student's work for instructor review.
+      return saveGradingFailure({ submissionRecord, alreadyCreated: false, reason: 'error', errorMessage: error.message });
+    }
+    ({ apiKey: judge0ApiKey, apiHost: judge0ApiHost } = judge0Credentials);
 
-  if (!judge0ApiKey || judge0ApiKey === 'dummy-key-for-testing') {
-    log.error('JUDGE0_API_KEY not configured, returning mock response');
+    if (!judge0ApiKey || judge0ApiKey === 'dummy-key-for-testing') {
+      log.error('JUDGE0_API_KEY not configured, returning mock response');
 
-    // Return a test response without calling Judge0
-    const mockSubmission = {
-      submissionId,
-      userId,
-      milestoneId,
-      code,
-      language,
-      status: 'pending',
-      endedBy,
-      message: 'Judge0 not configured. Submission created but not executed.',
-      passedTests: 0,
-      totalTests: testCasesToRun.length,
-      score: 0,
-      testResults: [],
-      credentialAwarded: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+      // Return a test response without calling Judge0
+      const mockSubmission = {
+        submissionId,
+        userId,
+        milestoneId,
+        code,
+        language,
+        status: 'pending',
+        endedBy,
+        message: 'Judge0 not configured. Submission created but not executed.',
+        passedTests: 0,
+        totalTests: testCasesToRun.length,
+        score: 0,
+        testResults: [],
+        credentialAwarded: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-    await createSubmission(mockSubmission);
+      await createSubmission(mockSubmission);
 
-    return mockSubmission;
+      return mockSubmission;
+    }
   }
 
   // Get language ID for Judge0

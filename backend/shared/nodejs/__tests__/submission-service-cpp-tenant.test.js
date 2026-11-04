@@ -6,7 +6,7 @@ jest.mock('../db/milestones');
 jest.mock('../db/users');
 jest.mock('../utils/logger', () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }));
 jest.mock('../utils/secrets', () => ({ getSecret: jest.fn(async () => 'mock-key') }));
-jest.mock('../utils/codeRunner', () => ({ runCppBatch: jest.fn() }));
+jest.mock('../utils/codeRunner', () => ({ runCppBatch: jest.fn(), getCodeRunnerName: jest.fn(() => 'own') }));
 
 const { getSecret } = require('../utils/secrets');
 const { runCppBatch } = require('../utils/codeRunner');

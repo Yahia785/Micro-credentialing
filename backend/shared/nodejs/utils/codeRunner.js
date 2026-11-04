@@ -41,7 +41,7 @@ function internalError(message) {
 }
 
 function loadProvider() {
-  const name = process.env.CODE_RUNNER || 'judge0';
+  const name = getCodeRunnerName();
   const load = PROVIDERS[name];
   if (!load) {
     log.error('Unknown CODE_RUNNER provider', { provider: name });
@@ -75,4 +75,9 @@ async function runCppBatch(runs, { deadlineMs, userId } = {}) {
   }
 }
 
-module.exports = { runCpp, runCppBatch };
+/** Name of the active provider ('judge0' unless CODE_RUNNER says otherwise). */
+function getCodeRunnerName() {
+  return process.env.CODE_RUNNER || 'judge0';
+}
+
+module.exports = { runCpp, runCppBatch, getCodeRunnerName };
