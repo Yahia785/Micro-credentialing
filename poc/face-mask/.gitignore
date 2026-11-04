@@ -1,0 +1,12 @@
+node_modules
+dist
+**/public/wasm
+**/public/models
+recordings/
+.venv
+__pycache__
+**/analysis/out
+*.webm
+*.jsonl
+*.pyc
+.pytest_cache
