@@ -3,14 +3,15 @@
 // Checks the DEPLOYED runner and prints PASS / FAIL tables:
 //   (a) the launcher started the program safely (diagnostics.sandboxStep is none). diagnostics.seccomp and .landlock are
 //       INFO only: standard Lambda refuses our seccomp filter and has no Landlock; Lambda's own filter is the sandbox there
-//   (b) student code cannot connect to 1.1.1.1:443 or 169.254.100.1:9001. 127.0.0.1:9001 (the Lambda Runtime API) is reported
-//       as INFO: without our seccomp filter student code can reach it (see SECURITY.md)
+//   (b) student code cannot connect to 1.1.1.1:443. 169.254.100.1:9001 and 127.0.0.1:9001 (the Lambda Runtime API) are
+//       reported as INFO: Lambda cannot block them, so student code can reach them (see SECURITY.md, limit 1)
 //   (c) a program that prints its own environment (and a child's) shows no AWS variables
 //   (d) no event this script sends contains expectedOutput, and the runner rejects an event that does
 //   (e) IAM, with YOUR credentials (aws iam simulate-principal-policy on the runner role): ec2:CreateNetworkInterface is
 //       denied when lambda:SourceFunctionArn is the runner's ARN (and allowed without it, so Lambda's own networking works);
 //       s3:ListAllMyBuckets, dynamodb:Scan and secretsmanager:GetSecretValue are denied
-//   (f) the full hostile corpus (hostile.js). Cases that rely on Landlock or on our seccomp filter are marked SKIP when the
+//   (f) the full hostile corpus (hostile.js). An outbound-connect case (hostile.js `outbound: true`) that ends as time_limit counts
+//       as a pass: the VPC drops packets, the connect hangs, no connection was made. Cases that rely on Landlock or on our seccomp filter are marked SKIP when the
 //       platform did not give us that protection.
 //   (g) isolation between students: with tenant isolation, calls with different tenant ids never share an execution
 //       environment (environment ids compared), and a call without a tenant id is refused; and, always (custom runtime,
@@ -142,9 +143,14 @@ async function sandboxChecks(config) {
   const shaped = !!ro && ro.status === 'accepted' && lines.length === 3 && wanted.every((w, i) => lines[i].startsWith(w));
   const connected = address => lines.some(l => l.startsWith(address) && /CONNECTED/.test(l));
   record(t, '(b) a socket connect to 1.1.1.1:443 (the internet) fails', pass(shaped && !connected('1.1.1.1:443')), ro ? lines[0] : (out.functionError || 'no result'));
-  record(t, '(b) a socket connect to 169.254.100.1:9001 fails', pass(shaped && !connected('169.254.100.1:9001')), ro ? lines[1] : (out.functionError || 'no result'));
-  record(t, '(info) a socket connect to 127.0.0.1:9001 (the Lambda Runtime API)', 'INFO',
-    ro ? `${lines[2]}${connected('127.0.0.1:9001') ? '  <- reachable from student code; see SECURITY.md' : ''}` : (out.functionError || 'no result'));
+  // 169.254.100.1:9001 and 127.0.0.1:9001 are the Lambda Runtime API inside the sandbox. It cannot be blocked on Lambda
+  // (the runtime needs it, and our seccomp filter is refused), so reaching it is a documented risk, not a failure:
+  // SECURITY.md limit 1. Why grades still cannot be faked: the runner never has the expected output.
+  const api = 'the Lambda Runtime API, reachable by design; SECURITY.md limit 1';
+  record(t, `(info) a socket connect to 169.254.100.1:9001 (${api})`, 'INFO',
+    ro ? `${lines[1]}${connected('169.254.100.1:9001') ? '  <- reachable from student code' : ''}` : (out.functionError || 'no result'));
+  record(t, `(info) a socket connect to 127.0.0.1:9001 (${api})`, 'INFO',
+    ro ? `${lines[2]}${connected('127.0.0.1:9001') ? '  <- reachable from student code' : ''}` : (out.functionError || 'no result'));
 
   const env = await invoke(one(ENV_PRINT));
   const re = env.body.results && env.body.results[0];
@@ -232,6 +238,9 @@ async function hostileCorpus({ landlock, seccomp }) {
       if (r && r.status !== 'internal_error') problems.push(`expected the function to fail, got ${r.status}`);
     } else if (!r) {
       problems.push(functionError ? `function error: ${functionError}` : 'no result');
+    } else if (c.outbound && r.status === 'time_limit' && !/CONNECTED|FETCHED/.test(r.stdout)) {
+      // An outbound connect that is silently dropped (the VPC drops packets instead of refusing them) hangs until the time
+      // limit. No connection was made, so that is a pass, like the program printing "blocked".
     } else {
       if (c.expect !== 'any' && r.status !== c.expect) problems.push(`status ${r.status}, wanted ${c.expect}`);
       if (c.expectStdout !== undefined && r.stdout.trim() !== c.expectStdout) problems.push(`stdout ${JSON.stringify(r.stdout.trim().slice(0, 80))}, wanted ${JSON.stringify(c.expectStdout)}`);

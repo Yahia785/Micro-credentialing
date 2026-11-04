@@ -47,7 +47,7 @@ CodeBuild pulls the public GitHub repo, so the branch must be committed and push
 3. Commit and push the branch: `git push origin feature/cpp-runner`
 4. Build and push the image in AWS: `powershell -File scripts\build-in-aws.ps1 -Branch feature/cpp-runner`. It starts the build, waits for it, tags the image `runnerfunction-<12-char commit>-<env>`, reads the digest from ECR with `aws ecr describe-images`, checks the image exists, and writes `.aws-sam/deploy-template.yaml` (UTF-8, no BOM) with `ImageUri` set to `<repo>@<digest>`.
 5. Deploy the runner: `sam deploy --config-file "$PWD\samconfig-dev.toml" --config-env dev`. `samconfig-dev.toml` sets `template_file = ".aws-sam/deploy-template.yaml"` and `resolve_image_repos = false`, so SAM builds and pushes nothing.
-6. Check the deployed function: `node test\run-deployed.js micro-credentialing-runner-dev-recycle [--region us-east-1]`. It prints PASS/FAIL tables for: the launcher started the program safely (seccomp and Landlock are INFO only); sockets to 1.1.1.1:443 and 169.254.100.1:9001 fail (127.0.0.1:9001, the Runtime API, is INFO); with tenant isolation on, different tenant ids never share an execution environment and a call without a tenant id is refused; always, 10 sequential calls each run in a fresh worker (call #1) with no FunctionError, and the wall time of each call is printed; no AWS variables in the program's environment; no event contains `expectedOutput`; IAM (uses your own AWS credentials, needs `iam:SimulatePrincipalPolicy`); and the full hostile corpus. Cases that depend on Landlock show SKIP on standard Lambda.
+6. Check the deployed function: `node test\run-deployed.js micro-credentialing-runner-dev-recycle [--region us-east-1]`. It prints PASS/FAIL tables for: the launcher started the program safely (seccomp and Landlock are INFO only); a socket to 1.1.1.1:443 fails (169.254.100.1:9001 and 127.0.0.1:9001, the Lambda Runtime API, are INFO: reachable by design, see SECURITY.md); an outbound-connect hostile case that ends as `time_limit` counts as a pass (the VPC drops packets, nothing connected); with tenant isolation on, different tenant ids never share an execution environment and a call without a tenant id is refused; always, 10 sequential calls each run in a fresh worker (call #1) with no FunctionError, and the wall time of each call is printed; no AWS variables in the program's environment; no event contains `expectedOutput`; IAM (uses your own AWS credentials, needs `iam:SimulatePrincipalPolicy`); and the full hostile corpus. Cases that depend on Landlock show SKIP on standard Lambda.
 
 For a later runner change, repeat steps 3 to 6. The build role can only push to the one repository and write its own log
 group. `ecr:GetAuthorizationToken` is the only action on `*` (AWS does not allow limiting it).
@@ -56,6 +56,14 @@ group. `ecr:GetAuthorizationToken` is the only action on `*` (AWS does not allow
 
 Needs `sam build --config-file "$PWD\samconfig-dev.toml" --config-env dev` and crane at `D:\tools\crane\crane.exe`. Replaces steps 3 and 4:
 `powershell -File scripts\push-image.ps1` (saves the image to a temporary tar, pushes it with crane in up to 5 resuming attempts, reads the digest from ECR, checks the image exists, writes the same `.aws-sam/deploy-template.yaml`).
+
+### Comparing with Judge0, and load testing
+
+* `node scripts/compare-judge0.js [--limit n] [--skip n] [--only 1,3] [--dry-run]` runs the 29-program fixture (37 runs) through the Judge0
+  provider (the real key, read from Secrets Manager like the backend does) and the deployed runner, one Judge0 batch per program, prints the
+  statuses side by side and the mismatches. It prints how many Judge0 requests it will make (free tier: about 50 a day) and asks for "yes" first.
+* `node scripts/stress-runner.js [--dry-run]` loads the deployed runner only (never Judge0): ramp of 1, 5, 10, 25, 50, 100 parallel calls, then
+  2 calls/s for 3 minutes, with the account limit and reserved concurrency printed first and a confirmation. See the header of the script for its safety rules.
 
 ### Diagnosing "sandbox unavailable"
 

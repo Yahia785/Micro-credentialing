@@ -117,8 +117,8 @@ So **Lambda's own seccomp filter is the system-call sandbox, and ours cannot be 
   the tenant rules; `test/once.test.js` (one worker, one invocation, against a fake Runtime API) and `test/run-fresh.js` (10 sequential
   calls through the Lambda Runtime Interface Emulator: no error, 10 different workers, one bootstrap).
 * `scripts/diagnose.ps1` (and `sandbox-probe`) report what the deployed platform allows, step by step.
-* `test/run-deployed.js` checks the **deployed** function: the launcher starts the program safely; sockets to the internet and
-  `169.254.100.1:9001` fail; the program sees no AWS variables; no event ever contains `expectedOutput` and the runner refuses
+* `test/run-deployed.js` checks the **deployed** function: the launcher starts the program safely; a socket to the internet fails (the Runtime API addresses `169.254.100.1:9001`
+  and `127.0.0.1:9001` are reported as information: they are reachable, see limit 1; an outbound connect that hangs until the time limit counts as blocked); the program sees no AWS variables; no event ever contains `expectedOutput` and the runner refuses
   one that does; IAM simulation shows the network-interface deny and that S3, DynamoDB and Secrets Manager are denied; calls with
   different tenant ids never share an execution environment (and a call without a tenant id is refused) when tenant isolation is on; 10 sequential
   calls each run in a fresh worker (call #1) with no FunctionError, with the wall time of each; and the whole hostile corpus passes. It also reports, as information, what our seccomp/Landlock did, whether the Runtime API is reachable and what
@@ -128,7 +128,8 @@ So **Lambda's own seccomp filter is the system-call sandbox, and ours cannot be 
 
 These are known, accepted limits.
 
-1. **The Lambda Runtime API is reachable from student code.** It listens on `127.0.0.1` inside the environment and nothing on
+1. **The Lambda Runtime API is reachable from student code.** This is plain fact, measured on the deployed runner: it answers on
+   `169.254.100.1:9001` and `127.0.0.1:9001` inside the environment and nothing on
    standard Lambda stops a program from connecting to it (our seccomp filter would, but Lambda refuses it). Through it, a program can
    read the event of the call it runs in (its own source and test inputs), call `/runtime/invocation/next` or post an
    error, and **post its own response for the current call**. That last one matters for grading: the program can make the runner

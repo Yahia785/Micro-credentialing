@@ -88,10 +88,10 @@ int main(){
     source: `#include <cstdio>
 int main(){ long r; asm volatile("int $0x80" : "=a"(r) : "a"(102L), "b"(1L), "c"(0L) : "memory"); printf("r=%ld\\n", r); }` },
 
-  { name: 'socket connect', expect: 'accepted', expectStdout: 'blocked',
+  { name: 'socket connect', outbound: true, expect: 'accepted', expectStdout: 'blocked',
     source: `#include <sys/socket.h>\n#include <netinet/in.h>\n#include <arpa/inet.h>\n#include <cstdio>\nint main(){ int s=socket(AF_INET,SOCK_STREAM,0); sockaddr_in a{}; a.sin_family=AF_INET; a.sin_port=htons(80); inet_pton(AF_INET,"1.1.1.1",&a.sin_addr); if(s>=0 && connect(s,(sockaddr*)&a,sizeof a)==0){ puts("CONNECTED"); } else puts("blocked"); }` },
 
-  { name: 'curl via system()', expect: 'accepted', expectStdout: 'blocked',
+  { name: 'curl via system()', outbound: true, expect: 'accepted', expectStdout: 'blocked',
     source: `#include <cstdlib>\n#include <cstdio>\nint main(){ int rc=system("curl -m 2 http://1.1.1.1 >/dev/null 2>&1"); puts(rc==0 ? "FETCHED" : "blocked"); }` },
 
   { name: 'read /proc/*/environ for the secret', needsLandlock: true, expect: 'accepted', expectStdout: 'safe',
