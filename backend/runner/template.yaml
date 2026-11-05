@@ -25,6 +25,13 @@ Parameters:
     AllowedValues:
       - 'on'
       - 'off'
+  # Reserved concurrency of the runner function: a guarantee AND a cap (the runner can never run more than this many
+  # invocations at once, and these are taken out of the account's pool for the other functions). The stress test
+  # recommended 35; the default leaves room for bursts. AWS keeps at least 100 unreserved.
+  ReservedConcurrency:
+    Type: Number
+    Default: 100
+    MinValue: 1
 
 Mappings:
   Mode:
@@ -163,6 +170,7 @@ Resources:
         - x86_64
       MemorySize: 1769 # one full vCPU
       Timeout: 30
+      ReservedConcurrentExecutions: !Ref ReservedConcurrency
       # Only logs and network interfaces (RunnerRole). No other policy, no secrets. The variable is a switch, not a secret.
       # No ImageConfig: the image's own ENTRYPOINT (the bootstrap of the custom runtime) is used.
       Role: !GetAtt RunnerRole.Arn

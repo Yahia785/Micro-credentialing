@@ -427,9 +427,12 @@ Resources:
             Method: OPTIONS
             Auth:
               Authorizer: NONE
+      # Users read: the list hides isHidden problems from everyone but admins (role lookup).
       Policies:
         - DynamoDBReadPolicy:
             TableName: Milestones
+        - DynamoDBReadPolicy:
+            TableName: Users
 
   # ------------------------------------------
   # LAMBDA: Update Milestone
