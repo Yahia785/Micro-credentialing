@@ -1,5 +1,5 @@
 import { NUM_FACES, ONE_EURO_GAZE, ONE_EURO_POSE } from "./config";
-import { LM, type Landmark } from "./math";
+import type { Offset } from "./math";
 import { OneEuroFilter } from "./oneEuro";
 
 export interface Readings {
@@ -33,31 +33,27 @@ export class ReadingSmoother {
   }
 }
 
-const IRIS_IDX = [LM.rEye.iris, ...LM.rEye.irisRing, LM.lEye.iris, ...LM.lEye.irisRing];
-
-/** Smooths the iris landmarks (in pixels) that are used to draw the pupils. */
-export class IrisSmoother {
+/**
+ * Smooths the iris OFFSET inside each eye (not the absolute iris pixels), so that when the head moves
+ * the pupil keeps up with the eye. The eye centre is never smoothed.
+ */
+export class IrisOffsetSmoother {
   private filters: OneEuroFilter[][] = Array.from({ length: NUM_FACES }, () =>
-    IRIS_IDX.flatMap(() => [new OneEuroFilter(ONE_EURO_POSE), new OneEuroFilter(ONE_EURO_POSE)]),
+    Array.from({ length: 4 }, () => new OneEuroFilter(ONE_EURO_GAZE)),
   );
 
-  /** Returns a copy of the landmarks with smoothed iris points. */
-  smooth(faceIdx: number, lm: ArrayLike<Landmark>, w: number, h: number, tMs: number): Landmark[] {
-    const out = Array.from(lm);
-    const fl = this.filters[faceIdx];
-    if (!fl) return out;
-    IRIS_IDX.forEach((idx, i) => {
-      out[idx] = {
-        x: fl[2 * i].filter(lm[idx].x * w, tMs) / w,
-        y: fl[2 * i + 1].filter(lm[idx].y * h, tMs) / h,
-        z: lm[idx].z,
-      };
-    });
-    return out;
+  /** offsets: [image-left eye, image-right eye]. Returns the smoothed offsets. */
+  smooth(faceIdx: number, offsets: [Offset, Offset], tMs: number): [Offset, Offset] {
+    const f = this.filters[faceIdx];
+    if (!f) return offsets;
+    return [
+      { x: f[0].filter(offsets[0].x, tMs), y: f[1].filter(offsets[0].y, tMs) },
+      { x: f[2].filter(offsets[1].x, tMs), y: f[3].filter(offsets[1].y, tMs) },
+    ];
   }
 
   /** Call for every face slot that had no face this frame. */
   resetFace(faceIdx: number): void {
-    this.filters[faceIdx]?.forEach((f) => f.reset());
+    this.filters[faceIdx]?.forEach((x) => x.reset());
   }
 }

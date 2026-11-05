@@ -113,6 +113,78 @@ export function gazeFromLandmarks(lm: ArrayLike<Landmark>, w: number, h: number)
   };
 }
 
+/** Eye height is never taken smaller than this share of eye width (a blink must not blow up the offset). */
+export const EYE_MIN_HEIGHT_RATIO = 0.3;
+
+export interface EyeGeom {
+  /** Eye centre (midpoint of the two corners), pixels. */
+  cx: number;
+  cy: number;
+  /** Unit vector along the eye (image left corner to image right corner). */
+  ux: number;
+  uy: number;
+  /** Unit vector across the eye, pointing down. */
+  vx: number;
+  vy: number;
+  width: number;
+  height: number;
+}
+export interface Offset {
+  x: number;
+  y: number;
+}
+
+/** Current geometry of one eye, from the CURRENT frame's landmarks (never smoothed). */
+export function eyeGeometry(lm: ArrayLike<Landmark>, e: EyeIdx, w: number, h: number): EyeGeom {
+  const a = { x: lm[e.imgLeft].x * w, y: lm[e.imgLeft].y * h };
+  const b = { x: lm[e.imgRight].x * w, y: lm[e.imgRight].y * h };
+  const width = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const ux = (b.x - a.x) / width;
+  const uy = (b.y - a.y) / width;
+  const vx = -uy;
+  const vy = ux;
+  const t = { x: lm[e.top].x * w, y: lm[e.top].y * h };
+  const u = { x: lm[e.bottom].x * w, y: lm[e.bottom].y * h };
+  const lid = Math.hypot(u.x - t.x, u.y - t.y);
+  return { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, ux, uy, vx, vy, width, height: Math.max(lid, EYE_MIN_HEIGHT_RATIO * width) };
+}
+
+/** Iris position relative to the eye centre, in units of eye width (x, along the eye) and eye height (y, across). */
+export function irisOffset(lm: ArrayLike<Landmark>, e: EyeIdx, w: number, h: number): Offset {
+  const g = eyeGeometry(lm, e, w, h);
+  const dx = lm[e.iris].x * w - g.cx;
+  const dy = lm[e.iris].y * h - g.cy;
+  return { x: (dx * g.ux + dy * g.uy) / g.width, y: (dx * g.vx + dy * g.vy) / g.height };
+}
+
+/** Offsets of both eyes, in EYES order (image-left eye first). */
+export function irisOffsets(lm: ArrayLike<Landmark>, w: number, h: number): [Offset, Offset] {
+  return [irisOffset(lm, EYES[0], w, h), irisOffset(lm, EYES[1], w, h)];
+}
+
+/**
+ * Where to draw the pupil: CURRENT eye centre + (smoothed offset x CURRENT eye size), then clamped
+ * inside the eye ellipse (semi-axes rx along the eye, ry across, minus the pupil radius).
+ */
+export function pupilPlacement(g: EyeGeom, off: Offset, rx: number, ry: number, pupilR: number): Pt {
+  let a = off.x * g.width;
+  let b = off.y * g.height;
+  const A = Math.max(rx - pupilR, 0);
+  const B = Math.max(ry - pupilR, 0);
+  if (A === 0 || B === 0) {
+    a = 0;
+    b = 0;
+  } else {
+    const k = (a / A) ** 2 + (b / B) ** 2;
+    if (k > 1) {
+      const s = 1 / Math.sqrt(k);
+      a *= s;
+      b *= s;
+    }
+  }
+  return { x: g.cx + a * g.ux + b * g.vx, y: g.cy + a * g.uy + b * g.vy };
+}
+
 /** Convex hull (Andrew's monotone chain). */
 export function convexHull(points: Pt[]): Pt[] {
   const pts = [...points].sort((p, q) => p.x - q.x || p.y - q.y);

@@ -1,4 +1,4 @@
-import { LM, boundingBox, faceShape, type Landmark, type Pt } from "./math";
+import { EYES, LM, boundingBox, eyeGeometry, faceShape, irisOffsets, pupilPlacement, type Landmark, type Offset, type Pt } from "./math";
 import type { MaskOptions } from "./config";
 
 type Ctx = CanvasRenderingContext2D;
@@ -10,6 +10,8 @@ export function drawFaceMask(
   w: number,
   h: number,
   o: MaskOptions,
+  /** Smoothed iris offsets [image-left eye, image-right eye]. null = this frame's raw offsets. */
+  offsets: [Offset, Offset] | null = null,
 ): [number, number, number, number] | null {
   const px = (i: number): Pt => ({ x: lm[i].x * w, y: lm[i].y * h });
 
@@ -28,43 +30,40 @@ export function drawFaceMask(
   ctx.strokeStyle = o.outlineColor;
   ctx.stroke();
 
-  // 2. Cartoon eyes: ellipse from corners + lids, pupil at the real iris.
-  for (const eye of [LM.rEye, LM.lEye]) {
-    const c1 = px(eye.outer);
-    const c2 = px(eye.inner);
-    const top = px(eye.top);
-    const bot = px(eye.bottom);
-    const iris = px(eye.iris);
-    const cx = (c1.x + c2.x) / 2;
-    const cy = (c1.y + c2.y) / 2;
-    const width = Math.hypot(c2.x - c1.x, c2.y - c1.y);
-    const rx = width * 0.62;
-    const ry = Math.max(Math.hypot(bot.x - top.x, bot.y - top.y) * 0.75, rx * 0.3);
-    const rot = Math.atan2(c2.y - c1.y, c2.x - c1.x);
+  // 2. Cartoon eyes: ellipse from corners + lids. The pupil sits at the CURRENT eye centre plus the
+  //    (smoothed) iris offset times the CURRENT eye size, so it moves with the eye in the same frame.
+  const offs = offsets ?? irisOffsets(lm, w, h);
+  [LM.rEye, LM.lEye].forEach((eye, i) => {
+    const g = eyeGeometry(lm, EYES[i], w, h);
+    const rx = g.width * 0.62;
+    const ry = Math.max(g.height * 0.75, rx * 0.3);
+    const rot = Math.atan2(g.uy, g.ux);
     ctx.beginPath();
-    ctx.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
+    ctx.ellipse(g.cx, g.cy, rx, ry, rot, 0, Math.PI * 2);
     ctx.fillStyle = "#ffffff";
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = o.outlineColor;
     ctx.stroke();
 
+    const iris = px(eye.iris);
     let irisR = 0;
-    for (const i of eye.irisRing) {
-      const q = px(i);
+    for (const k of eye.irisRing) {
+      const q = px(k);
       irisR += Math.hypot(q.x - iris.x, q.y - iris.y);
     }
-    irisR = Math.max(irisR / eye.irisRing.length, width * 0.12);
+    irisR = Math.max(irisR / eye.irisRing.length, g.width * 0.12);
+    const pupil = pupilPlacement(g, offs[i], rx, ry, irisR);
     ctx.save();
     ctx.beginPath();
-    ctx.ellipse(cx, cy, rx, ry, rot, 0, Math.PI * 2);
+    ctx.ellipse(g.cx, g.cy, rx, ry, rot, 0, Math.PI * 2);
     ctx.clip();
     ctx.beginPath();
-    ctx.arc(iris.x, iris.y, irisR, 0, Math.PI * 2);
+    ctx.arc(pupil.x, pupil.y, irisR, 0, Math.PI * 2);
     ctx.fillStyle = "#1b1b1b";
     ctx.fill();
     ctx.restore();
-  }
+  });
 
   // 3. Nose dot (shows head direction).
   const nose = px(LM.noseTip);

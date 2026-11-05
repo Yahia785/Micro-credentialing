@@ -16,10 +16,10 @@ import {
   type MaskOptions,
 } from "./config";
 import { drawFaceMask, drawLostBanner, drawPixelated } from "./mask";
-import { BLENDSHAPE_KEYS, blendshapeGazeH, gazeFromLandmarks, headPoseFromMatrix } from "./math";
+import { BLENDSHAPE_KEYS, blendshapeGazeH, gazeFromLandmarks, headPoseFromMatrix, irisOffsets } from "./math";
 import { RecordingSession, type FrameRecord } from "./recorder";
 import { evaluateSetup, faceBoxFromLandmarks, lumaStats, type Check } from "./setup";
-import { IrisSmoother, ReadingSmoother, type Readings } from "./smoothing";
+import { IrisOffsetSmoother, ReadingSmoother, type Readings } from "./smoothing";
 import { Tracker } from "./tracker";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -71,7 +71,7 @@ let session: RecordingSession | null = null;
 let stopping = false;
 
 const smoother = new ReadingSmoother();
-const irisSmoother = new IrisSmoother();
+const irisSmoother = new IrisOffsetSmoother();
 
 // setup + calibration state
 let latestChecks: Check[] = [];
@@ -207,7 +207,7 @@ function processFrame(): void {
   } else {
     outCtx.drawImage(snap, 0, 0, w, h);
     faces.forEach((lm, i) => {
-      const box = drawFaceMask(outCtx, irisSmoother.smooth(i, lm, w, h, t0), w, h, maskOptions);
+      const box = drawFaceMask(outCtx, lm, w, h, maskOptions, irisSmoother.smooth(i, irisOffsets(lm, w, h), t0));
       if (box) maskBoxes.push(box);
     });
     for (let i = faces.length; i < 2; i++) irisSmoother.resetFace(i);
