@@ -62,7 +62,11 @@ def build_frames(fps: float, seconds: float, away: list[tuple[float, float, str]
     return frames
 
 
-def write_sidecar(folder: Path, rec_id: str, fps: float, frames, keys, labels):
+FAST_EDGES = (0.07, 0.33)    # gazeH at the left / right screen edge: about +/-0.13 from the baseline 0.2 (as seen on the real test)
+LOW_EDGES = (0.12, 0.45)     # an asymmetric person: -0.08 on one side, +0.25 on the other
+
+
+def write_sidecar(folder: Path, rec_id: str, fps: float, frames, keys, labels, edges=FAST_EDGES):
     dur = frames[-1]["t"] / 1000
     lines = [{"type": "header", "id": rec_id, "laptop": rec_id.split("_")[0], "scenario": rec_id.split("_")[1],
               "start": "2026-11-04T10:00:00.000Z", "width": 320, "height": 240, "delegate": "GPU" if fps > 15 else "CPU",
@@ -70,7 +74,11 @@ def write_sidecar(folder: Path, rec_id: str, fps: float, frames, keys, labels):
               "setup": {"passed": True, "continuedAnyway": False, "failedChecks": []},
               "calibration": {"baseline": {"yaw": BASE_YAW, "pitch": 0.0, "gazeH": BASE_GAZE, "gazeV": 0.0, "blendH": BASE_BLEND},
                               "baselineRaw": {"yaw": BASE_YAW, "pitch": 0.0, "gazeH": BASE_GAZE, "gazeV": 0.0, "blendH": BASE_BLEND},
-                              "samples": 100}}]
+                              "samples": 100,
+                              "edges": {"left": {"yaw": -18.0, "gazeH": edges[0], "blendH": BASE_BLEND - (BASE_GAZE - edges[0]) / 2},
+                                        "right": {"yaw": 18.0, "gazeH": edges[1], "blendH": BASE_BLEND + (edges[1] - BASE_GAZE) / 2},
+                                        "leftRaw": {"yaw": -18.0, "gazeH": edges[0], "blendH": BASE_BLEND - (BASE_GAZE - edges[0]) / 2},
+                                        "rightRaw": {"yaw": 18.0, "gazeH": edges[1], "blendH": BASE_BLEND + (edges[1] - BASE_GAZE) / 2}}}}]
     ki = 0
     for f in frames:
         while ki < len(keys) and keys[ki] * 1000 <= f["t"]:
@@ -133,14 +141,30 @@ def main() -> int:
 
     # B: low-end laptop, ~10 fps, 20 s, 20% of frames lost around 5-9 s. One label found.
     fb = build_frames(10, 20, [(10, 12, "yaw")], [(5, 9)], 2)
-    write_sidecar(out, "lowend_second-screen_20261104-101000", 10, fb, keys=[], labels=[(10, 12, "look-away")])
+    write_sidecar(out, "lowend_second-screen_20261104-101000", 10, fb, keys=[], labels=[(10, 12, "look-away")], edges=LOW_EDGES)
     write_video(out, "lowend_second-screen_20261104-101000", 10, 6, lost=[(5, 9)])
-    # C and D: "normal" clips, the person sits still. C is a good setup. D is a dim, noisy low-end setup:
+    # C and D: "normal" clips (D runs at 12 fps = "OK (minimum)"), the person sits still. C is a good setup. D is a dim, noisy low-end setup:
     # raw gaze jitters a lot, smoothing calms it down.
     fc = build_frames(25, 60, [], [], 3, noise=(1.5, 0.08, 0.05))
     write_sidecar(out, "fastlaptop_normal_20261104-102000", 25, fc, keys=[5.0, 6.0], labels=[])
-    fd = build_frames(10, 60, [], [], 4, noise=(4.0, 0.30, 0.22))
-    write_sidecar(out, "lowend_normal_20261104-103000", 10, fd, keys=[], labels=[])
+    fd = build_frames(12, 60, [], [], 4, noise=(4.0, 0.30, 0.22))
+    write_sidecar(out, "lowend_normal_20261104-103000", 12, fd, keys=[], labels=[], edges=LOW_EDGES)
+    # A fake speed-test file in the format the page downloads, so speed_report.py can be tried.
+    def res(delegate, detect, fps, p10, det, lost, sr):
+        ok = fps is not None
+        return {"delegate": delegate, "detect": detect, "available": ok, "frames": int(fps * 15) if ok else 0,
+                "lostFrames": lost, "avgFps": fps, "p10Fps": p10, "meanDetectMs": det,
+                "std": {"yawRaw": sr[0], "yaw": sr[1], "gazeHRaw": sr[2], "gazeH": sr[3], "blendHRaw": sr[4], "blendH": sr[5]}
+                if ok else {}, **({} if ok else {"note": "GPU not available"})}
+    speed = {"laptop": "lowend", "time": "2026-11-04T10:40:00.000Z", "userAgent": "synthetic", "width": 1280, "height": 720,
+             "measuredSeconds": 15, "cancelled": False, "results": [
+                 res("GPU", 640, 16.2, 13.1, 49.0, 0, (1.2, 0.5, 0.09, 0.03, 0.06, 0.02)),
+                 res("GPU", 480, 21.0, 17.5, 33.0, 0, (1.3, 0.5, 0.10, 0.03, 0.07, 0.02)),
+                 res("GPU", 320, 27.4, 24.0, 20.0, 2, (1.9, 0.7, 0.14, 0.05, 0.10, 0.04)),
+                 res("CPU", 640, 7.9, 6.0, 118.0, 0, (1.1, 0.5, 0.08, 0.03, 0.05, 0.02)),
+                 res("CPU", 480, 11.6, 9.0, 82.0, 0, (1.3, 0.5, 0.10, 0.03, 0.07, 0.02)),
+                 res("CPU", 320, 16.8, 13.5, 55.0, 1, (1.8, 0.7, 0.13, 0.05, 0.10, 0.04))]}
+    (out / "speedtest-lowend-20261104-104000.json").write_text(json.dumps(speed, indent=2), encoding="utf-8")
     print(f"Wrote synthetic recordings to {out}")
     return 0
 

@@ -40,6 +40,8 @@ def sd(xs: list[float]) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("folder")
+    ap.add_argument("--thresholds", choices=["fixed", "calibrated"], default=common.THRESHOLDS_MODE,
+                    help="eye thresholds: fixed (0.5/0.35) or from each person's calibration")
     ap.add_argument("--scenario", default="normal", help="scenario to analyse (default: normal)")
     args = ap.parse_args()
 
@@ -59,10 +61,12 @@ def main() -> int:
             print("  note: no *Raw fields (older client): raw and smoothed rows are identical")
         if not common.baseline_of(sc):
             print("  note: no calibration baseline in the header, using 0")
+        for source in ("iris", "blend"):
+            print(f"  thresholds ({source}): {common.thresholds_for(sc, source, True, args.thresholds)[1]}")
         print(f"  {'variant':<15} {'std yaw':>8} {'std gaze':>9} {'events':>7} {'per min':>8}")
         for label, source, smoothed in VARIANTS:
             gname = "gazeH" if source == "iris" else "blendH"
-            n = len(sidecar_events(sc, source, smoothed))
+            n = len(sidecar_events(sc, source, smoothed, args.thresholds))
             per_min = n / minutes
             is_main = source == common.GAZE_SOURCE and smoothed
             mark = "  <- pass rule" if is_main else ""
@@ -70,7 +74,8 @@ def main() -> int:
                   f"{sd(column(sc.frames, gname, smoothed)):9.3f} {n:7d} {per_min:8.2f}{mark}")
             if is_main and n > 0:
                 all_ok = False
-    print(f"\nPASS rule: 0 false look-aways per minute on every '{args.scenario}' clip "
+    print(f"\nEye thresholds used: {args.thresholds}.")
+    print(f"PASS rule: 0 false look-aways per minute on every '{args.scenario}' clip "
           f"({common.GAZE_SOURCE} gaze, smoothed).  Result: {'PASS' if all_ok else 'FAIL'}")
     print("If it fails: check the setup screen was green, recalibrate, then tune ONE_EURO_* in config.ts "
           "or GAZE_ENTER/GAZE_EXIT in common.py.")

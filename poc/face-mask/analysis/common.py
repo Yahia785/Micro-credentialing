@@ -19,6 +19,15 @@ GAZE_ENTER = 0.5
 GAZE_EXIT = 0.35
 EYE_MIN_DURATION_S = 1.5
 MERGE_GAP_S = 0.5           # gaps shorter than this between two runs are merged
+# Calibrated eye thresholds (option): enter = EDGE_FACTOR x (that side's edge reading - baseline), but at least
+# MIN_ENTER (so jitter cannot trigger it); exit = enter x EXIT_RATIO.
+EDGE_FACTOR = 1.5
+MIN_ENTER = 0.15
+EXIT_RATIO = 0.7
+THRESHOLDS_MODE = "fixed"  # "fixed" (GAZE_ENTER / GAZE_EXIT) or "calibrated" (from the sidecar header)
+# Speed rule (test 1)
+SPEED_PASS_FPS = 15.0
+SPEED_MIN_FPS = 10.0
 GAZE_SOURCE = "iris"        # "iris" (landmark based, gazeH) or "blend" (blendshape based, blendH)
 USE_SMOOTHED = True         # False = use the *Raw fields (to compare raw against smoothed)
 # ---- Matching with hand labels ------------------------------------------------------
@@ -107,24 +116,74 @@ def _gaze_name(source: str) -> str:
     return "gazeH" if source == "iris" else "blendH"
 
 
-def hysteresis_runs(times: list[float], values: list[float | None], enter: float, exit_: float) -> list[list[float]]:
-    """[[start, end], ...] of runs where |value| goes above `enter` and stays above `exit_`.
+@dataclass(frozen=True)
+class Thresholds:
+    """Eye-gaze thresholds on the value MINUS the baseline. Positive and negative side are separate."""
+    enter_pos: float
+    exit_pos: float
+    enter_neg: float
+    exit_neg: float
 
-    A missing value (None, e.g. tracking lost) ends the run: it never counts as looking away.
-    A run lasts from its first to its last active frame.
+    @staticmethod
+    def symmetric(enter: float, exit_: float) -> "Thresholds":
+        return Thresholds(enter, exit_, enter, exit_)
+
+    def text(self) -> str:
+        return (f"enter +{self.enter_pos:.2f} / -{self.enter_neg:.2f}, "
+                f"exit +{self.exit_pos:.2f} / -{self.exit_neg:.2f}")
+
+
+FIXED_THRESHOLDS = Thresholds.symmetric(GAZE_ENTER, GAZE_EXIT)
+
+
+def thresholds_from_edges(base, left, right, factor: float = EDGE_FACTOR, min_enter: float = MIN_ENTER,
+                          ratio: float = EXIT_RATIO) -> Thresholds | None:
+    """Per-person eye thresholds from the calibration.
+
+    For each edge: d = edge reading - baseline.  enter = max(factor * |d|, min_enter), exit = enter * ratio.
+    The edge whose d is positive sets the positive side, the edge whose d is negative sets the negative side.
+    If only one side is usable the other side copies it (people are roughly symmetric).
+    Returns None if neither edge gives a usable reading.
     """
+    if base is None:
+        return None
+    deltas = [x - base for x in (left, right) if x is not None]
+    pos = [d for d in deltas if d > 0]
+    neg = [-d for d in deltas if d < 0]
+    if not pos and not neg:
+        return None
+    mp = max(pos) if pos else max(neg)
+    mn = max(neg) if neg else max(pos)
+    ep, en = max(factor * mp, min_enter), max(factor * mn, min_enter)
+    return Thresholds(ep, ep * ratio, en, en * ratio)
+
+
+def hysteresis_runs(times: list[float], values: list[float | None], enter, exit_=None) -> list[list[float]]:
+    """[[start, end], ...] of runs where the value goes above +enter (or below -enter) and stays beyond the exit level.
+
+    `enter`/`exit_` are numbers (same on both sides) or `enter` is a Thresholds object.
+    A missing value (None, e.g. tracking lost) ends the run: it never counts as looking away.
+    A run lasts from its first to its last active frame. A direct flip from one side to the other starts a new run.
+    """
+    th = enter if isinstance(enter, Thresholds) else Thresholds.symmetric(enter, exit_)
     runs: list[list[float]] = []
     start = last = None
+    side = 0
     for t, v in zip(times, values):
-        mag = None if v is None else abs(v)
-        active = start is not None
-        if mag is not None and (mag > exit_ if active else mag > enter):
-            if start is None:
-                start = t
+        if side == 1 and v is not None and v > th.exit_pos:
             last = t
-        elif start is not None:
+            continue
+        if side == -1 and v is not None and v < -th.exit_neg:
+            last = t
+            continue
+        if side != 0:
             runs.append([start, last])
             start = last = None
+            side = 0
+        if v is not None and v > th.enter_pos:
+            side, start, last = 1, t, t
+        elif v is not None and v < -th.enter_neg:
+            side, start, last = -1, t, t
     if start is not None:
         runs.append([start, last])
     return runs
@@ -159,21 +218,25 @@ def head_events(frames: list[dict], yaw_base: float = 0.0, smoothed: bool = USE_
     return merge_and_filter(hysteresis_runs(times, vals, YAW_ENTER_DEG, YAW_EXIT_DEG), HEAD_MIN_DURATION_S)
 
 
-def eye_events(frames: list[dict], gaze_base: float = 0.0, source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED) -> list[Interval]:
+def eye_events(frames: list[dict], gaze_base: float = 0.0, source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED,
+               thresholds: Thresholds | None = None) -> list[Interval]:
     name = _gaze_name(source)
+    th = thresholds or FIXED_THRESHOLDS
     times, vals = [], []
     for f in frames:
         g = None if f.get("lost") else reading(f, name, smoothed)
         times.append(f["t"] / 1000.0)
         vals.append(None if g is None else g - gaze_base)
-    return merge_and_filter(hysteresis_runs(times, vals, GAZE_ENTER, GAZE_EXIT), EYE_MIN_DURATION_S)
+    return merge_and_filter(hysteresis_runs(times, vals, th), EYE_MIN_DURATION_S)
 
 
 def look_away_events(frames: list[dict], yaw_base: float = 0.0, gaze_base: float = 0.0,
-                     gaze_source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED) -> list[Interval]:
+                     gaze_source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED,
+                     thresholds: Thresholds | None = None) -> list[Interval]:
     """Head events OR eye events, as [(start_s, end_s)]. Lost frames never count as looking away
     (but a lost gap shorter than MERGE_GAP_S between two runs is bridged)."""
-    return _union(head_events(frames, yaw_base, smoothed), eye_events(frames, gaze_base, gaze_source, smoothed))
+    return _union(head_events(frames, yaw_base, smoothed),
+                  eye_events(frames, gaze_base, gaze_source, smoothed, thresholds))
 
 
 def baseline_of(sc: "Sidecar", smoothed: bool = USE_SMOOTHED) -> dict:
@@ -182,11 +245,44 @@ def baseline_of(sc: "Sidecar", smoothed: bool = USE_SMOOTHED) -> dict:
     return cal.get("baseline" if smoothed else "baselineRaw") or cal.get("baseline") or {}
 
 
-def sidecar_events(sc: "Sidecar", gaze_source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED) -> list[Interval]:
-    """Look-away events of a recording, using its own calibration baseline."""
+def thresholds_for(sc: "Sidecar", gaze_source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED,
+                   mode: str = THRESHOLDS_MODE) -> tuple[Thresholds, str]:
+    """Eye thresholds to use for this recording and a one-line description of what was used."""
+    if mode not in ("fixed", "calibrated"):
+        raise ValueError("thresholds mode must be 'fixed' or 'calibrated'")
+    fixed = (FIXED_THRESHOLDS, f"fixed ({FIXED_THRESHOLDS.text()})")
+    if mode == "fixed":
+        return fixed
+    name = _gaze_name(gaze_source)
+    cal = sc.header.get("calibration") or {}
+    edges = cal.get("edges") or {}
+    suffix = "" if smoothed else "Raw"
+    left = (edges.get("left" + suffix) or edges.get("left") or {}).get(name)
+    right = (edges.get("right" + suffix) or edges.get("right") or {}).get(name)
+    base = baseline_of(sc, smoothed).get(name)
+    th = thresholds_from_edges(base, left, right)
+    if th is None:
+        return FIXED_THRESHOLDS, f"fixed ({FIXED_THRESHOLDS.text()}); calibrated thresholds unavailable, no usable edge readings"
+    shown = lambda v: "-" if v is None else f"{v:+.2f}"  # noqa: E731
+    return th, f"calibrated ({th.text()}; edges L {shown(left)}, R {shown(right)}, baseline {shown(base)})"
+
+
+def sidecar_events(sc: "Sidecar", gaze_source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED,
+                   thresholds_mode: str = THRESHOLDS_MODE) -> list[Interval]:
+    """Look-away events of a recording, using its own calibration baseline (and edges, if calibrated)."""
     b = baseline_of(sc, smoothed)
     gname = _gaze_name(gaze_source)
-    return look_away_events(sc.frames, b.get("yaw") or 0.0, b.get(gname) or 0.0, gaze_source, smoothed)
+    th, _ = thresholds_for(sc, gaze_source, smoothed, thresholds_mode)
+    return look_away_events(sc.frames, b.get("yaw") or 0.0, b.get(gname) or 0.0, gaze_source, smoothed, th)
+
+
+def speed_label(avg_fps: float) -> str:
+    """Test 1 rule: PASS at 15 fps or more, 'OK (minimum)' at 10 to 15, FAIL below 10."""
+    if avg_fps >= SPEED_PASS_FPS:
+        return "PASS"
+    if avg_fps >= SPEED_MIN_FPS:
+        return "OK (minimum)"
+    return "FAIL"
 
 
 def lost_segments(frames: list[dict]) -> list[Interval]:

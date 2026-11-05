@@ -18,8 +18,8 @@ def overlaps(a: tuple[float, float], b: tuple[float, float], slack: float) -> bo
     return a[0] <= b[1] + slack and b[0] <= a[1] + slack
 
 
-def analyse(sc, labels, gaze_source, smoothed):
-    events = sidecar_events(sc, gaze_source, smoothed)
+def analyse(sc, labels, gaze_source, smoothed, mode):
+    events = sidecar_events(sc, gaze_source, smoothed, mode)
     found = sum(1 for (s, e, _) in labels if any(overlaps(ev, (s, e), MATCH_TOLERANCE_S) for ev in events))
     extra = [ev for ev in events if not any(overlaps(ev, (s, e), MATCH_TOLERANCE_S) for (s, e, _) in labels)]
     typing = [ev for ev in events if any(ev[0] - KEY_WINDOW_S <= k <= ev[1] + KEY_WINDOW_S for k in sc.keys)]
@@ -30,13 +30,20 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('folder', help='folder with sidecar-*.jsonl and sidecar-*.labels.csv')
     ap.add_argument('--gaze-source', choices=['iris', 'blend'], default=common.GAZE_SOURCE)
+    ap.add_argument('--thresholds', choices=['fixed', 'calibrated'], default=common.THRESHOLDS_MODE,
+                    help='eye thresholds: fixed (0.5/0.35) or from each person\'s calibration')
     ap.add_argument('--raw', action='store_true', help='use raw instead of smoothed values')
     args = ap.parse_args()
     smoothed = not args.raw
     sidecars = find_sidecars(args.folder)
+    eye_rule = (f'|gaze| > {GAZE_ENTER:g} (until below {GAZE_EXIT:g})' if args.thresholds == 'fixed'
+                else f'|gaze| beyond the per-person calibrated thresholds (enter = {common.EDGE_FACTOR:g} x edge reading, at least {common.MIN_ENTER:g}; exit = {common.EXIT_RATIO:g} x enter)')
     print(f'Rule (values minus the calibration baseline): head |yaw| > {YAW_ENTER_DEG:g} deg for >= {HEAD_MIN_DURATION_S:g} s, '
-          f'OR eyes |gaze| > {GAZE_ENTER:g} (until below {GAZE_EXIT:g}) for >= {EYE_MIN_DURATION_S:g} s; gaps < {MERGE_GAP_S:g} s merged.')
-    print(f"Gaze source: {args.gaze_source}, values: {'smoothed' if smoothed else 'raw'}. Tracking-lost frames never count as looking away.\n")
+          f'OR eyes {eye_rule} for >= {EYE_MIN_DURATION_S:g} s; gaps < {MERGE_GAP_S:g} s merged.')
+    print(f"Gaze source: {args.gaze_source}, values: {'smoothed' if smoothed else 'raw'}, eye thresholds: {args.thresholds}. "
+          'Tracking-lost frames never count as looking away.\n')
+    if args.thresholds == 'fixed':
+        print(f'Eye thresholds used: {common.thresholds_for(load_sidecar(sidecars[0]), mode="fixed")[1]}\n')
     tot_labels = tot_found = 0
     print(f"{'recording':<48} {'labels':>6} {'found':>6} {'extra':>6} {'typing':>6} {'lost s':>7}")
     for p in sidecars:
@@ -47,11 +54,13 @@ def main() -> int:
         if labels is None:
             print(f"{sc.name:<48} no labels file ({labels_path(p).name}), skipped")
             continue
-        events, found, extra, typing = analyse(sc, labels, args.gaze_source, smoothed)
+        events, found, extra, typing = analyse(sc, labels, args.gaze_source, smoothed, args.thresholds)
         lost_s = sum(b - a for a, b in lost_segments(sc.frames))
         tot_labels += len(labels)
         tot_found += found
         print(f"{sc.name:<48} {len(labels):>6} {found:>6} {len(extra):>6} {len(typing):>6} {lost_s:7.1f}")
+        if args.thresholds == 'calibrated':
+            print(f"    thresholds: {common.thresholds_for(sc, args.gaze_source, smoothed, 'calibrated')[1]}")
         for a, b in extra:
             print(f"    extra event (no label): {a:.1f}-{b:.1f} s")
     if tot_labels == 0:
