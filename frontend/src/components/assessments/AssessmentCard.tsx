@@ -133,6 +133,7 @@ export function AssessmentCard({
 
       <div className={styles.tags}>
         <Badge variant="info">{getTypeLabel(assessment)}</Badge>
+        {isAdmin && assessment.kind === 'coding' && assessment.isHidden && <Badge variant="warning">Hidden</Badge>}
         {assessment.kind === 'coding' && assessment.testCaseCount !== undefined && (
           <Badge variant="neutral">{assessment.testCaseCount} test cases</Badge>
         )}
