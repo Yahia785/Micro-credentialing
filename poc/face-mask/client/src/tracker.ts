@@ -27,7 +27,7 @@ export class Tracker {
         minFaceDetectionConfidence: MIN_FACE_DETECTION_CONFIDENCE,
         minFacePresenceConfidence: MIN_FACE_PRESENCE_CONFIDENCE,
         minTrackingConfidence: MIN_TRACKING_CONFIDENCE,
-        outputFaceBlendshapes: false,
+        outputFaceBlendshapes: true,
         outputFacialTransformationMatrixes: true,
       });
     // GPU can fail at creation OR at the first detect call, so warm it up inside the try.

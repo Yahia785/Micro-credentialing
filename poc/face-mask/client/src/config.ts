@@ -36,7 +36,8 @@ export const SETUP_CHECK_INTERVAL_MS = 250;
 export const CALIB_CENTER_S = 5;
 export const CALIB_EDGE_S = 1; // per edge (left, then right) = 2 s total
 export const CALIB_SETTLE_S = 0.4; // ignore the first part of each stage while the eyes move to the dot
-export const CALIB_MIN_SAMPLES = 8;
+export const CALIB_MIN_SAMPLES = 8; // center stage
+export const CALIB_MIN_EDGE_SAMPLES = 3;
 
 export const WASM_PATH = "/wasm";
 export const MODEL_PATH = "/models/face_landmarker.task";

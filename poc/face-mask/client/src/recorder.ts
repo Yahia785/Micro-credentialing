@@ -5,11 +5,25 @@ export interface FrameRecord {
   t: number;
   faces: number;
   lost: boolean;
+  /** Raw readings come straight from the tracker; the others are One Euro smoothed. */
+  yawRaw: number | null;
   yaw: number | null;
+  pitchRaw: number | null;
   pitch: number | null;
   roll: number | null;
+  gazeHRaw: number | null;
   gazeH: number | null;
+  gazeVRaw: number | null;
   gazeV: number | null;
+  /** Horizontal gaze from the blendshapes (raw and smoothed). */
+  blendHRaw: number | null;
+  blendH: number | null;
+  /** Blendshape scores: eyeLookInLeft ... eyeLookDownRight. */
+  bs: Record<string, number | null>;
+  /** Per-stage timing in ms. */
+  snapMs: number;
+  detectMs: number;
+  drawMs: number;
   procMs: number;
   /** One [x, y, w, h] per masked face, in video pixels (after scaling and forehead lift). */
   maskBoxes: [number, number, number, number][];
@@ -21,7 +35,12 @@ export interface SessionInfo {
   width: number;
   height: number;
   delegate: string;
+  detectLongSide: number;
   maskOptions: MaskOptions;
+  /** Result of the setup check: which checks failed and whether the person continued anyway. */
+  setup: unknown;
+  /** Baseline, noise and edge readings from the calibration. */
+  calibration: unknown;
 }
 
 function pickMime(): string {
@@ -32,6 +51,32 @@ function pickMime(): string {
 }
 
 const round = (v: number | null, d = 3) => (v === null || Number.isNaN(v) ? null : Number(v.toFixed(d)));
+
+function frameLine(f: FrameRecord) {
+  return {
+    type: "frame",
+    t: round(f.t, 1),
+    faces: f.faces,
+    lost: f.lost,
+    yawRaw: round(f.yawRaw, 2),
+    yaw: round(f.yaw, 2),
+    pitchRaw: round(f.pitchRaw, 2),
+    pitch: round(f.pitch, 2),
+    roll: round(f.roll, 2),
+    gazeHRaw: round(f.gazeHRaw),
+    gazeH: round(f.gazeH),
+    gazeVRaw: round(f.gazeVRaw),
+    gazeV: round(f.gazeV),
+    blendHRaw: round(f.blendHRaw),
+    blendH: round(f.blendH),
+    ...Object.fromEntries(Object.entries(f.bs).map(([k, v]) => [k, round(v)])),
+    snapMs: round(f.snapMs, 1),
+    detectMs: round(f.detectMs, 1),
+    drawMs: round(f.drawMs, 1),
+    procMs: round(f.procMs, 1),
+    maskBoxes: f.maskBoxes,
+  };
+}
 
 const pad = (n: number) => String(n).padStart(2, "0");
 function timestamp(d: Date): string {
@@ -119,7 +164,10 @@ export class RecordingSession {
         height: this.info.height,
         delegate: this.info.delegate,
         userAgent: navigator.userAgent,
+        detectLongSide: this.info.detectLongSide,
         maskOptions: this.info.maskOptions,
+        setup: this.info.setup,
+        calibration: this.info.calibration,
         recorderStartMs: { masked: round(this.masked.startedAt, 1), raw: this.raw ? round(this.raw.startedAt, 1) : null },
       }),
     );
@@ -129,21 +177,7 @@ export class RecordingSession {
       while (ki < this.keys.length && this.keys[ki] <= f.t) {
         lines.push(JSON.stringify({ type: "key", t: round(this.keys[ki++], 1) }));
       }
-      lines.push(
-        JSON.stringify({
-          type: "frame",
-          t: round(f.t, 1),
-          faces: f.faces,
-          lost: f.lost,
-          yaw: round(f.yaw, 2),
-          pitch: round(f.pitch, 2),
-          roll: round(f.roll, 2),
-          gazeH: round(f.gazeH),
-          gazeV: round(f.gazeV),
-          procMs: round(f.procMs, 1),
-          maskBoxes: f.maskBoxes,
-        }),
-      );
+      lines.push(JSON.stringify(frameLine(f)));
     }
     while (ki < this.keys.length) lines.push(JSON.stringify({ type: "key", t: round(this.keys[ki++], 1) }));
     const s = summarize(

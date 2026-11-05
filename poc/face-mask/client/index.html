@@ -18,12 +18,30 @@
           <label>Laptop name <input id="laptop" type="text" placeholder="e.g. lowend-1" /></label>
           <label>Scenario <select id="scenario"></select></label>
           <label class="check"><input id="saveRaw" type="checkbox" checked /> Also save raw video (research only)</label>
+          <label class="check"><input id="headCover" type="checkbox" checked /> Cover top of head and hair</label>
         </div>
         <div class="buttons">
           <button id="btnCamera">Start camera</button>
           <button id="btnRecord" disabled>Start recording</button>
           <button id="btnStop" disabled>Stop and save</button>
         </div>
+        <div id="badge" class="badge">-</div>
+        <section id="setupBox" class="box" hidden>
+          <h3>Step 1: setup check</h3>
+          <p>Sit where you will take the test. Fit your face in the dashed guide box.</p>
+          <ul id="checklist"></ul>
+          <div class="buttons">
+            <button id="btnContinue" disabled>Continue</button>
+            <button id="btnContinueAnyway" class="secondary">Continue anyway (research recording)</button>
+          </div>
+        </section>
+        <section id="calibBox" class="box" hidden>
+          <h3>Step 2: calibration (about 7 seconds)</h3>
+          <p>A dot appears in the middle of the screen for 5 seconds: look at it without moving your head. Then it jumps to the left edge and the right edge: look at it each time.</p>
+          <div class="buttons"><button id="btnCalibrate">Start calibration</button></div>
+          <p id="calibMsg"></p>
+        </section>
+        <div class="buttons"><button id="btnRecal" class="secondary" hidden>Recalibrate</button></div>
         <div class="view">
           <canvas id="out" width="1280" height="720"></canvas>
         </div>
@@ -35,17 +53,25 @@
       <aside class="panel">
         <h2>Live</h2>
         <dl>
+          <dt>Step</dt><dd id="vPhase">-</dd>
           <dt>Status</dt><dd id="vStatus">idle</dd>
           <dt>FPS</dt><dd id="vFps">-</dd>
           <dt>Tracking lost</dt><dd id="vLost">-</dd>
           <dt>Faces</dt><dd id="vFaces">-</dd>
           <dt>Yaw / pitch</dt><dd id="vPose">-</dd>
           <dt>Gaze h / v</dt><dd id="vGaze">-</dd>
+          <dt>Blend gaze h</dt><dd id="vBlend">-</dd>
+          <dt>Baseline</dt><dd id="vCal" class="small">-</dd>
           <dt>Delegate</dt><dd id="vDelegate">-</dd>
           <dt>Recording</dt><dd id="vRec">-</dd>
         </dl>
       </aside>
     </main>
+
+    <div id="overlay" hidden>
+      <p id="overlayText"></p>
+      <div id="dot"></div>
+    </div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>
