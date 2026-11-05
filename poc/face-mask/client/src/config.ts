@@ -34,8 +34,9 @@ export const SETUP_CHECK_INTERVAL_MS = 250;
 
 // ---- Calibration ---------------------------------------------------------------------
 export const CALIB_CENTER_S = 5;
-export const CALIB_EDGE_S = 1; // per edge (left, then right) = 2 s total
-export const CALIB_SETTLE_S = 0.4; // ignore the first part of each stage while the eyes move to the dot
+export const CALIB_EDGE_S = 2; // per edge (left, then right) = 4 s total
+export const CALIB_SETTLE_S = 0.4; // centre stage: ignore the first part while the eyes settle on the dot
+export const CALIB_EDGE_SETTLE_S = 0.5; // edge stages: ignore the first part (eyes travel to the edge); 2.0 - 0.5 = 1.5 s of data
 export const CALIB_MIN_SAMPLES = 8; // center stage
 export const CALIB_MIN_EDGE_SAMPLES = 3;
 

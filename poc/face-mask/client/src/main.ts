@@ -4,6 +4,7 @@ import {
   CALIB_EDGE_S,
   CALIB_MIN_EDGE_SAMPLES,
   CALIB_MIN_SAMPLES,
+  CALIB_EDGE_SETTLE_S,
   CALIB_SETTLE_S,
   CAMERA_HEIGHT,
   CAMERA_WIDTH,
@@ -79,6 +80,7 @@ let setupInfo: unknown = null;
 let calibration: CalibrationResult | null = null;
 let calibActive = false;
 let calibStart = 0;
+let calibSettleS = CALIB_SETTLE_S;
 let calibBuf: CalibrationSample[] = [];
 
 // live stats
@@ -254,7 +256,7 @@ function processFrame(): void {
   }
 
   // Calibration samples.
-  if (calibActive && !lost && now - calibStart >= CALIB_SETTLE_S * 1000) {
+  if (calibActive && !lost && now - calibStart >= calibSettleS * 1000) {
     calibBuf.push({ s: sm, r: raw });
   }
 
@@ -357,9 +359,9 @@ async function runCalibration() {
   const dot = $("dot");
   overlay.hidden = false;
   const stages = [
-    { name: "center", s: CALIB_CENTER_S, x: 50, text: "Look at the dot in the middle of the screen" },
-    { name: "left", s: CALIB_EDGE_S, x: 3, text: "Now look at the dot at the LEFT edge" },
-    { name: "right", s: CALIB_EDGE_S, x: 97, text: "Now look at the dot at the RIGHT edge" },
+    { name: "center", s: CALIB_CENTER_S, settle: CALIB_SETTLE_S, x: 50, text: "Look at the dot in the middle of the screen" },
+    { name: "left", s: CALIB_EDGE_S, settle: CALIB_EDGE_SETTLE_S, x: 3, text: "Now look at the dot at the LEFT edge" },
+    { name: "right", s: CALIB_EDGE_S, settle: CALIB_EDGE_SETTLE_S, x: 97, text: "Now look at the dot at the RIGHT edge" },
   ];
   const bufs: Record<string, CalibrationSample[]> = { center: [], left: [], right: [] };
   for (const st of stages) {
@@ -367,6 +369,7 @@ async function runCalibration() {
     $("overlayText").textContent = st.text;
     calibBuf = bufs[st.name];
     calibStart = performance.now();
+    calibSettleS = st.settle;
     calibActive = true;
     await sleep(st.s * 1000);
     calibActive = false;

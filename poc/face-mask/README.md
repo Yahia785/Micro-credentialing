@@ -48,7 +48,7 @@ Open http://localhost:5180 in Chrome and allow camera and microphone. The page w
 
 1. **Start camera.** The big badge shows the delegate (GPU or CPU) and the live fps (red below 15).
 2. **Step 1, setup check.** Fit your face in the dashed guide box. A live checklist shows green or red for: face found, lighting (brightness and contrast of the face region), face size (at least 30% of frame height) and face centered. **Continue** unlocks when all are green. **Continue anyway** is for research recordings; the sidecar header then lists which checks failed.
-3. **Step 2, calibration (about 7 s).** Press Start calibration. Look at the red dot in the middle of the screen for 5 s without moving your head, then at the left-edge dot and the right-edge dot (1 s each). The median yaw, pitch and gaze become your **baseline**, their spread is the **noise**, and the edge readings show your range. All are stored in the header, and all look-away decisions use values minus this baseline. Use **Recalibrate** if you moved.
+3. **Step 2, calibration (about 9 s).** Press Start calibration. Look at the red dot in the middle of the screen for 5 s without moving your head, then at the left-edge dot and the right-edge dot (2 s each; the first 0.5 s of each is ignored, so each edge reading uses about 1.5 s of data). The median yaw, pitch and gaze become your **baseline**, their spread is the **noise**, and the edge readings show your range. All are stored in the header, and all look-away decisions use values minus this baseline. Use **Recalibrate** if you moved.
 4. **Start recording**, then **Stop and save**.
 
 The checkbox **Cover top of head and hair** (on by default) extends the mask upward over the hair.
@@ -175,7 +175,7 @@ In `client\src\config.ts`:
 - `DETECT_LONG_SIDE` (640): tracking runs on a copy of the snapshot scaled to this long side; drawing still uses the full-size snapshot. Lower = faster tracking, less accurate landmarks.
 - `ONE_EURO_POSE` / `ONE_EURO_GAZE` (`minCutoff`, `beta`, `dCutoff`): lower `minCutoff` = steadier but laggier; higher `beta` = less lag on fast moves.
 - `MIN_FACE_HEIGHT_SHARE`, `CENTER_TOLERANCE`, `MIN_MEAN_LUMA`, `MAX_MEAN_LUMA`, `MIN_LUMA_STD`: setup check thresholds.
-- `CALIB_CENTER_S`, `CALIB_EDGE_S`, `CALIB_SETTLE_S`: calibration timing.
+- `CALIB_CENTER_S`, `CALIB_EDGE_S`, `CALIB_SETTLE_S`, `CALIB_EDGE_SETTLE_S`: calibration timing.
 - `DEFAULT_MASK_OPTIONS.headCover`, `headCoverHeight` (0.5 of face height), `headCoverWidth` (1.05): the hair cover.
 
 In `analysis\common.py`: head and eye thresholds and durations, hysteresis exit values, merge gap, gaze source, label matching slack, key window.
