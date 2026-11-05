@@ -1,0 +1,6 @@
+# ONLY for scripts/export_model.py (run once, in server/.venv-export). Not needed at analysis time.
+# NOTE: ultralytics / YOLO11 are AGPL-3.0 licensed.
+ultralytics==8.4.202
+onnx==1.23.2
+onnxslim==0.1.99
+torch==2.15.0

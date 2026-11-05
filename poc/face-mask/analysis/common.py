@@ -209,17 +209,22 @@ def _union(a: list[Interval], b: list[Interval]) -> list[Interval]:
     return [(s, e) for s, e in out]
 
 
-def head_events(frames: list[dict], yaw_base: float = 0.0, smoothed: bool = USE_SMOOTHED) -> list[Interval]:
+union_intervals = _union  # public name (used by the server analyzer)
+
+
+def head_events(frames: list[dict], yaw_base: float = 0.0, smoothed: bool = USE_SMOOTHED,
+                min_duration: float | None = None) -> list[Interval]:
     times, vals = [], []
     for f in frames:
         y = None if f.get("lost") else reading(f, "yaw", smoothed)
         times.append(f["t"] / 1000.0)
         vals.append(None if y is None else y - yaw_base)
-    return merge_and_filter(hysteresis_runs(times, vals, YAW_ENTER_DEG, YAW_EXIT_DEG), HEAD_MIN_DURATION_S)
+    return merge_and_filter(hysteresis_runs(times, vals, YAW_ENTER_DEG, YAW_EXIT_DEG),
+                            HEAD_MIN_DURATION_S if min_duration is None else min_duration)
 
 
 def eye_events(frames: list[dict], gaze_base: float = 0.0, source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED,
-               thresholds: Thresholds | None = None) -> list[Interval]:
+               thresholds: Thresholds | None = None, min_duration: float | None = None) -> list[Interval]:
     name = _gaze_name(source)
     th = thresholds or FIXED_THRESHOLDS
     times, vals = [], []
@@ -227,7 +232,8 @@ def eye_events(frames: list[dict], gaze_base: float = 0.0, source: str = GAZE_SO
         g = None if f.get("lost") else reading(f, name, smoothed)
         times.append(f["t"] / 1000.0)
         vals.append(None if g is None else g - gaze_base)
-    return merge_and_filter(hysteresis_runs(times, vals, th), EYE_MIN_DURATION_S)
+    return merge_and_filter(hysteresis_runs(times, vals, th),
+                            EYE_MIN_DURATION_S if min_duration is None else min_duration)
 
 
 def look_away_events(frames: list[dict], yaw_base: float = 0.0, gaze_base: float = 0.0,
