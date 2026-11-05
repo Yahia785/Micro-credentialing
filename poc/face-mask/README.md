@@ -53,6 +53,12 @@ Open http://localhost:5180 in Chrome and allow camera and microphone. The page w
 
 The checkbox **Cover top of head and hair** (on by default) extends the mask upward over the hair.
 
+**Pupils.** Each frame the iris offset inside each eye (in eye widths and heights) is smoothed, and the pupil is drawn at the current, unsmoothed eye centre plus that offset times the current eye size, clamped inside the eye. The pupil therefore moves with the eye in the same frame instead of floating behind it when the head moves.
+
+**Tracking options (for worst-case tests).** `http://localhost:5180/?delegate=cpu&detect=320` (`delegate` = `cpu` or `gpu`, `detect` = 320, 480 or 640). The same choices are dropdowns on the setup screen. The default is GPU with CPU fallback and 640. Both the requested and the actual delegate and the tracking size are logged in the sidecar header (`delegateRequested`, `delegate`, `detectLongSide`). Forcing GPU on a machine without one shows an error and falls back to CPU.
+
+**Speed test.** On the setup screen, sit still looking at the screen and press **Run speed test** (about 2 minutes). It runs 15 s (after a 1 s warm-up) for each of GPU and CPU at 640, 480 and 320, recreating the landmarker when the delegate changes. A table shows average fps, 10th-percentile fps, mean detect ms and the standard deviation of yaw, gazeH and blendH (raw and smoothed) for each. The results download as `speedtest-<laptop>-<time>.json`. Print them later with `python speed_report.py <file or folder>` in the `analysis` folder.
+
 Other commands (in `poc\face-mask\client`): `npm run build` (type-check and bundle), `npm test` (unit tests for pose, gaze, mask geometry, fps stats).
 
 ### Analysis setup
@@ -108,9 +114,9 @@ python test3_lookaway.py ..\recordings\laptopA
 
 | Test | Measures | Passes when |
 | --- | --- | --- |
-| 1 speed | average fps, 10th-percentile fps, % lost frames, ms per frame | average fps >= 15 on every recording (check the low-end laptop especially) |
+| 1 speed | average fps, 10th-percentile fps, % lost frames, ms per frame, detect ms | average fps >= 15 = PASS, 10 to 15 = OK (minimum), below 10 = FAIL (check the low-end laptop especially) |
 | 2 leaks | Face detectors (Haar frontal, Haar profile on the frame and its mirror, and YuNet) on every frame of `masked-*.webm`. Each hit is classed **OUTSIDE** (not covered by a mask box from the sidecar, so possibly a real face) or **INSIDE** (on the mask, usually just the cartoon fooling the detector). See below | **0 OUTSIDE hits that show a real face, and none of the reviewed INSIDE samples show a real face**, judged by eye |
-| 3 look-away | sidecar events vs your labels: labels, found, extra events, events with a key press within 2 s. Options: `--gaze-source iris|blend`, `--raw` | 90% or more of all labels are found |
+| 3 look-away | sidecar events vs your labels: labels, found, extra events, events with a key press within 2 s. Options: `--gaze-source iris|blend`, `--raw`, `--thresholds fixed|calibrated` | 90% or more of all labels are found |
 | 6 jitter | on `normal` clips: std of yaw and gaze (raw vs smoothed, iris vs blendshape) and look-away events per minute (all false flags) | 0 false look-aways per minute on every normal clip, with smoothing on |
 | 4 identity (manual) | see below | people do no better than chance |
 
@@ -133,9 +139,20 @@ Look-away rule (constants at the top of `analysis\common.py`). All values are ta
 - **Head:** `|yaw - baseline| > 25` degrees for at least 1.0 s.
 - **Eyes:** `|gaze - baseline|` above the enter threshold 0.5 starts an event and it only ends below the exit threshold 0.35 (hysteresis: a value hovering near 0.5 is one event, not many). It must last at least 1.5 s.
 - Either one makes a look-away event. Gaps under 0.5 s are merged. Tracking-lost frames never count as looking away (a lost gap under 0.5 s just bridges two runs); they are reported separately (`lost s`).
+- **Eye thresholds, two options** (`--thresholds` in test 3 and test 6, `THRESHOLDS_MODE` in `common.py`; the output always says which was used):
+  - `fixed` (default): enter 0.5, exit 0.35 for everyone.
+  - `calibrated`: from each person's calibration edge readings. For each edge, `d = edge reading - baseline`; `enter = max(EDGE_FACTOR x |d|, MIN_ENTER)` (`EDGE_FACTOR` 1.5, `MIN_ENTER` 0.15, so jitter cannot trigger it), `exit = enter x 0.7`. The edge whose `d` is positive sets the positive side, the edge whose `d` is negative sets the negative side, so a person who looks far one way and little the other gets different limits per side (if only one side is usable the other copies it; with no usable edge it falls back to fixed and says so). Use this when the gaze range on screen is small (for example about +/-0.13 at the screen edges, where a fixed 0.5 would never fire).
 - `GAZE_SOURCE` is `iris` (landmarks) or `blend` (blendshapes); `USE_SMOOTHED` switches to the raw fields. Both can be set per run in test 3 and are compared side by side in test 6.
 
 Every script exits with a clear message when the folder has no matching files.
+
+### Speed report
+
+```powershell
+python speed_report.py ..\recordings\laptopA\speedtest-dell-20261104-104000.json
+```
+
+Prints one row per delegate and tracking size with the speed verdict, and the largest tracking size that still reaches 15 fps on GPU and on CPU. Use it to pick the tracking size for students without a GPU.
 
 ### Test 6: jitter (record a clean `normal` clip first)
 
@@ -172,10 +189,11 @@ In `client\src\config.ts`:
 - `DEFAULT_MASK_OPTIONS.pixelBlockSize` (40): bigger blocks = stronger pixelation when tracking is lost.
 - `CAMERA_WIDTH`/`CAMERA_HEIGHT` (1280x720): lower this on a slow laptop to gain fps.
 - `NUM_FACES` (2).
+- `DETECT_SIZES` (640, 480, 320): choices on the setup screen. `SWEEP_S` (15) and `SWEEP_WARMUP_S` (1): speed test timing.
 - `DETECT_LONG_SIDE` (640): tracking runs on a copy of the snapshot scaled to this long side; drawing still uses the full-size snapshot. Lower = faster tracking, less accurate landmarks.
 - `ONE_EURO_POSE` / `ONE_EURO_GAZE` (`minCutoff`, `beta`, `dCutoff`): lower `minCutoff` = steadier but laggier; higher `beta` = less lag on fast moves.
 - `MIN_FACE_HEIGHT_SHARE`, `CENTER_TOLERANCE`, `MIN_MEAN_LUMA`, `MAX_MEAN_LUMA`, `MIN_LUMA_STD`: setup check thresholds.
 - `CALIB_CENTER_S`, `CALIB_EDGE_S`, `CALIB_SETTLE_S`, `CALIB_EDGE_SETTLE_S`: calibration timing.
 - `DEFAULT_MASK_OPTIONS.headCover`, `headCoverHeight` (0.5 of face height), `headCoverWidth` (1.05): the hair cover.
 
-In `analysis\common.py`: head and eye thresholds and durations, hysteresis exit values, merge gap, gaze source, label matching slack, key window.
+In `analysis\common.py`: `EDGE_FACTOR`, `MIN_ENTER`, `EXIT_RATIO`, `THRESHOLDS_MODE`, `SPEED_PASS_FPS`, `SPEED_MIN_FPS`, head and eye thresholds and durations, hysteresis exit values, merge gap, gaze source, label matching slack, key window.
