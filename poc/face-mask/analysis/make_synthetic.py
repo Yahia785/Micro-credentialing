@@ -20,26 +20,44 @@ def mask_box(i: int) -> list[int]:
     return [cx - 59, 41, 118, 158]
 
 
-def build_frames(fps: float, seconds: float, away: list[tuple[float, float, str]], lost: list[tuple[float, float]], seed: int):
-    """away: (start, end, 'yaw'|'gaze'); lost: (start, end). Returns list of frame dicts."""
+BASE_YAW, BASE_GAZE, BASE_BLEND = 3.0, 0.2, 0.05   # the "calibration baseline" of the fake person
+EMA = 0.25                                           # stand-in smoothing: smoothed = EMA of raw
+
+
+def build_frames(fps: float, seconds: float, away: list[tuple[float, float, str]], lost: list[tuple[float, float]], seed: int,
+                 noise: tuple[float, float, float] = (1.5, 0.08, 0.05)):
+    """away: (start, end, 'yaw'|'gaze'); lost: (start, end); noise = (yaw sd, iris-gaze sd, blend-gaze sd).
+    Raw values = truth + noise; smoothed values = exponential moving average of raw."""
     rnd = random.Random(seed)
     frames, n = [], int(fps * seconds)
+    prev = None
     for i in range(n):
         t = i / fps
-        yaw, gaze = rnd.uniform(-5, 5), rnd.uniform(-0.15, 0.15)
+        yaw, gaze, blend = BASE_YAW, BASE_GAZE, BASE_BLEND
         for a, b, kind in away:
             if a <= t <= b:
                 if kind == "yaw":
                     yaw = 40.0
                 else:
-                    gaze = 0.8
+                    gaze, blend = 0.9, 0.8
         is_lost = any(a <= t <= b for a, b in lost)
+        raw = (yaw + rnd.gauss(0, noise[0]), gaze + rnd.gauss(0, noise[1]), blend + rnd.gauss(0, noise[2]))
+        if is_lost:
+            prev = None
+            vals = [None] * 6
+        else:
+            prev = raw if prev is None else tuple(EMA * r + (1 - EMA) * p for r, p in zip(raw, prev))
+            vals = [round(raw[0], 2), round(prev[0], 2), round(raw[1], 3), round(prev[1], 3), round(raw[2], 3), round(prev[2], 3)]
+        slow = fps <= 15
+        proc = rnd.uniform(60, 90) if slow else rnd.uniform(8, 14)
         frames.append({
             "type": "frame", "t": round(t * 1000 + rnd.uniform(-3, 3), 1), "faces": 0 if is_lost else 1, "lost": is_lost,
-            "yaw": None if is_lost else round(yaw, 2), "pitch": None if is_lost else 0.0, "roll": None if is_lost else 0.0,
-            "gazeH": None if is_lost else round(gaze, 3), "gazeV": None if is_lost else 0.0,
+            "yawRaw": vals[0], "yaw": vals[1], "pitchRaw": None if is_lost else 0.0, "pitch": None if is_lost else 0.0,
+            "roll": None if is_lost else 0.0,
+            "gazeHRaw": vals[2], "gazeH": vals[3], "gazeVRaw": None if is_lost else 0.0, "gazeV": None if is_lost else 0.0,
+            "blendHRaw": vals[4], "blendH": vals[5],
+            "snapMs": round(proc * 0.1, 1), "detectMs": round(proc * 0.6, 1), "drawMs": round(proc * 0.3, 1), "procMs": round(proc, 1),
             "maskBoxes": [] if is_lost else [mask_box(round(t * fps))],
-            "procMs": round(rnd.uniform(8, 14) if fps > 15 else rnd.uniform(60, 90), 1),
         })
     return frames
 
@@ -48,7 +66,11 @@ def write_sidecar(folder: Path, rec_id: str, fps: float, frames, keys, labels):
     dur = frames[-1]["t"] / 1000
     lines = [{"type": "header", "id": rec_id, "laptop": rec_id.split("_")[0], "scenario": rec_id.split("_")[1],
               "start": "2026-11-04T10:00:00.000Z", "width": 320, "height": 240, "delegate": "GPU" if fps > 15 else "CPU",
-              "userAgent": "synthetic", "maskOptions": {}, "recorderStartMs": {"masked": 5.0, "raw": 6.0}}]
+              "userAgent": "synthetic", "maskOptions": {}, "detectLongSide": 640, "recorderStartMs": {"masked": 5.0, "raw": 6.0},
+              "setup": {"passed": True, "continuedAnyway": False, "failedChecks": []},
+              "calibration": {"baseline": {"yaw": BASE_YAW, "pitch": 0.0, "gazeH": BASE_GAZE, "gazeV": 0.0, "blendH": BASE_BLEND},
+                              "baselineRaw": {"yaw": BASE_YAW, "pitch": 0.0, "gazeH": BASE_GAZE, "gazeV": 0.0, "blendH": BASE_BLEND},
+                              "samples": 100}}]
     ki = 0
     for f in frames:
         while ki < len(keys) and keys[ki] * 1000 <= f["t"]:
@@ -113,6 +135,12 @@ def main() -> int:
     fb = build_frames(10, 20, [(10, 12, "yaw")], [(5, 9)], 2)
     write_sidecar(out, "lowend_second-screen_20261104-101000", 10, fb, keys=[], labels=[(10, 12, "look-away")])
     write_video(out, "lowend_second-screen_20261104-101000", 10, 6, lost=[(5, 9)])
+    # C and D: "normal" clips, the person sits still. C is a good setup. D is a dim, noisy low-end setup:
+    # raw gaze jitters a lot, smoothing calms it down.
+    fc = build_frames(25, 60, [], [], 3, noise=(1.5, 0.08, 0.05))
+    write_sidecar(out, "fastlaptop_normal_20261104-102000", 25, fc, keys=[5.0, 6.0], labels=[])
+    fd = build_frames(10, 60, [], [], 4, noise=(4.0, 0.30, 0.22))
+    write_sidecar(out, "lowend_normal_20261104-103000", 10, fd, keys=[], labels=[])
     print(f"Wrote synthetic recordings to {out}")
     return 0
 

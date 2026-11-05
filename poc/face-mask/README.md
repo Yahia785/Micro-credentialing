@@ -26,9 +26,11 @@ Only the masked view is shown on the page. The raw camera element is hidden and 
 | `raw-<id>.webm` | raw camera video plus audio. Research only. On by default, untick "Also save raw video" to skip |
 | `sidecar-<id>.jsonl` | one JSON object per line: `header`, many `frame` lines, `key` lines, last line `summary` |
 
-`frame` lines: `t` (ms since recording start), `faces`, `lost`, `yaw`, `pitch`, `roll` (deg), `gazeH`, `gazeV` ([-1,1]), `procMs`, `maskBoxes` (one `[x, y, w, h]` in video pixels per masked face, after scaling and forehead lift; empty when tracking is lost). `key` lines hold the **time only, never the key**. Readings are for the first face; `null` when tracking is lost.
+`header` line: id, laptop, scenario, start time, size, delegate (GPU/CPU), `detectLongSide`, user agent, mask options, recorder start offsets, `setup` (did the setup check pass, did the person continue anyway, which checks failed) and `calibration` (baseline, noise, and the left/right edge readings).
 
-Sign conventions: `yaw > 0` = face turns toward the right side of the image (your own left, the image is not mirrored); `pitch > 0` = looking down; `gazeH > 0` = iris toward image right; `gazeV > 0` = iris low.
+`frame` lines: `t` (ms since recording start), `faces`, `lost`; each of `yaw`, `pitch`, `gazeH`, `gazeV`, `blendH` twice: `...Raw` (straight from the tracker) and the plain name (One Euro smoothed); `roll` (raw); the eight blendshape scores `eyeLookInLeft`, `eyeLookOutLeft`, `eyeLookInRight`, `eyeLookOutRight`, `eyeLookUpLeft`, `eyeLookDownLeft`, `eyeLookUpRight`, `eyeLookDownRight`; timings `snapMs`, `detectMs`, `drawMs`, `procMs` (ms per stage); and `maskBoxes` (one `[x, y, w, h]` in video pixels per masked face, after scaling and forehead lift; empty when tracking is lost). `key` lines hold the **time only, never the key**. Readings are for the first face; `null` when tracking is lost.
+
+Sign conventions: `yaw > 0` = face turns toward the right side of the image (your own left, the image is not mirrored); `pitch > 0` = looking down; `gazeH > 0` = iris toward image right; `gazeV > 0` = iris low; `blendH > 0` = blendshape gaze toward the image right (built from eyeLookOutLeft + eyeLookInRight - eyeLookInLeft - eyeLookOutRight, halved; check on screen that it has the same sign as `gazeH`).
 
 Chrome may ask "Allow this site to download multiple files": click Allow, otherwise only the first file saves.
 
@@ -42,7 +44,14 @@ npm run get-model                # downloads face_landmarker.task (float16) into
 npm run dev                      # http://localhost:5180
 ```
 
-Open http://localhost:5180 in Chrome and allow camera and microphone. Press **Start camera**, then **Start recording**, then **Stop and save**.
+Open http://localhost:5180 in Chrome and allow camera and microphone. The page walks you through:
+
+1. **Start camera.** The big badge shows the delegate (GPU or CPU) and the live fps (red below 15).
+2. **Step 1, setup check.** Fit your face in the dashed guide box. A live checklist shows green or red for: face found, lighting (brightness and contrast of the face region), face size (at least 30% of frame height) and face centered. **Continue** unlocks when all are green. **Continue anyway** is for research recordings; the sidecar header then lists which checks failed.
+3. **Step 2, calibration (about 7 s).** Press Start calibration. Look at the red dot in the middle of the screen for 5 s without moving your head, then at the left-edge dot and the right-edge dot (1 s each). The median yaw, pitch and gaze become your **baseline**, their spread is the **noise**, and the edge readings show your range. All are stored in the header, and all look-away decisions use values minus this baseline. Use **Recalibrate** if you moved.
+4. **Start recording**, then **Stop and save**.
+
+The checkbox **Cover top of head and hair** (on by default) extends the mask upward over the hair.
 
 Other commands (in `poc\face-mask\client`): `npm run build` (type-check and bundle), `npm test` (unit tests for pose, gaze, mask geometry, fps stats).
 
@@ -101,14 +110,16 @@ python test3_lookaway.py ..\recordings\laptopA
 | --- | --- | --- |
 | 1 speed | average fps, 10th-percentile fps, % lost frames, ms per frame | average fps >= 15 on every recording (check the low-end laptop especially) |
 | 2 leaks | Face detectors (Haar frontal, Haar profile on the frame and its mirror, and YuNet) on every frame of `masked-*.webm`. Each hit is classed **OUTSIDE** (not covered by a mask box from the sidecar, so possibly a real face) or **INSIDE** (on the mask, usually just the cartoon fooling the detector). See below | **0 OUTSIDE hits that show a real face, and none of the reviewed INSIDE samples show a real face**, judged by eye |
-| 3 look-away | sidecar events vs your labels: labels, found, extra events, events with a key press within 2 s | 90% or more of all labels are found |
+| 3 look-away | sidecar events vs your labels: labels, found, extra events, events with a key press within 2 s. Options: `--gaze-source iris|blend`, `--raw` | 90% or more of all labels are found |
+| 6 jitter | on `normal` clips: std of yaw and gaze (raw vs smoothed, iris vs blendshape) and look-away events per minute (all false flags) | 0 false look-aways per minute on every normal clip, with smoothing on |
 | 4 identity (manual) | see below | people do no better than chance |
 
 #### Test 2 in detail
 
 ```powershell
 python setup_models.py                      # once
-python test2_leaks.py ..ecordings\laptopA   # add --every 2 to go faster, --no-yunet for Haar only (weaker)
+python test2_leaks.py ..
+ecordings\laptopA   # add --every 2 to go faster, --no-yunet for Haar only (weaker)
 ```
 
 - Each video frame is matched to the nearest sidecar frame by time (using the masked recorder's start offset from the header), which gives the mask boxes for that frame.
@@ -117,9 +128,24 @@ python test2_leaks.py ..ecordings\laptopA   # add --every 2 to go faster, --no-
 - The printout and `out\leaks\summary.csv` list per recording: frames, OUTSIDE hits, INSIDE hits, frames saved for review.
 - **The script does not decide pass or fail.** You open the saved images. PASS = no OUTSIDE image and no INSIDE sample shows a real face. Detector misses prove nothing, so also scrub a few unflagged frames of hand-over-face, fast-motion and leave-frame.
 
-Look-away rule (constants at the top of `analysis\common.py`): `|yaw| > 25` degrees or `|gazeH| > 0.5`, lasting at least 1.0 s, merging gaps under 0.5 s. Tracking-lost frames never count as looking away; they are reported separately (`lost s`).
+Look-away rule (constants at the top of `analysis\common.py`). All values are taken **minus the calibration baseline** from the sidecar header:
+
+- **Head:** `|yaw - baseline| > 25` degrees for at least 1.0 s.
+- **Eyes:** `|gaze - baseline|` above the enter threshold 0.5 starts an event and it only ends below the exit threshold 0.35 (hysteresis: a value hovering near 0.5 is one event, not many). It must last at least 1.5 s.
+- Either one makes a look-away event. Gaps under 0.5 s are merged. Tracking-lost frames never count as looking away (a lost gap under 0.5 s just bridges two runs); they are reported separately (`lost s`).
+- `GAZE_SOURCE` is `iris` (landmarks) or `blend` (blendshapes); `USE_SMOOTHED` switches to the raw fields. Both can be set per run in test 3 and are compared side by side in test 6.
 
 Every script exits with a clear message when the folder has no matching files.
+
+### Test 6: jitter (record a clean `normal` clip first)
+
+Record a 1-minute `normal` clip while sitting still, looking at the screen, typing and talking, never looking away on purpose. Then:
+
+```powershell
+python test6_jitter.py ..ecordings\laptopA
+```
+
+It prints, per clip, the standard deviation of yaw and gaze and the events per minute for iris raw, iris smoothed, blend raw, blend smoothed. Every event on a normal clip is a false flag. PASS = 0 per minute for the default source with smoothing. If it fails: redo the setup check until green (face closer, more front light), recalibrate, then tune `ONE_EURO_*` in `config.ts` or `GAZE_ENTER`/`GAZE_EXIT`.
 
 ### Test 4: can people identify the student? (manual)
 
@@ -146,5 +172,10 @@ In `client\src\config.ts`:
 - `DEFAULT_MASK_OPTIONS.pixelBlockSize` (40): bigger blocks = stronger pixelation when tracking is lost.
 - `CAMERA_WIDTH`/`CAMERA_HEIGHT` (1280x720): lower this on a slow laptop to gain fps.
 - `NUM_FACES` (2).
+- `DETECT_LONG_SIDE` (640): tracking runs on a copy of the snapshot scaled to this long side; drawing still uses the full-size snapshot. Lower = faster tracking, less accurate landmarks.
+- `ONE_EURO_POSE` / `ONE_EURO_GAZE` (`minCutoff`, `beta`, `dCutoff`): lower `minCutoff` = steadier but laggier; higher `beta` = less lag on fast moves.
+- `MIN_FACE_HEIGHT_SHARE`, `CENTER_TOLERANCE`, `MIN_MEAN_LUMA`, `MAX_MEAN_LUMA`, `MIN_LUMA_STD`: setup check thresholds.
+- `CALIB_CENTER_S`, `CALIB_EDGE_S`, `CALIB_SETTLE_S`: calibration timing.
+- `DEFAULT_MASK_OPTIONS.headCover`, `headCoverHeight` (0.5 of face height), `headCoverWidth` (1.05): the hair cover.
 
-In `analysis\common.py`: look-away thresholds, minimum duration, merge gap, label matching slack, key window.
+In `analysis\common.py`: head and eye thresholds and durations, hysteresis exit values, merge gap, gaze source, label matching slack, key window.
