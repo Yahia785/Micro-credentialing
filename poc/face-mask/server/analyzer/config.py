@@ -23,7 +23,7 @@ CLASSES = {0: "person", 63: "laptop", 67: "cell phone", 73: "book"}  # COCO ids 
 # ---- camera blocked or blurred (no model) --------------------------------------------
 CAMERA_ANALYSIS_WIDTH = 320  # frames are scaled to this width first, so the numbers do not depend on resolution
 CAMERA_MIN_BRIGHTNESS = 25.0  # mean grey level (0..255): below this = covered or dark
-CAMERA_MIN_SHARPNESS = 5.0    # variance of the Laplacian: below this = blurred or featureless
+CAMERA_MIN_SHARPNESS = 40.0   # variance of the Laplacian: below this = blurred or featureless. Real normal clips measured 400-800; a Gaussian blur of sigma 8 gives about 10, sigma 3 about 115
 
 # ---- minimum duration before a detection becomes a flag, and join gaps -------------------
 # (seconds). Looking-away durations come from analysis/common.py (head 1.0 s, eyes 1.5 s).

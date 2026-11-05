@@ -117,6 +117,7 @@ python test3_lookaway.py ..\recordings\laptopA
 | 1 speed | average fps, 10th-percentile fps, % lost frames, ms per frame, detect ms | average fps >= 15 = PASS, 10 to 15 = OK (minimum), below 10 = FAIL (check the low-end laptop especially) |
 | 2 leaks | Face detectors (Haar frontal, Haar profile on the frame and its mirror, and YuNet) on every frame of `masked-*.webm`. Each hit is classed **OUTSIDE** (not covered by a mask box from the sidecar, so possibly a real face) or **INSIDE** (on the mask, usually just the cartoon fooling the detector). See below | **0 OUTSIDE hits that show a real face, and none of the reviewed INSIDE samples show a real face**, judged by eye |
 | 3 look-away | sidecar events vs your labels: labels, found, extra events, events with a key press within 2 s. Options: `--gaze-source iris|blend`, `--raw`, `--thresholds fixed|calibrated` | 90% or more of all labels are found |
+| 5 raw vs masked | object and camera checks on the raw and the masked video of the same session; are the flags the same? (needs the server venv, see "Server analysis") | 90% or more of the raw flags are also found in the masked video |
 | 6 jitter | on `normal` clips: std of yaw and gaze (raw vs smoothed, iris vs blendshape) and look-away events per minute (all false flags) | 0 false look-aways per minute on every normal clip, with smoothing on |
 | 4 identity (manual) | see below | people do no better than chance |
 
@@ -197,3 +198,110 @@ In `client\src\config.ts`:
 - `DEFAULT_MASK_OPTIONS.headCover`, `headCoverHeight` (0.5 of face height), `headCoverWidth` (1.05): the hair cover.
 
 In `analysis\common.py`: `EDGE_FACTOR`, `MIN_ENTER`, `EXIT_RATIO`, `THRESHOLDS_MODE`, `SPEED_PASS_FPS`, `SPEED_MIN_FPS`, head and eye thresholds and durations, hysteresis exit values, merge gap, gaze source, label matching slack, key window.
+
+## Server analysis (integrity flags from one recorded session)
+
+`poc\face-mask\server\` turns one session (masked video plus sidecar) into a list of integrity flags, `flags-<id>.json`. For now it runs on your laptop. It is written so it can later run as an AWS Lambda container image without a rewrite (no AWS code, Dockerfile or template exists yet).
+
+### What it checks
+
+| Flag | Source | How |
+| --- | --- | --- |
+| `phone_visible`, `book_visible`, `extra_laptop` | video | YOLO11 nano finds a cell phone, book or laptop box (confidence 0.40) in the masked video, sampled at 2 frames per second |
+| `second_person` | video | more than one `person` box in a sampled frame |
+| `camera_blocked` | video | no model: mean brightness below 25 or sharpness (variance of the Laplacian, frame scaled to 320 px wide) below 40 |
+| `looking_away` | sidecar | the rule in `analysis\common.py` is imported, not copied: baseline-relative yaw or gaze, hysteresis, minimum durations (default gaze source blendshape, `fixed` thresholds) |
+| `looking_away_while_typing` | sidecar | the main rule: a `looking_away` event with a key press during it or within 2 s |
+| `tracking_lost` | sidecar | no face for at least 2 s. This is reported, not an accusation |
+
+Every detection must last a minimum time (phone 1.5 s; book, extra laptop, second person, camera blocked, tracking lost 2.0 s; looking away 1.0 s for the head and 1.5 s for the eyes) and detections of the same type closer together than the join gap (1.5 s for objects, 1.0 s camera, 0.5 s sidecar types) are joined into one flag. All thresholds are constants in `server\analyzer\config.py`. The camera thresholds come from real clips: normal masked and raw frames measured brightness 84 to 158 and sharpness 400 to 800; a Gaussian blur of sigma 8 gives about 10 and flat noise about 7. **They have not been tried on a really covered or blurred camera yet.**
+
+### Setup (PowerShell)
+
+Two virtual environments, so the analyzer never needs torch:
+
+```powershell
+cd poc\face-mask\server
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt        # onnxruntime, numpy, opencv-headless, pytest
+
+python -m venv .venv-export                                                 # only for the one-time model export
+.\.venv-export\Scripts\python.exe -m pip install -r requirements-export.txt # ultralytics, torch (large download)
+.\.venv-export\Scripts\python.exe scripts\export_model.py                   # downloads yolo11n.pt, writes models\yolo11n.onnx
+```
+
+`models\` is git-ignored (never commit model files). After the export you can delete `.venv-export`. The analyzer itself imports only `onnxruntime`, `numpy` and `opencv`, never `ultralytics` or `torch`, and runs on the CPU only.
+
+**Licence warning:** YOLO11 and the Ultralytics package are licensed under **AGPL-3.0**. Check this with whoever owns the licence decision before the analyzer goes into a product (an Ultralytics enterprise licence or a permissively licensed detector are the usual ways out). The flags file records the model name, version, checksum and licence.
+
+### Run the CLI
+
+```powershell
+cd poc\face-mask\server
+.\.venv\Scripts\python.exe -m analyzer ..\recordings\masked-<id>.webm ..\recordings\sidecar-<id>.jsonl
+```
+
+It writes `flags-<id>.json` next to the sidecar (or into `--out <folder>`) and prints the flags and the timing. Options: `--no-objects` (camera and sidecar checks only, no model needed), `--thresholds fixed|calibrated` (default `fixed`), `--gaze-source iris|blend`, `--raw`, `--chunk-s 60`, `--model <path>`, `--threads N`.
+
+The CLI decodes the video once and cuts it into 60-second chunks. For each chunk it writes only the sampled frames (2 per second, 640 px long side) to a lossless temp file, runs `analyze_chunk` on it, deletes the file, and at the end calls `merge_flags`. Tests: `.\.venv\Scripts\python.exe -m pytest tests -q`.
+
+Try it without a camera (the example image is copied from the ultralytics package; it is not committed):
+
+```powershell
+Copy-Item .venv-export\Lib\site-packages\ultralytics\assets\zidane.jpg out\zidane.jpg    # create server\out first if missing
+.\.venv\Scripts\python.exe scripts\make_synthetic_session.py out\synthetic
+.\.venv\Scripts\python.exe -m analyzer out\synthetic\masked-synth_demo_20261105-120000.avi out\synthetic\sidecar-synth_demo_20261105-120000.jsonl
+```
+
+The synthetic session plants a covered camera (20-24 s), a blurred camera (30-34 s), a second person (50-70 s, across the chunk boundary at 60 s), a look-away with key presses (57-63 s) and a tracking-lost period (100-104 s). All are found.
+
+### Test 5: raw versus masked
+
+Does the mask hide things from the object and camera checks? Run it with the SERVER venv from `poc\face-mask`:
+
+```powershell
+server\.venv\Scripts\python.exe analysis\test5_raw_vs_masked.py recordings
+```
+
+For every session with both `raw-<id>` and `masked-<id>` videos (record with "Also save raw video" ticked) it runs the object and camera checks on both videos and compares the flags (same type, overlapping in time within 1 s). It prints, per session and overall, the flags found in both, only in raw and only in masked. **PASS if 90% or more of the raw flags are also found in the masked video.** If the raw videos give no flags at all it prints NO DATA and says it is not a pass: record the scenarios that should give flags (phone, second person, hand or paper over the camera). Videos whose names differ (for example `raw-<id>gpu.webm`) are not paired and are listed.
+
+### Flag format (`flags-<id>.json`)
+
+```json
+{
+  "session_id": "laptop_normal_20261105-092926",
+  "analyzer_version": "0.1.0",
+  "created": "2026-11-05T16:18:30+00:00",
+  "model": {"name": "yolo11n", "version": "8.4.202", "file": "yolo11n.onnx", "sha256": "...", "runtime": "onnxruntime-cpu", "license": "AGPL-3.0", "classes_reported": ["person", "laptop", "cell phone", "book"]},
+  "thresholds": {"sample_fps": 2.0, "object_confidence": 0.4, "min_duration_s": {}, "join_gap_s": {}, "camera_min_brightness": 25.0, "camera_min_sharpness": 40.0, "look_away": {}},
+  "video": {"chunks": 3, "sample_fps": 2.0},
+  "flags": [
+    {"type": "second_person", "start_s": 50.0, "end_s": 70.0, "confidence": 0.85, "source": "video",
+     "evidence": "more than one person box in 40 of 40 sampled frames"},
+    {"type": "looking_away_while_typing", "start_s": 57.0, "end_s": 63.0, "confidence": 1.0, "source": "sidecar",
+     "evidence": "key press during or within 2 s of the look-away"}
+  ]
+}
+```
+
+`confidence` is the mean detection score for objects, the share of sampled frames that were blocked for `camera_blocked`, and 1.0 for the rule-based sidecar flags (the rule was satisfied). Times are seconds on the session timeline (video time plus the recorder start offset from the sidecar header). The file holds numbers, labels and short texts only: no images and no faces, ever.
+
+### How it fits Lambda later
+
+- `analyze_chunk(video_path, sidecar_frames, chunk_start_s, keys_s=..., header=..., options=...)` analyzes ONE chunk: `video_path` is the clip of that chunk (time 0 of the clip = `chunk_start_s` of the session), `sidecar_frames` are the sidecar `frame` lines of the chunk, `keys_s` the key-press times (include presses up to 2 s outside the chunk). It returns flags in an intermediate format. A detection that is too short but touches the first or last sample of the chunk is kept, because it may continue in the neighbouring chunk.
+- `merge_flags(list_of_chunk_flag_lists)` joins flags across chunk boundaries, sums the evidence counts, stretches a typing flag to the whole look-away, applies the minimum durations and returns the final flags. Always run it, even with one chunk.
+- No global state: everything is passed in. The only cache is the loaded model (`load_detector`), reused across calls like a Lambda warm start. CPU only; `--threads` maps to onnxruntime threads.
+- `analysis\common.py` must be next to the package or on `PYTHONPATH` in the image (it only uses the standard library). On the laptop it is found automatically.
+- Timing measured on this laptop (12 cores, CPU only, no GPU), seconds of work per minute of video:
+
+  | Recording | Settings | Decode and sample | analyze_chunk | Total |
+  | --- | --- | --- | --- | --- |
+  | real 54 s, 1280x720 webm | default threads | 7.0 | 8.0 | 15.1 |
+  | real 54 s, 1280x720 webm | 1 onnxruntime thread | 7.1 | 14.4 | 21.5 |
+  | synthetic 150 s, 3 chunks, 640x360 | default threads | 1.3 | 7.3 | 8.6 |
+
+  YOLO11 nano takes about 65 ms per sampled frame here, so a 60 s chunk (120 frames) needs about 8 s of model time. Even with one thread a 60 s chunk takes well under a minute, so 15 minutes of Lambda time is far more than a one-chunk invocation needs. Lambda vCPUs are slower than this laptop and this was not run on Lambda, so measure again there before relying on the numbers.
+
+### Settings worth tuning
+
+`server\analyzer\config.py`: `OBJECT_CONF`, `SAMPLE_FPS`, `CAMERA_MIN_BRIGHTNESS`, `CAMERA_MIN_SHARPNESS`, `MIN_DURATION_S`, `JOIN_GAP_S`, `CLASSES`. The look-away rule stays in `analysis\common.py`.

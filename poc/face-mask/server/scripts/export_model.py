@@ -10,6 +10,7 @@ NOTE: YOLO11 and the Ultralytics package are AGPL-3.0 licensed. See the README b
 from __future__ import annotations
 
 import hashlib
+import os
 import json
 import shutil
 import sys
@@ -29,6 +30,7 @@ def main() -> int:
         return 1
 
     MODELS.mkdir(parents=True, exist_ok=True)
+    os.chdir(MODELS)  # ultralytics writes the weights and the export next to the current folder
     target = MODELS / f"{NAME}.onnx"
     if target.exists() and "--force" not in sys.argv:
         print(f"Already exported: {target} (use --force to redo)")
