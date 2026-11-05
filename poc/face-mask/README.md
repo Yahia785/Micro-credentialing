@@ -142,7 +142,7 @@ Every script exits with a clear message when the folder has no matching files.
 Record a 1-minute `normal` clip while sitting still, looking at the screen, typing and talking, never looking away on purpose. Then:
 
 ```powershell
-python test6_jitter.py ..ecordingsaptopA
+python test6_jitter.py ..\recordings\laptopA
 ```
 
 It prints, per clip, the standard deviation of yaw and gaze and the events per minute for iris raw, iris smoothed, blend raw, blend smoothed. Every event on a normal clip is a false flag. PASS = 0 per minute for the default source with smoothing. If it fails: redo the setup check until green (face closer, more front light), recalibrate, then tune `ONE_EURO_*` in `config.ts` or `GAZE_ENTER`/`GAZE_EXIT`.
