@@ -16,16 +16,16 @@ ANALYSIS = Path(__file__).resolve().parent.parent
 
 def test_symmetric_person():
     th = thresholds_from_edges(0.2, 0.07, 0.33)          # edges +/-0.13 from the baseline
-    assert th.enter_pos == pytest.approx(0.195) and th.enter_neg == pytest.approx(0.195)
-    assert th.exit_pos == pytest.approx(0.195 * 0.7)
-    assert th.exit_neg == pytest.approx(0.195 * 0.7)
+    assert th.enter_pos == pytest.approx(0.156) and th.enter_neg == pytest.approx(0.156)
+    assert th.exit_pos == pytest.approx(0.156 * 0.7)
+    assert th.exit_neg == pytest.approx(0.156 * 0.7)
 
 
 def test_left_and_right_sides_are_separate():
     th = thresholds_from_edges(0.2, 0.12, 0.45)          # d = -0.08 (left) and +0.25 (right)
-    assert th.enter_pos == pytest.approx(1.5 * 0.25)
-    assert th.enter_neg == pytest.approx(0.15)           # 1.5 * 0.08 = 0.12 < minimum 0.15
-    assert th.exit_pos == pytest.approx(1.5 * 0.25 * 0.7)
+    assert th.enter_pos == pytest.approx(1.2 * 0.25)
+    assert th.enter_neg == pytest.approx(0.15)           # 1.2 * 0.08 = 0.096 < minimum 0.15
+    assert th.exit_pos == pytest.approx(1.2 * 0.25 * 0.7)
     assert th.exit_neg == pytest.approx(0.15 * 0.7)
 
 
@@ -33,7 +33,7 @@ def test_which_edge_is_which_does_not_matter_only_the_sign():
     a = thresholds_from_edges(0.0, -0.1, 0.4)
     b = thresholds_from_edges(0.0, 0.4, -0.1)            # edges swapped (image-mirrored calibration)
     assert a == b
-    assert a.enter_pos == pytest.approx(0.6) and a.enter_neg == pytest.approx(0.15)
+    assert a.enter_pos == pytest.approx(0.48) and a.enter_neg == pytest.approx(0.15)
 
 
 def test_minimum_enter_distance_stops_jitter_from_triggering():
@@ -44,15 +44,16 @@ def test_minimum_enter_distance_stops_jitter_from_triggering():
 
 def test_one_usable_side_is_mirrored_and_nothing_usable_is_none():
     th = thresholds_from_edges(0.0, 0.2, 0.3)            # both edges on the positive side
-    assert th.enter_pos == pytest.approx(0.45) and th.enter_neg == pytest.approx(0.45)
+    assert th.enter_pos == pytest.approx(0.36) and th.enter_neg == pytest.approx(0.36)
     assert thresholds_from_edges(0.0, None, None) is None
     assert thresholds_from_edges(None, 0.1, 0.2) is None
     assert thresholds_from_edges(0.0, 0.0, 0.0) is None
 
 
 def test_constants():
-    assert (common.EDGE_FACTOR, common.MIN_ENTER, common.EXIT_RATIO) == (1.5, 0.15, 0.7)
+    assert (common.EDGE_FACTOR, common.MIN_ENTER, common.EXIT_RATIO) == (1.2, 0.15, 0.7)
     assert common.THRESHOLDS_MODE == "fixed"
+    assert common.GAZE_SOURCE == "blend"
 
 
 def test_asymmetric_thresholds_in_runs():
@@ -92,24 +93,24 @@ def _sidecar(tmp_path, left, right, base=0.0):
 
 def test_calibrated_catches_a_small_edge_look_that_fixed_misses(tmp_path):
     sc = _sidecar(tmp_path, left=-0.13, right=0.13)      # +/-0.13 at the screen edges, as on the real Dell G3
-    assert common.sidecar_events(sc, thresholds_mode="fixed") == []
-    ev = common.sidecar_events(sc, thresholds_mode="calibrated")   # enter 0.195 < 0.25
+    assert common.sidecar_events(sc, "iris", thresholds_mode="fixed") == []
+    ev = common.sidecar_events(sc, "iris", thresholds_mode="calibrated")   # enter 0.156 < 0.25
     assert len(ev) == 1 and ev[0][0] == pytest.approx(1.0)
 
 
 def test_calibrated_uses_each_side_separately(tmp_path):
     # person who looks far to the right (+0.4) but only a little to the left (-0.1): +0.25 is NOT a look-away
     sc = _sidecar(tmp_path, left=-0.1, right=0.4)
-    assert common.sidecar_events(sc, thresholds_mode="calibrated") == []   # enter_pos = 0.6
+    assert common.sidecar_events(sc, "iris", thresholds_mode="calibrated") == []   # enter_pos = 0.48
 
 
 def test_thresholds_for_text_and_fallback(tmp_path):
     sc = _sidecar(tmp_path, left=-0.13, right=0.13)
-    th, text = thresholds_for(sc, mode="calibrated")
-    assert text.startswith("calibrated") and th.enter_pos == pytest.approx(0.195)
-    assert thresholds_for(sc, mode="fixed")[1].startswith("fixed")
+    th, text = thresholds_for(sc, "iris", mode="calibrated")
+    assert text.startswith("calibrated") and th.enter_pos == pytest.approx(0.156)
+    assert thresholds_for(sc, "iris", mode="fixed")[1].startswith("fixed")
     sc.header["calibration"].pop("edges")
-    th2, text2 = thresholds_for(sc, mode="calibrated")
+    th2, text2 = thresholds_for(sc, "iris", mode="calibrated")
     assert th2 == common.FIXED_THRESHOLDS and "unavailable" in text2
     with pytest.raises(ValueError):
         thresholds_for(sc, mode="nope")

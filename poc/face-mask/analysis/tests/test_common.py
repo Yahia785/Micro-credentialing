@@ -35,7 +35,7 @@ def test_long_turn_counts():
 
 
 def test_gaze_only_counts():
-    near(look_away_events(frames([(5, 7, GAZE)])), [(5, 7)])
+    near(look_away_events(frames([(5, 7, GAZE)]), gaze_source="iris"), [(5, 7)])
 
 
 def test_glance_shorter_than_1s_does_not_count():
@@ -92,6 +92,7 @@ def test_fps_stats():
 
 
 def test_rule_constants():
+    assert common.GAZE_SOURCE == "blend"
     assert (common.YAW_ENTER_DEG, common.HEAD_MIN_DURATION_S) == (25.0, 1.0)
     assert (common.GAZE_ENTER, common.GAZE_EXIT, common.EYE_MIN_DURATION_S) == (0.5, 0.35, 1.5)
     assert common.MERGE_GAP_S == 0.5
@@ -100,8 +101,8 @@ def test_rule_constants():
 # ---- new rule: baseline, hysteresis, eye duration, gaze source ----------------------
 
 def test_gaze_needs_1_5_seconds():
-    assert look_away_events(frames([(5, 6.3, GAZE)])) == []          # 1.3 s: too short for the eyes
-    near(look_away_events(frames([(5, 6.8, GAZE)])), [(5, 6.8)])     # 1.8 s counts
+    assert look_away_events(frames([(5, 6.3, GAZE)]), gaze_source="iris") == []          # 1.3 s: too short for the eyes
+    near(look_away_events(frames([(5, 6.8, GAZE)]), gaze_source="iris"), [(5, 6.8)])     # 1.8 s counts
 
 
 def test_head_needs_only_1_second():
@@ -117,8 +118,8 @@ def test_baseline_is_subtracted_from_yaw():
 
 def test_baseline_is_subtracted_from_gaze():
     f = frames([(5, 8, {"gazeH": 0.6})])
-    assert look_away_events(f, gaze_base=0.3) == []                   # 0.3 rel: below enter
-    near(look_away_events(f, gaze_base=0.0), [(5, 8)])
+    assert look_away_events(f, gaze_base=0.3, gaze_source="iris") == []                   # 0.3 rel: below enter
+    near(look_away_events(f, gaze_base=0.0, gaze_source="iris"), [(5, 8)])
 
 
 def test_hysteresis_runs_hover_gives_one_run_not_many():
@@ -144,7 +145,7 @@ def test_hysteresis_ends_below_exit():
 
 def test_hovering_gaze_in_a_sidecar_is_one_event():
     spec = [(5, 9, {"gazeH": 0.52})] + [(5 + 0.1 * i, 5.05 + 0.1 * i, {"gazeH": 0.42}) for i in range(40) if i % 2]
-    near(look_away_events(frames(spec)), [(5, 9)], tol=0.2)
+    near(look_away_events(frames(spec), gaze_source="iris"), [(5, 9)], tol=0.2)
 
 
 def test_gaze_source_blend_vs_iris():
@@ -152,6 +153,7 @@ def test_gaze_source_blend_vs_iris():
     for fr in f:
         fr.setdefault("blendH", 0.0)
     assert look_away_events(f, gaze_source="iris") == []
+    assert look_away_events(f) != []                                    # blend is the default source
     near(look_away_events(f, gaze_source="blend"), [(5, 8)])
     with pytest.raises(ValueError):
         look_away_events(f, gaze_source="nope")
@@ -161,8 +163,8 @@ def test_raw_vs_smoothed_fields():
     f2 = frames([(5, 8, {"gazeHRaw": 0.8})])
     for fr in f2:
         fr.setdefault("gazeHRaw", 0.0)
-    assert look_away_events(f2, smoothed=True) == []                   # smoothed gazeH is 0 everywhere
-    near(look_away_events(f2, smoothed=False), [(5, 8)])
+    assert look_away_events(f2, smoothed=True, gaze_source="iris") == []                   # smoothed gazeH is 0 everywhere
+    near(look_away_events(f2, smoothed=False, gaze_source="iris"), [(5, 8)])
 
 
 def test_sidecar_events_use_header_baseline(tmp_path):

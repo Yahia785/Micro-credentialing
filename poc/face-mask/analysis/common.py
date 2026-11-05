@@ -21,14 +21,14 @@ EYE_MIN_DURATION_S = 1.5
 MERGE_GAP_S = 0.5           # gaps shorter than this between two runs are merged
 # Calibrated eye thresholds (option): enter = EDGE_FACTOR x (that side's edge reading - baseline), but at least
 # MIN_ENTER (so jitter cannot trigger it); exit = enter x EXIT_RATIO.
-EDGE_FACTOR = 1.5
+EDGE_FACTOR = 1.2
 MIN_ENTER = 0.15
 EXIT_RATIO = 0.7
 THRESHOLDS_MODE = "fixed"  # "fixed" (GAZE_ENTER / GAZE_EXIT) or "calibrated" (from the sidecar header)
 # Speed rule (test 1)
 SPEED_PASS_FPS = 15.0
 SPEED_MIN_FPS = 10.0
-GAZE_SOURCE = "iris"        # "iris" (landmark based, gazeH) or "blend" (blendshape based, blendH)
+GAZE_SOURCE = "blend"       # "blend" (blendshape based, blendH; default) or "iris" (landmark based, gazeH)
 USE_SMOOTHED = True         # False = use the *Raw fields (to compare raw against smoothed)
 # ---- Matching with hand labels ------------------------------------------------------
 MATCH_TOLERANCE_S = 0.5   # an event "finds" a label if they overlap within this slack

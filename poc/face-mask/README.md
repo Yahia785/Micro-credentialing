@@ -141,8 +141,8 @@ Look-away rule (constants at the top of `analysis\common.py`). All values are ta
 - Either one makes a look-away event. Gaps under 0.5 s are merged. Tracking-lost frames never count as looking away (a lost gap under 0.5 s just bridges two runs); they are reported separately (`lost s`).
 - **Eye thresholds, two options** (`--thresholds` in test 3 and test 6, `THRESHOLDS_MODE` in `common.py`; the output always says which was used):
   - `fixed` (default): enter 0.5, exit 0.35 for everyone.
-  - `calibrated`: from each person's calibration edge readings. For each edge, `d = edge reading - baseline`; `enter = max(EDGE_FACTOR x |d|, MIN_ENTER)` (`EDGE_FACTOR` 1.5, `MIN_ENTER` 0.15, so jitter cannot trigger it), `exit = enter x 0.7`. The edge whose `d` is positive sets the positive side, the edge whose `d` is negative sets the negative side, so a person who looks far one way and little the other gets different limits per side (if only one side is usable the other copies it; with no usable edge it falls back to fixed and says so). Use this when the gaze range on screen is small (for example about +/-0.13 at the screen edges, where a fixed 0.5 would never fire).
-- `GAZE_SOURCE` is `iris` (landmarks) or `blend` (blendshapes); `USE_SMOOTHED` switches to the raw fields. Both can be set per run in test 3 and are compared side by side in test 6.
+  - `calibrated`: from each person's calibration edge readings. For each edge, `d = edge reading - baseline`; `enter = max(EDGE_FACTOR x |d|, MIN_ENTER)` (`EDGE_FACTOR` 1.2, `MIN_ENTER` 0.15, so jitter cannot trigger it), `exit = enter x 0.7`. The edge whose `d` is positive sets the positive side, the edge whose `d` is negative sets the negative side, so a person who looks far one way and little the other gets different limits per side (if only one side is usable the other copies it; with no usable edge it falls back to fixed and says so). Use this when the gaze range on screen is small (for example about +/-0.13 at the screen edges, where a fixed 0.5 would never fire).
+- `GAZE_SOURCE` is `blend` (blendshapes, the default: in real tests it caught the most eye-only glances with no false flags) or `iris` (landmarks; with the fixed 0.5 threshold it missed every eye-only glance). `USE_SMOOTHED` switches to the raw fields. Both can be set per run in test 3 (`--gaze-source`) and are compared side by side in test 6.
 
 Every script exits with a clear message when the folder has no matching files.
 
@@ -162,7 +162,7 @@ Record a 1-minute `normal` clip while sitting still, looking at the screen, typi
 python test6_jitter.py ..\recordings\laptopA
 ```
 
-It prints, per clip, the standard deviation of yaw and gaze and the events per minute for iris raw, iris smoothed, blend raw, blend smoothed. Every event on a normal clip is a false flag. PASS = 0 per minute for the default source with smoothing. If it fails: redo the setup check until green (face closer, more front light), recalibrate, then tune `ONE_EURO_*` in `config.ts` or `GAZE_ENTER`/`GAZE_EXIT`.
+It prints, per clip, the standard deviation of yaw and gaze and the events per minute for iris raw, iris smoothed, blend raw, blend smoothed. Every event on a normal clip is a false flag. PASS = 0 per minute for the default source (blendshape gaze) with smoothing. If it fails: redo the setup check until green (face closer, more front light), recalibrate, then tune `ONE_EURO_*` in `config.ts` or `GAZE_ENTER`/`GAZE_EXIT`.
 
 ### Test 4: can people identify the student? (manual)
 
