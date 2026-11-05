@@ -14,7 +14,10 @@ export function drawFaceMask(
   const px = (i: number): Pt => ({ x: lm[i].x * w, y: lm[i].y * h });
 
   // 1. Solid face shape (nothing of the real face is visible through it).
-  const shape = faceShape(lm, w, h, o.maskScale, o.foreheadLift);
+  const shape = faceShape(
+    lm, w, h, o.maskScale, o.foreheadLift,
+    o.headCover ? o.headCoverHeight : 0, o.headCoverWidth,
+  );
   if (shape.length < 3) return null;
   ctx.beginPath();
   shape.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));

@@ -139,7 +139,15 @@ export function convexHull(points: Pt[]): Pt[] {
  * upper half pushed up by foreheadLift * faceHeight (full push at the top, fading to zero
  * at the center line).
  */
-export function faceShape(lm: ArrayLike<Landmark>, w: number, h: number, scale: number, foreheadLift: number): Pt[] {
+export function faceShape(
+  lm: ArrayLike<Landmark>,
+  w: number,
+  h: number,
+  scale: number,
+  foreheadLift: number,
+  headCoverHeight = 0,
+  headCoverWidth = 1,
+): Pt[] {
   const pts: Pt[] = [];
   for (let i = 0; i < lm.length; i++) pts.push({ x: lm[i].x * w, y: lm[i].y * h });
   const hull = convexHull(pts);
@@ -153,14 +161,44 @@ export function faceShape(lm: ArrayLike<Landmark>, w: number, h: number, scale: 
   const cy = (minY + maxY) / 2;
   const faceH = maxY - minY;
   const halfH = faceH / 2 || 1;
-  return hull.map((p) => {
+  const shape = hull.map((p) => {
     const sx = cx + (p.x - cx) * scale;
     let sy = cy + (p.y - cy) * scale;
     const above = (cy - p.y) / halfH; // 1 at top of hull, 0 at center, negative below
     if (above > 0) sy -= foreheadLift * faceH * Math.min(1, above);
     return { x: sx, y: sy };
   });
+  if (headCoverHeight <= 0) return shape;
+
+  // Head cover: add a dome above the shape (top of head + hair) and take the hull of both.
+  let sMinX = Infinity, sMaxX = -Infinity, sMinY = Infinity;
+  for (const p of shape) {
+    sMinX = Math.min(sMinX, p.x); sMaxX = Math.max(sMaxX, p.x); sMinY = Math.min(sMinY, p.y);
+  }
+  const dcx = (sMinX + sMaxX) / 2;
+  const rx = ((sMaxX - sMinX) / 2) * headCoverWidth;
+  const ry = headCoverHeight * faceH;
+  const withDome = [...shape];
+  for (let i = 0; i <= 16; i++) {
+    const a = Math.PI + (Math.PI * i) / 16; // upper half of the ellipse
+    withDome.push({ x: dcx + rx * Math.cos(a), y: sMinY + ry * Math.sin(a) + ry * 0.35 });
+  }
+  return convexHull(withDome);
 }
+
+/** Horizontal gaze from blendshape scores: + = looking toward the image right (same sign as iris gaze). null if missing. */
+export function blendshapeGazeH(bs: Record<string, number>): number | null {
+  const a = bs.eyeLookOutLeft, b = bs.eyeLookInRight, c = bs.eyeLookInLeft, d = bs.eyeLookOutRight;
+  if ([a, b, c, d].some((v) => v === undefined)) return null;
+  // Subject's left eye is on the image right: "out" = toward image right. Subject's right eye is on the
+  // image left: "in" (toward the nose) = toward image right.
+  return (a + b - c - d) / 2;
+}
+
+export const BLENDSHAPE_KEYS = [
+  "eyeLookInLeft", "eyeLookOutLeft", "eyeLookInRight", "eyeLookOutRight",
+  "eyeLookUpLeft", "eyeLookDownLeft", "eyeLookUpRight", "eyeLookDownRight",
+] as const;
 
 /** Bounding box [x, y, w, h] of a mask shape in pixels, rounded to whole pixels. */
 export function boundingBox(shape: Pt[]): [number, number, number, number] {

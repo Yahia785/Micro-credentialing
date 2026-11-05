@@ -6,6 +6,38 @@ export const MIN_FACE_PRESENCE_CONFIDENCE = 0.6;
 export const MIN_TRACKING_CONFIDENCE = 0.6;
 export const NUM_FACES = 2;
 
+/** Tracking runs on a downscaled copy of the snapshot (long side, px). Drawing always uses the full snapshot. */
+export const DETECT_LONG_SIDE = 640;
+
+// ---- One Euro filter (Casiez et al. 2012) -------------------------------------------
+// minCutoff (Hz): smoothing when still. Lower = steadier but laggier.
+// beta: how fast the cutoff opens up when the signal moves quickly. Higher = less lag on fast moves.
+// dCutoff (Hz): smoothing of the speed estimate.
+export interface OneEuroParams {
+  minCutoff: number;
+  beta: number;
+  dCutoff: number;
+}
+/** Standard values; used for head angles (degrees) and iris landmarks (pixels). */
+export const ONE_EURO_POSE: OneEuroParams = { minCutoff: 1.0, beta: 0.007, dCutoff: 1.0 };
+/** Gaze values live in [-1, 1], so speeds are small: beta is scaled up to match. */
+export const ONE_EURO_GAZE: OneEuroParams = { minCutoff: 1.0, beta: 0.5, dCutoff: 1.0 };
+
+// ---- Setup check ---------------------------------------------------------------------
+export const MIN_FACE_HEIGHT_SHARE = 0.3; // face box height / frame height
+export const CENTER_TOLERANCE = 0.2; // face-box center may be this far (share of frame) from the middle
+export const MIN_MEAN_LUMA = 70; // 0..255, mean brightness of the face region
+export const MAX_MEAN_LUMA = 200;
+export const MIN_LUMA_STD = 22; // contrast = std dev of brightness in the face region
+export const GUIDE_HEIGHT_SHARE = 0.45; // size of the drawn guide box
+export const SETUP_CHECK_INTERVAL_MS = 250;
+
+// ---- Calibration ---------------------------------------------------------------------
+export const CALIB_CENTER_S = 5;
+export const CALIB_EDGE_S = 1; // per edge (left, then right) = 2 s total
+export const CALIB_SETTLE_S = 0.4; // ignore the first part of each stage while the eyes move to the dot
+export const CALIB_MIN_SAMPLES = 8;
+
 export const WASM_PATH = "/wasm";
 export const MODEL_PATH = "/models/face_landmarker.task";
 
@@ -20,6 +52,12 @@ export interface MaskOptions {
   foreheadLift: number;
   /** When tracking is lost the frame is downscaled to width/blockSize, then upscaled. */
   pixelBlockSize: number;
+  /** Extend the mask upward to cover the top of the head and hair. */
+  headCover: boolean;
+  /** How far the head cover rises above the (forehead-lifted) shape, as a fraction of face height. */
+  headCoverHeight: number;
+  /** Width of the head cover relative to the widest part of the shape. */
+  headCoverWidth: number;
   /** Solid fill of the face shape. */
   skinColor: string;
   outlineColor: string;
@@ -29,6 +67,9 @@ export const DEFAULT_MASK_OPTIONS: MaskOptions = {
   maskScale: 1.3,
   foreheadLift: 0.25,
   pixelBlockSize: 40,
+  headCover: true,
+  headCoverHeight: 0.5,
+  headCoverWidth: 1.05,
   skinColor: "#c9b49c",
   outlineColor: "#5a4a3a",
 };
