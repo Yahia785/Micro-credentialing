@@ -36,6 +36,8 @@ export interface SessionInfo {
   height: number;
   delegate: string;
   detectLongSide: number;
+  /** What was asked for: auto (GPU with CPU fallback), gpu or cpu. */
+  delegateRequested: string;
   maskOptions: MaskOptions;
   /** Result of the setup check: which checks failed and whether the person continued anyway. */
   setup: unknown;
@@ -79,10 +81,10 @@ function frameLine(f: FrameRecord) {
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
-function timestamp(d: Date): string {
+export function timestamp(d: Date): string {
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
-const safe = (s: string) => s.trim().replace(/[^a-zA-Z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "laptop";
+export const safe = (s: string) => s.trim().replace(/[^a-zA-Z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "laptop";
 
 class OneRecorder {
   private chunks: Blob[] = [];
@@ -165,6 +167,7 @@ export class RecordingSession {
         delegate: this.info.delegate,
         userAgent: navigator.userAgent,
         detectLongSide: this.info.detectLongSide,
+        delegateRequested: this.info.delegateRequested,
         maskOptions: this.info.maskOptions,
         setup: this.info.setup,
         calibration: this.info.calibration,

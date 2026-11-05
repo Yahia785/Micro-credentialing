@@ -10,6 +10,9 @@ import {
   CAMERA_WIDTH,
   DEFAULT_MASK_OPTIONS,
   DETECT_LONG_SIDE,
+  DETECT_SIZES,
+  SWEEP_S,
+  SWEEP_WARMUP_S,
   GUIDE_HEIGHT_SHARE,
   SCENARIOS,
   SETUP_CHECK_INTERVAL_MS,
@@ -17,10 +20,11 @@ import {
 } from "./config";
 import { drawFaceMask, drawLostBanner, drawPixelated } from "./mask";
 import { BLENDSHAPE_KEYS, blendshapeGazeH, gazeFromLandmarks, headPoseFromMatrix, irisOffsets } from "./math";
-import { RecordingSession, type FrameRecord } from "./recorder";
+import { RecordingSession, safe, timestamp, type FrameRecord } from "./recorder";
 import { evaluateSetup, faceBoxFromLandmarks, lumaStats, type Check } from "./setup";
 import { IrisOffsetSmoother, ReadingSmoother, type Readings } from "./smoothing";
-import { Tracker } from "./tracker";
+import { SWEEP_PLAN, speedLabel, summarizeSweep, unavailable, type SweepResult, type SweepSample } from "./sweep";
+import { Tracker, type DelegateRequest } from "./tracker";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const out = $<HTMLCanvasElement>("out");
@@ -69,6 +73,16 @@ let tracker: Tracker | null = null;
 let stream: MediaStream | null = null;
 let session: RecordingSession | null = null;
 let stopping = false;
+
+// Tracking options: URL parameters ?delegate=cpu|gpu&detect=320|480|640, also dropdowns on the setup screen.
+const params = new URLSearchParams(location.search);
+const delegateParam = params.get("delegate")?.toLowerCase();
+let requestedDelegate: DelegateRequest = delegateParam === "cpu" || delegateParam === "gpu" ? delegateParam : "auto";
+const detectParam = Number(params.get("detect"));
+let detectLongSide = DETECT_SIZES.includes(detectParam) ? detectParam : DETECT_LONG_SIDE;
+let busy = false; // true while the speed test runs
+let sweepBuf: SweepSample[] | null = null;
+let sweepStart = 0;
 
 const smoother = new ReadingSmoother();
 const irisSmoother = new IrisOffsetSmoother();
@@ -135,7 +149,7 @@ function renderChecklist(checks: Check[]) {
       return li;
     }),
   );
-  $<HTMLButtonElement>("btnContinue").disabled = !checks.every((c) => c.ok);
+  $<HTMLButtonElement>("btnContinue").disabled = busy || !checks.every((c) => c.ok);
 }
 
 function drawGuide(w: number, h: number) {
@@ -171,7 +185,7 @@ function processFrame(): void {
   // 2. Track on a DOWNSCALED copy of the same snapshot (landmarks are normalised, so they map straight back).
   //    Any error counts as "no face" (fail closed).
   let src: HTMLCanvasElement = snap;
-  const scale = Math.min(1, DETECT_LONG_SIDE / Math.max(w, h));
+  const scale = Math.min(1, detectLongSide / Math.max(w, h));
   if (scale < 1) {
     const dw = Math.round(w * scale);
     const dh = Math.round(h * scale);
@@ -256,6 +270,12 @@ function processFrame(): void {
   }
 
   // Calibration samples.
+  if (sweepBuf && now >= sweepStart) {
+    sweepBuf.push({
+      t: now, lost, detectMs: t2 - t1,
+      yawRaw: raw.yaw, yaw: sm.yaw, gazeHRaw: raw.gazeH, gazeH: sm.gazeH, blendHRaw: raw.blendH, blendH: sm.blendH,
+    });
+  }
   if (calibActive && !lost && now - calibStart >= calibSettleS * 1000) {
     calibBuf.push({ s: sm, r: raw });
   }
@@ -317,8 +337,8 @@ btnCamera.addEventListener("click", async () => {
   btnCamera.disabled = true;
   try {
     setText("vStatus", "loading model...");
-    tracker ??= await Tracker.create();
-    setText("vDelegate", tracker.delegate, tracker.delegate === "CPU" ? "warn" : "ok");
+    tracker ??= await Tracker.create(requestedDelegate);
+    showDelegate();
     setText("vStatus", "starting camera...");
     stream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: CAMERA_WIDTH }, height: { ideal: CAMERA_HEIGHT } },
@@ -415,7 +435,8 @@ btnRecord.addEventListener("click", () => {
       width: video.videoWidth,
       height: video.videoHeight,
       delegate: tracker.delegate,
-      detectLongSide: DETECT_LONG_SIDE,
+      detectLongSide,
+      delegateRequested: requestedDelegate,
       maskOptions: { ...maskOptions },
       setup: setupInfo,
       calibration,
@@ -452,5 +473,159 @@ btnStop.addEventListener("click", async () => {
 typingEl.addEventListener("keydown", () => {
   if (session && !stopping) session.addKey();
 });
+
+
+// ---- Tracking options (dropdowns) and speed test ------------------------------------------
+const selDelegate = $<HTMLSelectElement>("selDelegate");
+const selDetect = $<HTMLSelectElement>("selDetect");
+for (const d of DETECT_SIZES) selDetect.add(new Option(`${d} px`, String(d)));
+selDelegate.value = requestedDelegate;
+selDetect.value = String(detectLongSide);
+
+function showDelegate() {
+  if (!tracker) return;
+  setText("vDelegate", `${tracker.delegate} (asked: ${requestedDelegate}), detect ${detectLongSide} px`, tracker.delegate === "CPU" ? "warn" : "ok");
+}
+
+/** Recreate the landmarker with another delegate (the old one is closed first). */
+async function switchDelegate(req: DelegateRequest): Promise<void> {
+  const old = tracker;
+  tracker = null; // processFrame idles while there is no tracker
+  old?.close();
+  requestedDelegate = req;
+  try {
+    tracker = await Tracker.create(req);
+  } catch (e) {
+    requestedDelegate = "cpu";
+    tracker = await Tracker.create("cpu"); // always leave a working tracker behind
+    showDelegate();
+    throw e;
+  }
+  showDelegate();
+}
+
+selDelegate.addEventListener("change", async () => {
+  if (!tracker || busy) return;
+  selDelegate.disabled = true;
+  try {
+    await switchDelegate(selDelegate.value as DelegateRequest);
+  } catch (e) {
+    setText("speedMsg", e instanceof Error ? e.message : String(e), "warn");
+    selDelegate.value = "cpu";
+  }
+  selDelegate.disabled = false;
+});
+selDetect.addEventListener("change", () => {
+  detectLongSide = Number(selDetect.value);
+  showDelegate();
+});
+
+let cancelSweep = false;
+const fx = (v: number | null, d = 1) => (v === null || Number.isNaN(v) ? "-" : v.toFixed(d));
+
+function renderSweep(results: SweepResult[]) {
+  const table = $<HTMLTableElement>("speedTable");
+  table.hidden = false;
+  const head = ["Delegate", "Detect", "Avg fps", "p10 fps", "Detect ms", "Lost", "std yaw raw/sm", "std gazeH raw/sm", "std blendH raw/sm", "Speed"];
+  const rows = results.map((r) => {
+    const label = r.available ? speedLabel(r.avgFps) : "n/a";
+    return [
+      r.delegate, `${r.detect}`, fx(r.avgFps), fx(r.p10Fps), fx(r.meanDetectMs), r.available ? String(r.lostFrames) : "-",
+      `${fx(r.std.yawRaw, 2)} / ${fx(r.std.yaw, 2)}`, `${fx(r.std.gazeHRaw, 3)} / ${fx(r.std.gazeH, 3)}`,
+      `${fx(r.std.blendHRaw, 3)} / ${fx(r.std.blendH, 3)}`, r.available ? label : (r.note ?? "n/a"),
+    ];
+  });
+  const mk = (cells: string[], tag: "th" | "td") => {
+    const tr = document.createElement("tr");
+    for (const c of cells) {
+      const td = document.createElement(tag);
+      td.textContent = c;
+      if (c === "PASS") td.className = "ok";
+      else if (c === "FAIL") td.className = "warn";
+      tr.appendChild(td);
+    }
+    return tr;
+  };
+  table.replaceChildren(mk(head, "th"), ...rows.map((r) => mk(r, "td")));
+}
+
+function downloadJson(name: string, data: unknown) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+}
+
+async function runSpeedTest() {
+  if (!tracker || busy) return;
+  busy = true;
+  cancelSweep = false;
+  const ctrl = ["btnSpeed", "btnContinue", "btnContinueAnyway"].map((id) => $<HTMLButtonElement>(id));
+  ctrl.forEach((b) => (b.disabled = true));
+  selDelegate.disabled = selDetect.disabled = true;
+  $("btnCancelSpeed").hidden = false;
+  const origReq = requestedDelegate;
+  const origDetect = detectLongSide;
+  const results: SweepResult[] = [];
+  for (const [i, combo] of SWEEP_PLAN.entries()) {
+    if (cancelSweep) break;
+    setText("speedMsg", `Speed test ${i + 1}/${SWEEP_PLAN.length}: ${combo.delegate}, ${combo.detect} px. Sit still and look at the screen.`);
+    try {
+      await switchDelegate(combo.delegate === "GPU" ? "gpu" : "cpu");
+    } catch (e) {
+      results.push(unavailable(combo.delegate, combo.detect, "GPU not available"));
+      renderSweep(results);
+      console.warn(e);
+      continue;
+    }
+    detectLongSide = combo.detect;
+    smoother.reset();
+    for (let k = 0; k < 2; k++) irisSmoother.resetFace(k);
+    sweepBuf = [];
+    sweepStart = performance.now() + SWEEP_WARMUP_S * 1000;
+    const end = sweepStart + SWEEP_S * 1000;
+    while (performance.now() < end && !cancelSweep) await sleep(200);
+    const samples = sweepBuf;
+    sweepBuf = null;
+    if (cancelSweep) break;
+    results.push(summarizeSweep(combo.delegate, combo.detect, samples));
+    renderSweep(results);
+  }
+  // put the original choice back
+  try {
+    await switchDelegate(origReq);
+  } catch (e) {
+    console.warn(e);
+  }
+  detectLongSide = origDetect;
+  selDelegate.value = requestedDelegate;
+  selDetect.value = String(detectLongSide);
+  showDelegate();
+  const laptop = safe(laptopEl.value || "laptop");
+  if (results.length > 0) {
+    downloadJson(`speedtest-${laptop}-${timestamp(new Date())}.json`, {
+      laptop: laptopEl.value || "laptop",
+      time: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      width: video.videoWidth,
+      height: video.videoHeight,
+      measuredSeconds: SWEEP_S,
+      cancelled: cancelSweep,
+      results,
+    });
+  }
+  setText("speedMsg", cancelSweep ? "Speed test cancelled (partial results saved)." : "Speed test done. Results saved to Downloads as speedtest-*.json.", cancelSweep ? "warn" : "ok");
+  busy = false;
+  $("btnCancelSpeed").hidden = true;
+  $<HTMLButtonElement>("btnSpeed").disabled = false;
+  $<HTMLButtonElement>("btnContinueAnyway").disabled = false;
+  selDelegate.disabled = selDetect.disabled = false;
+  renderChecklist(latestChecks);
+}
+$("btnSpeed").addEventListener("click", () => void runSpeedTest());
+$("btnCancelSpeed").addEventListener("click", () => (cancelSweep = true));
 
 setPhase("idle");

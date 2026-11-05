@@ -8,6 +8,12 @@ export const NUM_FACES = 2;
 
 /** Tracking runs on a downscaled copy of the snapshot (long side, px). Drawing always uses the full snapshot. */
 export const DETECT_LONG_SIDE = 640;
+/** Choices offered on the setup screen (and in ?detect=). */
+export const DETECT_SIZES = [640, 480, 320];
+
+// ---- Speed sweep ----------------------------------------------------------------------
+export const SWEEP_S = 15; // measured seconds per delegate/size combination
+export const SWEEP_WARMUP_S = 1; // discarded after each switch (GPU shader compile etc.)
 
 // ---- One Euro filter (Casiez et al. 2012) -------------------------------------------
 // minCutoff (Hz): smoothing when still. Lower = steadier but laggier.

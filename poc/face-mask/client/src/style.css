@@ -38,6 +38,9 @@ dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
 button.secondary { background: #6b7385; }
 dd.small { font-size: 11px; }
 [hidden] { display: none !important; }
+#speedTable { border-collapse: collapse; font-size: 12px; margin-bottom: 8px; width: 100%; }
+#speedTable th, #speedTable td { border: 1px solid #dde1ea; padding: 3px 6px; text-align: right; }
+#speedTable th { background: #f0f2f7; }
 #overlay { position: fixed; inset: 0; background: rgba(10, 12, 20, 0.95); z-index: 10; color: #fff; }
 #overlay p { text-align: center; font-size: 22px; margin-top: 12vh; }
 #dot { position: absolute; top: 50%; left: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; background: #e74c3c; box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.35); transition: left 0.15s; }

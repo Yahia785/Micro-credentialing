@@ -9,15 +9,18 @@ import {
 } from "./config";
 
 export type Delegate = "GPU" | "CPU";
+/** auto = GPU with CPU fallback (the default); gpu / cpu = force one, no fallback. */
+export type DelegateRequest = "auto" | "gpu" | "cpu";
 
 export class Tracker {
   private lastTs = 0;
   private constructor(
     private lm: FaceLandmarker,
     readonly delegate: Delegate,
+    readonly requested: DelegateRequest,
   ) {}
 
-  static async create(): Promise<Tracker> {
+  static async create(requested: DelegateRequest = "auto"): Promise<Tracker> {
     const fileset = await FilesetResolver.forVisionTasks(WASM_PATH);
     const make = (delegate: Delegate) =>
       FaceLandmarker.createFromOptions(fileset, {
@@ -30,17 +33,36 @@ export class Tracker {
         outputFaceBlendshapes: true,
         outputFacialTransformationMatrixes: true,
       });
+    if (requested === "cpu") return new Tracker(await make("CPU"), "CPU", requested);
+
     // GPU can fail at creation OR at the first detect call, so warm it up inside the try.
     const warm = document.createElement("canvas");
     warm.width = 64;
     warm.height = 64;
+    let gpu: FaceLandmarker | null = null;
     try {
-      const t = new Tracker(await make("GPU"), "GPU");
+      gpu = await make("GPU");
+      const t = new Tracker(gpu, "GPU", requested);
       t.detect(warm);
       return t;
     } catch (e) {
+      try {
+        gpu?.close();
+      } catch {
+        /* ignore */
+      }
+      if (requested === "gpu") throw new Error("GPU delegate is not available on this machine: " + (e instanceof Error ? e.message : String(e)));
       console.warn("GPU delegate failed, falling back to CPU", e);
-      return new Tracker(await make("CPU"), "CPU");
+      return new Tracker(await make("CPU"), "CPU", requested);
+    }
+  }
+
+  /** Release the landmarker (call before creating a new one with another delegate). */
+  close(): void {
+    try {
+      this.lm.close();
+    } catch (e) {
+      console.warn("close failed", e);
     }
   }
 

@@ -30,6 +30,20 @@
           <h3>Step 1: setup check</h3>
           <p>Sit where you will take the test. Fit your face in the dashed guide box.</p>
           <ul id="checklist"></ul>
+          <div class="controls">
+            <label>Tracking
+              <select id="selDelegate">
+                <option value="auto">GPU, CPU if GPU fails</option>
+                <option value="gpu">Force GPU</option>
+                <option value="cpu">Force CPU</option>
+              </select>
+            </label>
+            <label>Tracking size <select id="selDetect"></select></label>
+            <button id="btnSpeed" class="secondary">Run speed test (about 2 min)</button>
+            <button id="btnCancelSpeed" class="secondary" hidden>Cancel</button>
+          </div>
+          <p id="speedMsg"></p>
+          <table id="speedTable" hidden></table>
           <div class="buttons">
             <button id="btnContinue" disabled>Continue</button>
             <button id="btnContinueAnyway" class="secondary">Continue anyway (research recording)</button>
