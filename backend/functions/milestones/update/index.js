@@ -46,9 +46,23 @@ exports.handler = withHandler(async (ctx) => {
     return errorResponse(400, 'Interviews are only supported for C++ assessments');
   }
 
+  // Hidden problems: isHidden is a boolean, previewUserIds a short list of user IDs (an empty list clears it).
+  if (body.isHidden !== undefined && typeof body.isHidden !== 'boolean') {
+    return errorResponse(400, 'isHidden must be a boolean');
+  }
+  if (body.previewUserIds !== undefined) {
+    const ids = body.previewUserIds;
+    if (!Array.isArray(ids) || ids.length > 50
+      || ids.some((id) => typeof id !== 'string' || !id.trim() || id.length > 128)) {
+      return errorResponse(400, 'previewUserIds must be an array of at most 50 user IDs');
+    }
+    body.previewUserIds = [...new Set(ids.map((id) => id.trim()))];
+  }
+  const hiddenFieldProvided = body.isHidden !== undefined || body.previewUserIds !== undefined;
+
   // Validate that at least one field is being updated
-  if (!body.title && !body.description && !body.difficulty && !course.provided && !interview.provided) {
-    return errorResponse(400, 'At least one field (title, description, difficulty, course, or interview) must be provided');
+  if (!body.title && !body.description && !body.difficulty && !course.provided && !interview.provided && !hiddenFieldProvided) {
+    return errorResponse(400, 'At least one field (title, description, difficulty, course, interview, isHidden, or previewUserIds) must be provided');
   }
 
   // Validate difficulty level if provided

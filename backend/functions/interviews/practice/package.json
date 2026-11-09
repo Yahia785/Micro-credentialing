@@ -1,0 +1,7 @@
+{
+  "name": "interview-practice-function",
+  "version": "1.0.0",
+  "description": "Interview endpoint (practice, admin)",
+  "main": "index.js",
+  "dependencies": {}
+}

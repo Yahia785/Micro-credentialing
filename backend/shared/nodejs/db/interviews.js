@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const {
   DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand, TransactWriteCommand,
@@ -13,6 +14,11 @@ const TURN_PREFIX = 'T#';
 /** One interview per submission: the ID is derived, so a conditional put enforces it atomically. */
 function interviewIdFor(submissionId) {
   return `int_${submissionId}`;
+}
+
+/** A practice interview (admin only) gets its own random ID, so it never collides with the one real interview of a submission. */
+function practiceInterviewId() {
+  return `intp_${crypto.randomUUID()}`;
 }
 
 function turnSk(position) {
@@ -96,15 +102,28 @@ async function getInterviewTurns(interviewId) {
   return turns;
 }
 
+/** Every interview (real and practice) of a submission, oldest first. */
+async function listInterviewsBySubmission(submissionId) {
+  const items = [];
+  let lastKey;
+  do {
+    const result = await dynamodb.send(new QueryCommand({
+      TableName: table(),
+      IndexName: 'SubmissionIdIndex',
+      KeyConditionExpression: 'submissionId = :sid',
+      ExpressionAttributeValues: { ':sid': submissionId },
+      ...(lastKey && { ExclusiveStartKey: lastKey }),
+    }));
+    items.push(...(result.Items || []));
+    lastKey = result.LastEvaluatedKey;
+  } while (lastKey);
+  return items.sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt)));
+}
+
+/** The real interview of a submission. Practice interviews are never returned: they do not count as the one interview. */
 async function getInterviewBySubmission(submissionId) {
-  const result = await dynamodb.send(new QueryCommand({
-    TableName: table(),
-    IndexName: 'SubmissionIdIndex',
-    KeyConditionExpression: 'submissionId = :sid',
-    ExpressionAttributeValues: { ':sid': submissionId },
-    Limit: 1,
-  }));
-  return (result.Items || [])[0] || null;
+  const all = await listInterviewsBySubmission(submissionId);
+  return all.find((item) => item.isPractice !== true) || null;
 }
 
 /**
@@ -185,6 +204,8 @@ async function endInterview(interviewId, { status, endReason, now = Date.now() }
 
 module.exports = {
   interviewIdFor,
+  practiceInterviewId,
+  listInterviewsBySubmission,
   turnSk,
   expiresAtFor,
   createInterview,

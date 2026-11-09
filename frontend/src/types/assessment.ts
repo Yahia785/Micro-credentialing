@@ -22,6 +22,8 @@ export interface CodingAssessment extends AssessmentBase {
   timeLimit?: number;
   memoryLimit?: number;
   testCaseCount?: number;
+  /** Hidden from students; the API only returns such problems to admins. */
+  isHidden?: boolean;
 }
 
 /** An embedded systems assessment graded against a rubric. */

@@ -16,7 +16,7 @@ const bedrock = require('./bedrock-client');
 const { isYesNo, isMultiPart, firstQuestionOnly, leaksCriterion } = require('./follow-up-check');
 const split = require('./split-agent');
 
-const PROMPT_VERSIONS = Object.freeze(['host.v1', 'host.v2', 'host.v3', 'host.v4', 'host.v4.1', 'host.v5']);
+const { PROMPT_VERSIONS } = require('./prompt-versions');
 // The prompt versions that receive the instructor's rubric (a list of items r1, r2, ... per main question) and reply with
 // the rubric ids the answer did not show ("missing"), the id a follow-up aims at ("target") and "isHint".
 const RUBRIC_PROMPTS = Object.freeze(['host.v4', 'host.v4.1']);

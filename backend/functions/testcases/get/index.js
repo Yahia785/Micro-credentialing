@@ -1,6 +1,7 @@
 const { getTestCasesByMilestone } = require('/opt/nodejs/db/testcases');
 const { getMilestone } = require('/opt/nodejs/db/milestones');
 const { getUser } = require('/opt/nodejs/db/users');
+const { canSeeProblem } = require('/opt/nodejs/utils/assessment-view');
 const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
@@ -30,14 +31,19 @@ exports.handler = withHandler(async (ctx) => {
     return errorResponse(404, 'Milestone not found');
   }
 
+  // Check if user is admin
+  const user = await getUser(authenticatedUserId);
+  const isAdmin = user && user.role === 'admin';
+
+  // A hidden problem is for admins and its preview list only.
+  if (!canSeeProblem(existingMilestone, authenticatedUserId, { isAdmin: !!isAdmin, ok: true })) {
+    return errorResponse(404, 'Milestone not found');
+  }
+
   log.info('Fetching test cases', { milestoneId });
 
   // Get all test cases for the milestone
   const allTestCases = await getTestCasesByMilestone(milestoneId);
-
-  // Check if user is admin
-  const user = await getUser(authenticatedUserId);
-  const isAdmin = user && user.role === 'admin';
 
   log.info('User role checked', { role: user?.role, isAdmin });
 

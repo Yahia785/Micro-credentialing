@@ -12,8 +12,10 @@ const {
   parseJudge0Result,
   calculateMetrics
 } = require('../utils/judge0');
+const { runCppBatch, getCodeRunnerName } = require('../utils/codeRunner');
 const { ValidationError, NotFoundError, ExternalServiceError } = require('../utils/errors');
 const { END_REASONS, parseEndedBy } = require('../utils/submission-end-reason');
+const { canSeeProblem } = require('../utils/assessment-view');
 
 /**
  * Save a submission whose grading failed so it is never lost.
@@ -72,6 +74,43 @@ async function saveGradingFailure({ submissionRecord, alreadyCreated, reason, er
 }
 
 /**
+ * Run every test case of a C++ submission through codeRunner and build the same test result
+ * objects parseJudge0Result produces. An internal_error (provider failure, quota, polling
+ * timeout) is thrown with the provider's message so the caller's grading_failed handling is unchanged.
+ */
+async function gradeCppTestCases({ code, testCasesToRun, milestone, deadlineMs, userId }) {
+  const runs = await runCppBatch(testCasesToRun.map(testCase => ({
+    source: code,
+    stdin: testCase.input,
+    expectedOutput: testCase.expectedOutput,
+    timeLimitMs: milestone.timeLimit || 5000,
+    memoryLimitKb: milestone.memoryLimit || 256000
+  })), { deadlineMs, userId });
+
+  const failed = runs.find(run => run.status === 'internal_error');
+  if (failed) {
+    throw new Error(failed.message || 'Code runner internal error');
+  }
+
+  return runs.map((run, index) => {
+    const testCase = testCasesToRun[index];
+    return {
+      testCaseId: testCase.testCaseId,
+      judge0TokenId: run.runId,
+      status: run.statusText,
+      passed: run.status === 'accepted',
+      input: testCase.input,
+      expectedOutput: testCase.expectedOutput,
+      actualOutput: run.stdout || '',
+      executionTime: run.timeMs / 1000,
+      memory: run.memoryKb,
+      isHidden: testCase.isHidden,
+      error: run.stderr || run.compileOutput || null
+    };
+  });
+}
+
+/**
  * Core submission workflow: validate the milestone/test cases, run the code
  * through Judge0, score it, persist the submission, and update the user's
  * completed milestones. Extracted from the submissions/create handler.
@@ -104,6 +143,11 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
 
   // Fetch user profile (needed for submission record and admin check)
   const user = await getUser(userId);
+
+  // A hidden problem can only be submitted by admins and the users on its preview list.
+  if (!canSeeProblem(milestone, userId, { isAdmin: !!user && user.role === 'admin', ok: true })) {
+    throw new NotFoundError('Milestone');
+  }
 
   // One attempt per problem (same rule as embedded assessments).
   const alreadySubmitted = (user?.completedMilestones || []).some(m => m.milestoneId === milestoneId);
@@ -145,42 +189,47 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
     updatedAt: new Date().toISOString()
   };
 
-  // Get Judge0 credentials from Secrets Manager
-  let judge0Credentials;
-  try {
-    judge0Credentials = await getJudge0Credentials();
-  } catch (error) {
-    log.error('Could not load Judge0 credentials', { error: error.message });
-    // Nothing has been saved yet: save the student's work for instructor review.
-    return saveGradingFailure({ submissionRecord, alreadyCreated: false, reason: 'error', errorMessage: error.message });
-  }
-  const { apiKey: judge0ApiKey, apiHost: judge0ApiHost } = judge0Credentials;
+  // Judge0 credentials are only needed when Judge0 will run the code: any non-C++ language, or C++ with CODE_RUNNER=judge0.
+  // With CODE_RUNNER=own, C++ goes to our own runner and the Judge0 key is never read.
+  let judge0ApiKey;
+  let judge0ApiHost;
+  if (language.toLowerCase() !== 'cpp' || getCodeRunnerName() === 'judge0') {
+    let judge0Credentials;
+    try {
+      judge0Credentials = await getJudge0Credentials();
+    } catch (error) {
+      log.error('Could not load Judge0 credentials', { error: error.message });
+      // Nothing has been saved yet: save the student's work for instructor review.
+      return saveGradingFailure({ submissionRecord, alreadyCreated: false, reason: 'error', errorMessage: error.message });
+    }
+    ({ apiKey: judge0ApiKey, apiHost: judge0ApiHost } = judge0Credentials);
 
-  if (!judge0ApiKey || judge0ApiKey === 'dummy-key-for-testing') {
-    log.error('JUDGE0_API_KEY not configured, returning mock response');
+    if (!judge0ApiKey || judge0ApiKey === 'dummy-key-for-testing') {
+      log.error('JUDGE0_API_KEY not configured, returning mock response');
 
-    // Return a test response without calling Judge0
-    const mockSubmission = {
-      submissionId,
-      userId,
-      milestoneId,
-      code,
-      language,
-      status: 'pending',
-      endedBy,
-      message: 'Judge0 not configured. Submission created but not executed.',
-      passedTests: 0,
-      totalTests: testCasesToRun.length,
-      score: 0,
-      testResults: [],
-      credentialAwarded: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+      // Return a test response without calling Judge0
+      const mockSubmission = {
+        submissionId,
+        userId,
+        milestoneId,
+        code,
+        language,
+        status: 'pending',
+        endedBy,
+        message: 'Judge0 not configured. Submission created but not executed.',
+        passedTests: 0,
+        totalTests: testCasesToRun.length,
+        score: 0,
+        testResults: [],
+        credentialAwarded: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
 
-    await createSubmission(mockSubmission);
+      await createSubmission(mockSubmission);
 
-    return mockSubmission;
+      return mockSubmission;
+    }
   }
 
   // Get language ID for Judge0
@@ -213,20 +262,24 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
   let testResults;
   let metrics;
   try {
-    const judge0Response = await submitBatch(judge0Submissions, judge0ApiKey, judge0ApiHost);
+    if (language.toLowerCase() === 'cpp') {
+      testResults = await gradeCppTestCases({ code, testCasesToRun, milestone, deadlineMs, userId });
+    } else {
+      const judge0Response = await submitBatch(judge0Submissions, judge0ApiKey, judge0ApiHost);
 
-    // Extract tokens from response
-    const tokens = judge0Response.map(r => r.token);
-    log.info('Judge0 tokens received', { tokens });
+      // Extract tokens from response
+      const tokens = judge0Response.map(r => r.token);
+      log.info('Judge0 tokens received', { tokens });
 
-    // Poll for results
-    const judge0Results = await pollResults(tokens, judge0ApiKey, judge0ApiHost, 30, 1000, deadlineMs);
-    log.info('Judge0 results received', { submissionId });
+      // Poll for results
+      const judge0Results = await pollResults(tokens, judge0ApiKey, judge0ApiHost, 30, 1000, deadlineMs);
+      log.info('Judge0 results received', { submissionId });
 
-    // Parse results
-    testResults = judge0Results.map((result, index) =>
-      parseJudge0Result(result, testCasesToRun[index])
-    );
+      // Parse results
+      testResults = judge0Results.map((result, index) =>
+        parseJudge0Result(result, testCasesToRun[index])
+      );
+    }
 
     // Calculate metrics
     metrics = calculateMetrics(testResults);

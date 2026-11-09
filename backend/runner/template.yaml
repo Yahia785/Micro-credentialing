@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  C++ runner for student code. A container-image Lambda in a VPC with private subnets only:
+  no NAT, no internet gateway, no VPC endpoints, and a security group that allows no outbound
+  traffic. Its role can only write logs and manage its own network interfaces. Lambda tenant isolation
+  (one execution environment per tenant, tenant = hash of the user id) keeps students apart.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - production
+  # 'off' (default; our account cannot use tenant isolation in us-east-1): no tenant id. Either way the image is a custom
+  # runtime that runs every invocation in a fresh process (bootstrap.c / once.js), so calls never share process memory.
+  # 'on': Lambda tenant isolation mode (TenancyConfig PER_TENANT). Every invocation carries a tenant id (a hash of the user
+  # id) and Lambda never runs two tenants in the same execution environment. The handler requires the tenant id.
+  # Tenant isolation cannot be changed on an existing function, so switching replaces the function, and the function name
+  # carries the mode (tenant / recycle).
+  TenantIsolation:
+    Type: String
+    Default: 'off'
+    AllowedValues:
+      - 'on'
+      - 'off'
+  # Reserved concurrency of the runner function: a guarantee AND a cap (the runner can never run more than this many
+  # invocations at once, and these are taken out of the account's pool for the other functions). The stress test
+  # recommended 35; the default leaves room for bursts. AWS keeps at least 100 unreserved.
+  ReservedConcurrency:
+    Type: Number
+    Default: 100
+    MinValue: 1
+
+Mappings:
+  Mode:
+    'on':
+      Suffix: tenant
+    'off':
+      Suffix: recycle
+
+Conditions:
+  UseTenantIsolation: !Equals [!Ref TenantIsolation, 'on']
+
+Resources:
+  # ------------------------------------------
+  # NETWORK: a VPC with nothing to reach
+  # ------------------------------------------
+  RunnerVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: false
+      EnableDnsHostnames: false
+      Tags:
+        - Key: Name
+          Value: !Sub micro-credentialing-runner-${Environment}
+
+  # No route tables are added and no gateway is attached: the only route is the VPC-local one.
+  RunnerSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref RunnerVpc
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: false
+
+  RunnerSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref RunnerVpc
+      CidrBlock: 10.20.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: false
+
+  # CloudFormation adds an allow-all egress rule to a security group unless an egress rule is
+  # given. The single rule below only allows traffic to 127.0.0.1/32, which never leaves the
+  # network interface, so in practice nothing can leave.
+  RunnerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Runner - no inbound, no outbound
+      VpcId: !Ref RunnerVpc
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 127.0.0.1/32
+          Description: Placeholder that replaces the default allow-all egress rule
+
+  # ------------------------------------------
+  # EXECUTION ROLE: the credentials student code could find are made worthless
+  # ------------------------------------------
+  # Allow: write to its own log group, and the network-interface actions Lambda needs to put the function in a VPC.
+  # Deny: the same network-interface actions whenever the request carries lambda:SourceFunctionArn for this function,
+  # which AWS sets on requests made with the function's own credentials (function code, or anyone who copied them).
+  # Lambda's own VPC networking does not carry that key, so it keeps working. AWS documents this as the way to stop
+  # function code from using the execution role to change network interfaces.
+  # No managed policy, nothing else. The function ARN is built from the fixed function name to avoid a circular reference.
+  RunnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: runner-minimum
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteOwnLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  Fn::Sub:
+                    - arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/micro-credentialing-runner-${Environment}-${Suffix}:*
+                    - Suffix: !FindInMap [Mode, !Ref TenantIsolation, Suffix]
+              - Sid: LambdaVpcNetworking
+                Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeSubnets
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+                Resource: '*'
+              - Sid: DenyNetworkInterfacesToFunctionCode
+                Effect: Deny
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeSubnets
+                  - ec2:DeleteNetworkInterface
+                  - ec2:AssignPrivateIpAddresses
+                  - ec2:UnassignPrivateIpAddresses
+                Resource: '*'
+                Condition:
+                  ArnEquals:
+                    lambda:SourceFunctionArn:
+                      Fn::Sub:
+                        - arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:micro-credentialing-runner-${Environment}-${Suffix}
+                        - Suffix: !FindInMap [Mode, !Ref TenantIsolation, Suffix]
+
+  # ------------------------------------------
+  # FUNCTION
+  # ------------------------------------------
+  # AWS::Lambda::Function and not AWS::Serverless::Function: SAM (1.145) does not know TenancyConfig. The image is not built by
+  # SAM (CodeBuild builds it, scripts/build-in-aws.ps1); scripts/deploy-template.ps1 writes the real ImageUri (an ECR digest)
+  # into .aws-sam/deploy-template.yaml, which is what `sam deploy` uses.
+  # Not a replacement of the old RunnerFunction in place: a new logical id and a new name, because tenant isolation cannot be
+  # added to an existing function and a function with a fixed name cannot be replaced under the same name.
+  RunnerFunctionV2:
+    Type: AWS::Lambda::Function
+    DependsOn: RunnerLogGroup # the group exists before the first invocation, so Lambda never has to create it
+    Properties:
+      FunctionName:
+        Fn::Sub:
+          - micro-credentialing-runner-${Environment}-${Suffix}
+          - Suffix: !FindInMap [Mode, !Ref TenantIsolation, Suffix]
+      PackageType: Image
+      Code:
+        ImageUri: set-by-scripts-push-image-or-build-in-aws
+      Architectures:
+        - x86_64
+      MemorySize: 1769 # one full vCPU
+      Timeout: 30
+      ReservedConcurrentExecutions: !Ref ReservedConcurrency
+      # Only logs and network interfaces (RunnerRole). No other policy, no secrets. The variable is a switch, not a secret.
+      # No ImageConfig: the image's own ENTRYPOINT (the bootstrap of the custom runtime) is used.
+      Role: !GetAtt RunnerRole.Arn
+      Environment:
+        Variables:
+          REQUIRE_TENANT_ID: !If [UseTenantIsolation, 'true', 'false']
+      TenancyConfig: !If
+        - UseTenantIsolation
+        - TenantIsolationMode: PER_TENANT
+        - !Ref AWS::NoValue
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref RunnerSecurityGroup
+        SubnetIds:
+          - !Ref RunnerSubnetA
+          - !Ref RunnerSubnetB
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: ./function
+      DockerTag: !Sub ${Environment}
+
+  RunnerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub:
+          - /aws/lambda/micro-credentialing-runner-${Environment}-${Suffix}
+          - Suffix: !FindInMap [Mode, !Ref TenantIsolation, Suffix]
+      RetentionInDays: 14
+
+Outputs:
+  RunnerFunctionName:
+    Value: !Ref RunnerFunctionV2
+  RunnerFunctionArn:
+    Value: !GetAtt RunnerFunctionV2.Arn
+  TenantIsolation:
+    Value: !Ref TenantIsolation
+  RunnerRoleArn:
+    Value: !GetAtt RunnerRole.Arn

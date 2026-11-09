@@ -41,6 +41,21 @@ Parameters:
     Description: Name of the Judge0 API Key secret in Secrets Manager
     Default: "micro-credentialing/judge0-api-key"
 
+  # Which code runner grades C++ submissions. judge0 (default) = Judge0; own = the C++ runner Lambda (backend/runner).
+  CodeRunner:
+    Type: String
+    Default: judge0
+    AllowedValues:
+      - judge0
+      - own
+    Description: Code runner provider for C++ grading (judge0 or own)
+
+  # Name of the deployed runner function (backend/runner stack). Only used when CodeRunner is own.
+  RunnerFunctionName:
+    Type: String
+    Default: micro-credentialing-runner-dev-recycle
+    Description: Name of the C++ runner Lambda function (used when CodeRunner is own)
+
   EmbeddedGradingMode:
     Type: String
     Default: "manual"
@@ -126,6 +141,7 @@ Globals:
         AGENT_CHECKER_MODEL_ID: !Ref AgentCheckerModelId
         AGENT_WRITER_MODEL_ID: !Ref AgentWriterModelId
         INTERVIEW_RETENTION_DAYS: !Ref InterviewRetentionDays
+        RUN_USAGE_TABLE: !Sub "RunUsage-${Environment}"
         COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
         JUDGE0_API_KEY_SECRET_ARN: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${Judge0ApiKeySecretName}"
         JUDGE0_API_HOST: "judge0-ce.p.rapidapi.com"
@@ -444,9 +460,12 @@ Resources:
             Method: OPTIONS
             Auth:
               Authorizer: NONE
+      # Users read: the list hides isHidden problems from everyone but admins (role lookup).
       Policies:
         - DynamoDBReadPolicy:
             TableName: Milestones
+        - DynamoDBReadPolicy:
+            TableName: Users
 
   # ------------------------------------------
   # LAMBDA: Update Milestone
@@ -944,8 +963,14 @@ Resources:
     Properties:
       CodeUri: functions/submissions/create/
       Handler: index.handler
-      Description: Submit code for grading with Judge0
+      Description: Submit code for grading (Judge0, or the own C++ runner when CodeRunner is own)
       Timeout: 90
+      Environment:
+        Variables:
+          CODE_RUNNER: !Ref CodeRunner
+          CODE_RUNNER_FUNCTION: !Ref RunnerFunctionName
+          # The runner deployment has no Lambda tenant isolation (our account cannot use it), so no tenant id is sent.
+          CODE_RUNNER_TENANT_ISOLATION: "off"
       Events:
         SubmitCode:
           Type: Api
@@ -979,6 +1004,13 @@ Resources:
                 - secretsmanager:GetSecretValue
               Resource:
                 - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${Judge0ApiKeySecretName}*"
+        # Only this function (the one that grades C++) may invoke the runner, and only that function.
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerFunctionName}"
 
   # ------------------------------------------
   # LAMBDA: Get Submission
@@ -1581,6 +1613,70 @@ Resources:
             TableName: !Ref InterviewsTable
         - DynamoDBReadPolicy:
             TableName: Users
+        # The admin view includes the submitted code.
+        - DynamoDBReadPolicy:
+            TableName: Submissions
+
+  # ------------------------------------------
+  # LAMBDA: List the interviews of one submission (admin)
+  # ------------------------------------------
+  ListSubmissionInterviewsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/interviews/list/
+      Handler: index.handler
+      Description: Lists the interviews (real and practice) of one submission, admin only
+      Events:
+        ListSubmissionInterviews:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref InterviewsTable
+        - DynamoDBReadPolicy:
+            TableName: Users
+
+  # ------------------------------------------
+  # LAMBDA: Start a practice interview (admin)
+  # ------------------------------------------
+  StartPracticeInterviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/interviews/practice/
+      Handler: index.handler
+      Description: Starts a practice interview on an existing submission's code, admin only
+      Timeout: 25
+      Events:
+        StartPracticeInterview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews/practice
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsInterviewsPractice:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews/practice
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref InterviewsTable
+        - DynamoDBReadPolicy:
+            TableName: Submissions
+        - DynamoDBReadPolicy:
+            TableName: Milestones
+        - DynamoDBReadPolicy:
+            TableName: Users
 
   # ==========================================
   # DYNAMODB TABLES
@@ -1762,6 +1858,26 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  # ------------------------------------------
+  # TABLE: RunUsage (counters for the Run limits; counts only, never code)
+  # ------------------------------------------
+  # pk = run#<user>#<assessment> | agent#<user>#<interview> | minute#<user>#<minute>. Only the per-minute counters carry
+  # expiresAt, which the TTL below removes. Name includes the environment, so dev and production never share it.
+  RunUsageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "RunUsage-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
 # ==========================================
 # OUTPUTS
 # ==========================================
@@ -1795,6 +1911,10 @@ Outputs:
   SubmissionsTableName:
     Description: "DynamoDB Submissions Table"
     Value: Submissions
+
+  RunUsageTableName:
+    Description: "DynamoDB table with the Run usage counters"
+    Value: !Ref RunUsageTable
 
   SharedCodeLayerArn:
     Description: "ARN of the shared code layer"

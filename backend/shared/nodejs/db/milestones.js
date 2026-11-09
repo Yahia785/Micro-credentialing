@@ -32,6 +32,9 @@ async function createMilestone(milestoneData) {
       ...(milestoneData.course && { course: milestoneData.course }),
       // Optional interview setup (C++ coding assessments). Admin-only: contains the criteria.
       ...(milestoneData.interview && { interview: milestoneData.interview }),
+      // Hidden problems (set by the seed script, not by the create form): admins and the users on previewUserIds only.
+      ...(milestoneData.isHidden === true && { isHidden: true }),
+      ...(milestoneData.isHidden === true && Array.isArray(milestoneData.previewUserIds) && milestoneData.previewUserIds.length > 0 && { previewUserIds: milestoneData.previewUserIds }),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }

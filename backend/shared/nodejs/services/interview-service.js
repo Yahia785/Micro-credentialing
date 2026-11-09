@@ -9,6 +9,8 @@ const { getSubmission } = require('../db/submissions');
 const { getMilestone } = require('../db/milestones');
 const engine = require('../agent/interview-engine');
 const bedrock = require('../agent/bedrock-client');
+const split = require('../agent/split-agent');
+const view = require('../utils/interview-view');
 const log = require('../utils/logger');
 const { END_REASONS } = require('../utils/submission-end-reason');
 const { AppError, ValidationError, NotFoundError, ForbiddenError } = require('../utils/errors');
@@ -54,6 +56,63 @@ function stateFields(state) {
   };
 }
 
+/** The prompt version for a new interview: the assessment's own setting, else AGENT_PROMPT_VERSION, else the code default. */
+function promptVersionFor(config) {
+  return engine.resolvePromptVersion(config.promptVersion || undefined);
+}
+
+/** The model ids an interview is started with, stored so the interview keeps them even if the environment changes. */
+function modelFields(promptVersion) {
+  const fields = { modelId: bedrock.resolveModelId() };
+  if (engine.usesSplit(promptVersion)) {
+    const models = split.resolveSplitModels();
+    fields.checkerModelId = models.checker;
+    fields.writerModelId = models.writer;
+  }
+  return fields;
+}
+
+/** Build the META item, the first host turn and the API result of a new interview. */
+function newInterview({ interviewId, submission, config, userId, isPractice, now }) {
+  const first = engine.firstQuestion(config);
+  const startedAt = new Date(now).toISOString();
+  const deadline = new Date(now + config.timeLimitMinutes * 60000).toISOString();
+  const promptVersion = promptVersionFor(config);
+  const meta = {
+    interviewId,
+    submissionId: submission.submissionId,
+    userId,
+    milestoneId: submission.milestoneId,
+    status: STATUS.IN_PROGRESS,
+    isPractice,
+    startedAt,
+    endedAt: null,
+    endReason: null,
+    deadline,
+    ...modelFields(promptVersion),
+    promptVersion,
+    ...stateFields(first.state),
+    turnCount: 1,
+    configSnapshot: config,
+  };
+  const firstTurn = { role: 'host', text: first.question, themeId: first.themeId, kind: first.kind, createdAt: startedAt, reason: 'first main question' };
+  return { meta, firstTurn, result: { interviewId, question: first.question, deadline, serverNow: startedAt } };
+}
+
+/** The assessment's interview setup for a C++ coding submission, or a ValidationError/NotFoundError. */
+async function interviewConfigFor(submission) {
+  if (submission.type === 'embedded' || submission.language !== 'cpp') {
+    throw new ValidationError('Interviews are only available for C++ coding assessments');
+  }
+  const milestone = await getMilestone(submission.milestoneId);
+  if (!milestone) throw new NotFoundError('Assessment');
+  const config = milestone.interview;
+  if (milestone.type === 'embedded' || milestone.language !== 'cpp' || !config || !config.enabled) {
+    throw new ValidationError('An interview is not enabled for this assessment');
+  }
+  return config;
+}
+
 /**
  * Start the interview for a submission.
  * @returns {Promise<{ interviewId, question, deadline, serverNow }>}
@@ -74,48 +133,41 @@ async function startInterview({ userId, submissionId, now = Date.now() }) {
   if (submission.endedBy === END_REASONS.LEFT_PAGE) {
     throw new ValidationError('An interview is not available for a session that ended by leaving the page');
   }
-  if (submission.type === 'embedded' || submission.language !== 'cpp') {
-    throw new ValidationError('Interviews are only available for C++ coding assessments');
-  }
-
-  const milestone = await getMilestone(submission.milestoneId);
-  if (!milestone) throw new NotFoundError('Assessment');
-  const config = milestone.interview;
-  if (milestone.type === 'embedded' || milestone.language !== 'cpp' || !config || !config.enabled) {
-    throw new ValidationError('An interview is not enabled for this assessment');
-  }
+  const config = await interviewConfigFor(submission);
 
   const interviewId = interviews.interviewIdFor(submissionId);
+  // Practice interviews are never returned here, so they never block the real one.
   if (await interviews.getInterviewBySubmission(submissionId)) {
     throw new AppError('An interview already exists for this submission', 409);
   }
 
-  const first = engine.firstQuestion(config);
-  const startedAt = new Date(now).toISOString();
-  const deadline = new Date(now + config.timeLimitMinutes * 60000).toISOString();
-
-  await interviews.createInterview(
-    {
-      interviewId,
-      submissionId,
-      userId,
-      milestoneId: submission.milestoneId,
-      status: STATUS.IN_PROGRESS,
-      startedAt,
-      endedAt: null,
-      endReason: null,
-      deadline,
-      modelId: bedrock.resolveModelId(),
-      promptVersion: engine.resolvePromptVersion(),
-      ...stateFields(first.state),
-      turnCount: 1,
-      configSnapshot: config,
-    },
-    { role: 'host', text: first.question, themeId: first.themeId, kind: first.kind, createdAt: startedAt, reason: 'first main question' }
-  );
+  const { meta, firstTurn, result } = newInterview({ interviewId, submission, config, userId, isPractice: false, now });
+  await interviews.createInterview(meta, firstTurn);
 
   log.info('Interview started', { interviewId, submissionId, milestoneId: submission.milestoneId });
-  return { interviewId, question: first.question, deadline, serverNow: startedAt };
+  return result;
+}
+
+/**
+ * Admin only (the handler enforces it): start a practice interview on an existing submission's code. Same engine, timing and
+ * prompt version as a real one, owned by the admin who started it, marked isPractice. It is not limited by the one interview
+ * per submission rule, and getInterviewBySubmission never returns it.
+ * @returns {Promise<{ interviewId, question, deadline, serverNow, isPractice: true }>}
+ */
+async function startPracticeInterview({ userId, submissionId, now = Date.now() }) {
+  if (!submissionId || typeof submissionId !== 'string') {
+    throw new ValidationError('submissionId is required');
+  }
+  const submission = await getSubmission(submissionId);
+  if (!submission) throw new NotFoundError('Submission');
+  const config = await interviewConfigFor(submission);
+
+  const interviewId = interviews.practiceInterviewId();
+  const { meta, firstTurn, result } = newInterview({ interviewId, submission, config, userId, isPractice: true, now });
+  await interviews.createInterview(meta, firstTurn);
+
+  log.info('Practice interview started', { interviewId, submissionId, milestoneId: submission.milestoneId });
+  return { ...result, isPractice: true };
 }
 
 /**
@@ -163,6 +215,9 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, now = D
     code: submission.code || '',
     turns: [...turns, studentTurn],
     modelId: meta.modelId,
+    // host.v5: the checker and writer the interview started with (absent on older interviews: the environment decides).
+    ...(meta.checkerModelId && { checkerModelId: meta.checkerModelId }),
+    ...(meta.writerModelId && { writerModelId: meta.writerModelId }),
     // An interview keeps the prompt version it started with.
     promptVersion: meta.promptVersion,
     ...(converseFn && { converseFn }),
@@ -227,24 +282,13 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, now = D
   return { question: decision.question, deadline: meta.deadline };
 }
 
-/** Student view: transcript without reasons, themes, timing, tokens or criteria. */
-function toStudentInterview(meta, turns) {
-  return {
-    interviewId: meta.interviewId,
-    status: meta.status,
-    startedAt: meta.startedAt,
-    endedAt: meta.endedAt || null,
-    deadline: meta.deadline,
-    turns: turns.map((t) => ({ role: t.role, text: t.text, createdAt: t.createdAt })),
-  };
-}
+const toStudentInterview = view.toStudentInterview;
+const toAdminInterview = view.toAdminInterview;
 
-/** Admin view: everything the interview recorded. */
-function toAdminInterview(meta, turns) {
-  const { sk, ...metaFields } = meta;
-  return { ...metaFields, turns: turns.map(({ sk: _sk, ...t }) => t) };
-}
-
+/**
+ * One interview. The owner gets the student view; an admin gets the instructor view (also for a practice interview). A student
+ * can never read someone else's interview, and a practice interview is owned by the admin who started it.
+ */
 async function getInterview({ userId, interviewId, isAdmin, now = Date.now() }) {
   const meta = await interviews.getInterviewMeta(interviewId);
   if (!meta) throw new NotFoundError('Interview');
@@ -257,12 +301,25 @@ async function getInterview({ userId, interviewId, isAdmin, now = Date.now() }) 
   }
 
   const turns = await interviews.getInterviewTurns(interviewId);
-  const view = isAdmin ? toAdminInterview(current, turns) : toStudentInterview(current, turns);
-  return { interview: { ...view, serverNow: new Date(now).toISOString() } };
+  if (!isAdmin) return { interview: toStudentInterview(current, turns, { now }) };
+
+  const submission = await getSubmission(meta.submissionId);
+  return { interview: toAdminInterview(current, turns, { code: submission ? submission.code || '' : null, now }) };
+}
+
+/** Admin only (the handler enforces it): every interview of one submission, real and practice, oldest first. */
+async function listSubmissionInterviews({ submissionId }) {
+  if (!submissionId || typeof submissionId !== 'string') {
+    throw new ValidationError('submissionId is required');
+  }
+  const items = await interviews.listInterviewsBySubmission(submissionId);
+  return { submissionId, interviews: items.map(view.toInterviewSummary) };
 }
 
 module.exports = {
   startInterview,
+  startPracticeInterview,
+  listSubmissionInterviews,
   submitAnswer,
   getInterview,
   toStudentInterview,

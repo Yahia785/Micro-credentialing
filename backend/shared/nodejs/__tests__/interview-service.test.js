@@ -1,5 +1,7 @@
 jest.mock('../db/interviews', () => ({
   interviewIdFor: (id) => `int_${id}`,
+  practiceInterviewId: () => 'intp_fixed',
+  listInterviewsBySubmission: jest.fn(),
   createInterview: jest.fn(),
   getInterviewMeta: jest.fn(),
   getInterviewTurns: jest.fn(),
@@ -82,6 +84,40 @@ describe('startInterview', () => {
     });
     expect(createdMeta.configSnapshot).toEqual(config);
     expect(turn).toMatchObject({ role: 'host', text: 'Main A1?', kind: 'main', themeId: 'ptr' });
+  });
+
+  describe('prompt version and models', () => {
+    afterEach(() => { delete process.env.AGENT_PROMPT_VERSION; delete process.env.AGENT_CHECKER_MODEL_ID; delete process.env.AGENT_WRITER_MODEL_ID; });
+
+    it("uses the assessment's promptVersion and, for host.v5, stores the checker and writer ids from the environment", async () => {
+      process.env.AGENT_CHECKER_MODEL_ID = 'deepseek.v3.2';
+      process.env.AGENT_WRITER_MODEL_ID = 'deepseek.v3.2';
+      getMilestone.mockResolvedValue(milestone({ interview: { ...config, promptVersion: 'host.v5' } }));
+      await start();
+      expect(interviews.createInterview.mock.calls[0][0]).toMatchObject({
+        promptVersion: 'host.v5', checkerModelId: 'deepseek.v3.2', writerModelId: 'deepseek.v3.2', isPractice: false,
+      });
+    });
+
+    it('lets the assessment win over AGENT_PROMPT_VERSION, and falls back to the environment, then host.v3', async () => {
+      process.env.AGENT_PROMPT_VERSION = 'host.v4.1';
+      await start();
+      expect(interviews.createInterview.mock.calls[0][0].promptVersion).toBe('host.v4.1');
+      getMilestone.mockResolvedValue(milestone({ interview: { ...config, promptVersion: 'host.v2' } }));
+      await start();
+      expect(interviews.createInterview.mock.calls[1][0].promptVersion).toBe('host.v2');
+      delete process.env.AGENT_PROMPT_VERSION;
+      getMilestone.mockResolvedValue(milestone());
+      await start();
+      expect(interviews.createInterview.mock.calls[2][0].promptVersion).toBe('host.v3');
+    });
+
+    it('stores no checker or writer id for a version that does not use them', async () => {
+      await start();
+      const stored = interviews.createInterview.mock.calls[0][0];
+      expect(stored).not.toHaveProperty('checkerModelId');
+      expect(stored).not.toHaveProperty('writerModelId');
+    });
   });
 
   it('requires a submissionId', async () => {
@@ -238,6 +274,20 @@ describe('submitAnswer', () => {
     });
   });
 
+  it('passes the stored checker and writer ids to host.v5', async () => {
+    const seen = [];
+    const rubricConfig = { ...config, themes: [{ ...config.themes[0], rubric: [[{ id: 'r1', text: 'Shows delete is paired with new' }]] }] };
+    interviews.getInterviewMeta.mockResolvedValue(meta({ promptVersion: 'host.v5', checkerModelId: 'chk', writerModelId: 'wrt', configSnapshot: rubricConfig }));
+    await answer({
+      converseFn: async (req) => {
+        seen.push(req.modelId);
+        return { text: JSON.stringify({ evidence: { r1: { quote: '', shown: false } }, missing: ['r1'] }), inputTokens: 1, outputTokens: 1, latencyMs: 1 };
+      },
+    });
+    expect(seen[0]).toBe('chk');
+    expect(seen).toContain('wrt');
+  });
+
   it('keeps using the prompt version the interview started with', async () => {
     const seen = [];
     interviews.getInterviewMeta.mockResolvedValue(meta({ promptVersion: 'host.v1' }));
@@ -392,6 +442,8 @@ describe('getInterview', () => {
       { role: 'host', text: 'Main A1?', createdAt: 't1' },
       { role: 'student', text: 'ans', createdAt: 't2' },
     ]);
+    expect(interview.timeLeftMs).toBe(10 * 60000 - 1000);
+    expect(interview.currentQuestion).toBe(null);
     const json = JSON.stringify(interview);
     for (const hidden of ['reason', CRITERION, 'criteria', 'configSnapshot', 'latencyMs', 'inputTokens', 'clientTiming', 'themeId', 'modelId', 'userId', 'fallback']) {
       expect(json).not.toContain(hidden);
@@ -415,7 +467,8 @@ describe('getInterview', () => {
     const { interview } = await getInterview({ userId: 'admin1', interviewId: 'int_sub1', isAdmin: true, now: NOW + 1000 });
     expect(interview.turns[0]).toMatchObject({ reason: 'first main question', latencyMs: 5, inputTokens: 9 });
     expect(interview.turns[1].clientTiming).toEqual({ pasteCount: 1 });
-    expect(interview.configSnapshot.themes[0].criteria).toEqual([CRITERION]);
+    expect(interview.mainQuestions[0].rubric).toEqual([{ id: 'r1', text: CRITERION }]);
+    expect(interview.code).toBe(SECRET_CODE);
     expect(interview.sk).toBeUndefined();
     expect(interview.turns[0].sk).toBeUndefined();
   });

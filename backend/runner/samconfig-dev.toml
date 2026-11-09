@@ -1,0 +1,25 @@
+version = 0.1
+
+[dev.build.parameters]
+cached = true
+parallel = true
+
+[dev.deploy.parameters]
+stack_name = "micro-credentialing-runner-dev"
+resolve_s3 = true
+# SAM must not manage the ECR repository (its companion stack deletes the repo when the template has no image to
+# build). The repository is created by scripts/create-repo.ps1 and the image pushed by scripts/push-image.ps1,
+# which writes the template below with the ImageUri filled in.
+resolve_image_repos = false
+image_repository = "745318019254.dkr.ecr.us-east-1.amazonaws.com/micro-credentialing-runner-dev"
+template_file = ".aws-sam/deploy-template.yaml"
+s3_prefix = "micro-credentialing-runner-dev"
+region = "us-east-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+parameter_overrides = "Environment=\"dev\" TenantIsolation=\"off\""
+tags = "Environment=\"dev\" Project=\"micro-credentialing\""
+
+[dev.global.parameters]
+region = "us-east-1"

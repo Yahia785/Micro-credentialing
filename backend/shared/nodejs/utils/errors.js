@@ -55,6 +55,11 @@ class ForbiddenError extends AppError {
   constructor(message = 'Forbidden') { super(message, 403); this.name = 'ForbiddenError'; }
 }
 
+/** Over a usage limit (HTTP 429). `kind` says which limit: 'minute', 'assessment' or 'agent'. */
+class RateLimitError extends AppError {
+  constructor(message, kind) { super(message, 429); this.name = 'RateLimitError'; this.kind = kind; }
+}
+
 class ExternalServiceError extends AppError {
   constructor(service, message) {
     super(`${service} error: ${message}`, 502);
@@ -70,5 +75,6 @@ module.exports = {
   ValidationError,
   NotFoundError,
   ForbiddenError,
+  RateLimitError,
   ExternalServiceError
 };

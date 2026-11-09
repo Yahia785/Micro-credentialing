@@ -5,14 +5,20 @@
  *   enabled: boolean,
  *   timeLimitMinutes: 1-30 (default 10),
  *   maxFollowUpsPerMainQuestion: 0-3 (default 1),
- *   themes: [{ id, title, mainQuestions: [string], criteria: [string] }]
+ *   promptVersion: optional, one of the known Host prompt versions (absent = the engine's default),
+ *   themes: [{ id, title, mainQuestions: [string], criteria: [string],
+ *              rubric?: [[{ id, text }]] }]   // rubric[i] belongs to mainQuestions[i]; ids like "r1"
  * }
  *
  * Older configs may carry `maxFollowUpsPerTheme` (0-5) instead. It still validates and is kept
  * as written; the interview engine converts it when it runs.
  *
- * `criteria` are instructor-only guidance. They must never reach a student.
+ * `criteria` and `rubric` are instructor-only guidance. They must never reach a student.
+ * `rubric` has one list per main question (an empty list falls back to the criteria); it is the shape the
+ * rubric prompts (host.v4, host.v4.1, host.v5) and the eval case files use.
  */
+const { PROMPT_VERSIONS } = require('../agent/prompt-versions');
+
 const DEFAULTS = Object.freeze({ timeLimitMinutes: 10, maxFollowUpsPerMainQuestion: 1 });
 
 const LIMITS = Object.freeze({
@@ -27,6 +33,9 @@ const LIMITS = Object.freeze({
   maxTitleLength: 120,
   maxQuestionLength: 500,
   maxCriterionLength: 500,
+  maxRubricItems: 8,
+  maxRubricIdLength: 20,
+  maxRubricTextLength: 500,
 });
 
 const SUPPORTED_LANGUAGE = 'cpp';
@@ -69,6 +78,47 @@ function cleanStringList(raw, field, maxItems, maxLength, errors, { required }) 
     return [];
   }
   return raw.map((item, i) => cleanString(item, `${field}[${i}]`, maxLength, errors)).filter((s) => s !== null);
+}
+
+/**
+ * theme.rubric: one list of { id, text } per main question, same order and length as mainQuestions.
+ * Returns undefined when the theme has none.
+ */
+function cleanRubric(raw, where, mainQuestionCount, errors) {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    errors.push(`${where}.rubric must be an array`);
+    return undefined;
+  }
+  if (raw.length !== mainQuestionCount) {
+    errors.push(`${where}.rubric must have one list per main question (${mainQuestionCount})`);
+    return undefined;
+  }
+  return raw.map((items, q) => {
+    const at = `${where}.rubric[${q}]`;
+    if (!Array.isArray(items)) {
+      errors.push(`${at} must be an array`);
+      return [];
+    }
+    if (items.length > LIMITS.maxRubricItems) {
+      errors.push(`${at} must not have more than ${LIMITS.maxRubricItems} items`);
+      return [];
+    }
+    const seen = new Set();
+    return items.map((item, i) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        errors.push(`${at}[${i}] must be an object`);
+        return null;
+      }
+      const id = cleanString(item.id, `${at}[${i}].id`, LIMITS.maxRubricIdLength, errors);
+      if (id !== null) {
+        if (!ID_PATTERN.test(id)) errors.push(`${at}[${i}].id may only contain letters, digits, "-" and "_"`);
+        if (seen.has(id.toLowerCase())) errors.push(`${at}[${i}].id "${id}" is used more than once`);
+        seen.add(id.toLowerCase());
+      }
+      return { id, text: cleanString(item.text, `${at}[${i}].text`, LIMITS.maxRubricTextLength, errors) };
+    }).filter(Boolean);
+  });
 }
 
 function cleanInteger(raw, field, min, max, fallback, errors) {
@@ -129,6 +179,15 @@ function parseInterview(raw, assessment = {}) {
     );
   }
 
+  let promptVersion;
+  if (raw.promptVersion !== undefined && raw.promptVersion !== null) {
+    if (typeof raw.promptVersion !== 'string' || !PROMPT_VERSIONS.includes(raw.promptVersion)) {
+      errors.push(`interview.promptVersion must be one of: ${PROMPT_VERSIONS.join(', ')}`);
+    } else {
+      promptVersion = raw.promptVersion;
+    }
+  }
+
   let themes = [];
   if (raw.themes !== undefined && raw.themes !== null) {
     if (!Array.isArray(raw.themes)) {
@@ -149,13 +208,16 @@ function parseInterview(raw, assessment = {}) {
           if (seen.has(id)) errors.push(`${where}.id "${id}" is used more than once`);
           seen.add(id);
         }
+        const mainQuestions = cleanStringList(theme.mainQuestions, `${where}.mainQuestions`,
+          LIMITS.maxMainQuestions, LIMITS.maxQuestionLength, errors, { required: true });
+        const rubric = cleanRubric(theme.rubric, where, Array.isArray(theme.mainQuestions) ? theme.mainQuestions.length : 0, errors);
         return {
           id,
           title: cleanString(theme.title, `${where}.title`, LIMITS.maxTitleLength, errors),
-          mainQuestions: cleanStringList(theme.mainQuestions, `${where}.mainQuestions`,
-            LIMITS.maxMainQuestions, LIMITS.maxQuestionLength, errors, { required: true }),
+          mainQuestions,
           criteria: cleanStringList(theme.criteria, `${where}.criteria`,
             LIMITS.maxCriteria, LIMITS.maxCriterionLength, errors, { required: false }),
+          ...(rubric && { rubric }),
         };
       }).filter(Boolean);
     }
@@ -171,7 +233,7 @@ function parseInterview(raw, assessment = {}) {
 
   return {
     provided: true,
-    value: { enabled: raw.enabled, timeLimitMinutes, ...followUpLimit, themes },
+    value: { enabled: raw.enabled, timeLimitMinutes, ...followUpLimit, ...(promptVersion && { promptVersion }), themes },
     error: null,
   };
 }

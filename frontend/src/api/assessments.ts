@@ -18,6 +18,8 @@ interface MilestoneRow {
   timeLimit?: number;
   memoryLimit?: number;
   testCaseCount?: number;
+  /** Only present for admins (GET /milestones hides these problems from students). */
+  isHidden?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -56,6 +58,7 @@ export async function getAllAssessments(): Promise<LoadedAssessments> {
         timeLimit: row.timeLimit,
         memoryLimit: row.memoryLimit,
         testCaseCount: row.testCaseCount,
+        isHidden: row.isHidden === true,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       });

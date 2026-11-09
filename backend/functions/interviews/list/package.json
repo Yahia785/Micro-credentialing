@@ -1,0 +1,7 @@
+{
+  "name": "interview-list-function",
+  "version": "1.0.0",
+  "description": "Interview endpoint (list per submission, admin)",
+  "main": "index.js",
+  "dependencies": {}
+}

@@ -33,6 +33,7 @@ amplifyconfiguration*
 .aws-sam/
 .sam/
 build/
+!runner/build/
 samconfig.toml.metadata.json
 samconfig.toml
 

@@ -105,6 +105,61 @@ describe('parseInterview', () => {
   });
 });
 
+describe('rubric', () => {
+  const rubric = (n = 1) => Array.from({ length: n }, () => [{ id: 'r1', text: 'Shows X' }, { id: 'r2', text: 'Shows Y' }]);
+  const withRubric = (r, mq = ['Q1?']) => valid({ themes: [theme({ mainQuestions: mq, rubric: r })] });
+
+  it('keeps the rubric per main question in the shape the engine and the eval cases use', () => {
+    const { value, error } = parseInterview(withRubric(rubric(2), ['Q1?', 'Q2?']), cpp);
+    expect(error).toBeNull();
+    expect(value.themes[0].rubric).toEqual(rubric(2));
+  });
+
+  it('adds no rubric key when the theme has none', () => {
+    expect(parseInterview(valid(), cpp).value.themes[0]).not.toHaveProperty('rubric');
+  });
+
+  it('trims ids and text, and allows an empty list (the criteria are used instead)', () => {
+    const { value, error } = parseInterview(withRubric([[{ id: ' r1 ', text: ' Shows X ' }]]), cpp);
+    expect(error).toBeNull();
+    expect(value.themes[0].rubric).toEqual([[{ id: 'r1', text: 'Shows X' }]]);
+    expect(parseInterview(withRubric([[]]), cpp).error).toBeNull();
+  });
+
+  it.each([
+    ['not an array', 'x', 'rubric must be an array'],
+    ['a different length from mainQuestions', rubric(2), 'one list per main question (1)'],
+    ['a list that is not an array', ['x'], 'rubric[0] must be an array'],
+    ['an item that is not an object', [['x']], 'rubric[0][0] must be an object'],
+    ['a missing id', [[{ text: 'T' }]], 'rubric[0][0].id'],
+    ['a bad id', [[{ id: 'r 1', text: 'T' }]], 'letters, digits'],
+    ['an id over 20 characters', [[{ id: 'a'.repeat(21), text: 'T' }]], 'exceed 20'],
+    ['a repeated id', [[{ id: 'r1', text: 'A' }, { id: 'R1', text: 'B' }]], 'used more than once'],
+    ['empty text', [[{ id: 'r1', text: '  ' }]], 'must not be empty'],
+    ['text over 500 characters', [[{ id: 'r1', text: 'x'.repeat(501) }]], 'exceed 500'],
+    ['more than 8 items', [Array.from({ length: 9 }, (_, i) => ({ id: `r${i}`, text: 'T' }))], 'more than 8 items'],
+  ])('rejects a rubric with %s', (_name, input, message) => {
+    expect(parseInterview(withRubric(input), cpp).error).toContain(message);
+  });
+});
+
+describe('promptVersion', () => {
+  it('is kept when it is a known version', () => {
+    const { value, error } = parseInterview(valid({ promptVersion: 'host.v5' }), cpp);
+    expect(error).toBeNull();
+    expect(value.promptVersion).toBe('host.v5');
+  });
+
+  it('is absent when not given (the engine default applies)', () => {
+    expect(parseInterview(valid(), cpp).value).not.toHaveProperty('promptVersion');
+    expect(parseInterview(valid({ promptVersion: null }), cpp).value).not.toHaveProperty('promptVersion');
+  });
+
+  it.each(['host.v9', 'v5', '', 5])('rejects %p', (v) => {
+    expect(parseInterview(valid({ promptVersion: v }), cpp).error).toContain('promptVersion');
+  });
+});
+
 describe('redactInterview', () => {
   it('hides the setup for logging without mutating the input', () => {
     const input = { title: 'T', interview: valid() };
