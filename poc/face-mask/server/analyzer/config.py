@@ -43,9 +43,29 @@ JOIN_GAP_S = {
     "second_person": 1.5,
     "camera_blocked": 1.0,
     "looking_away": 0.5,
+    "off_screen_look": 0.5,
     "looking_away_while_typing": 0.5,
     "tracking_lost": 0.5,
 }
 
 VIDEO_FLAG_TYPES = ["phone_visible", "book_visible", "extra_laptop", "second_person", "camera_blocked"]
-SIDECAR_FLAG_TYPES = ["looking_away", "looking_away_while_typing", "tracking_lost"]
+SIDECAR_FLAG_TYPES = ["looking_away", "looking_away_while_typing", "off_screen_look", "copy_pattern", "tracking_lost"]
+
+# Key presses (time and category) are needed this long around a chunk: the copy-pattern rule looks 3 s after a look
+# ends and measures typing over the next 10 s.
+KEY_MARGIN_S = 13.0
+
+# How much a flag should worry a reviewer. copy_pattern is the main flag. phone_visible is minor: real cheating
+# is reading from a phone that is NOT shown to the camera. Change here.
+SEVERITY = {
+    "copy_pattern": "major",
+    "second_person": "major",
+    "off_screen_look": "moderate",
+    "looking_away_while_typing": "moderate",
+    "camera_blocked": "moderate",
+    "extra_laptop": "moderate",
+    "book_visible": "minor",
+    "phone_visible": "minor",
+    "looking_away": "minor",
+    "tracking_lost": "info",
+}

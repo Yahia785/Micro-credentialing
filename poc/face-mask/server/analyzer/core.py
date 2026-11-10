@@ -15,6 +15,7 @@ import numpy as np
 
 from . import camera, config
 from .model import Detection, load_detector
+from .rules import common
 from .sidecar_flags import sidecar_flags
 from .spans import Span, spans_from_hits
 
@@ -172,13 +173,16 @@ def video_flags(video_path: str | Path, chunk_start_s: float, opts: Options,
 
 def analyze_chunk(video_path: str | Path | None, sidecar_frames: list[dict], chunk_start_s: float, *,
                   keys_s: list[float] | None = None, header: dict | None = None,
-                  options: Options | None = None) -> list[dict]:
+                  options: Options | None = None,
+                  key_events: list[tuple[float, str]] | None = None) -> list[dict]:
     """Analyze ONE chunk and return its flags (intermediate format; pass the lists to merge_flags).
 
     video_path      the video of this chunk (time 0 of the file = chunk_start_s of the session). None = sidecar only.
     sidecar_frames  the sidecar `frame` lines of this chunk (t in ms on the session timeline).
     chunk_start_s   where this chunk starts on the session timeline, seconds.
-    keys_s          key-press times (seconds, session timeline); include presses up to 2 s outside the chunk.
+    keys_s          key-press times (seconds, session timeline); include presses up to KEY_MARGIN_S outside the chunk.
+    key_events      (time_s, category) of the key presses (category only: char, backspace, delete, enter, space, other).
+                    Optional; without it the categories are 'unknown'.
     header          the sidecar header (baseline and calibration edges are read from it).
     """
     opts = options or Options()
@@ -186,12 +190,21 @@ def analyze_chunk(video_path: str | Path | None, sidecar_frames: list[dict], chu
     if video_path is not None:
         flags += video_flags(video_path, chunk_start_s, opts)
     if opts.sidecar_checks:
-        flags += sidecar_flags(sidecar_frames, list(keys_s or []), header, gaze_source=opts.gaze_source,
+        flags += sidecar_flags(sidecar_frames, list(keys_s or []), header, key_events=key_events, gaze_source=opts.gaze_source,
                                smoothed=opts.smoothed, thresholds_mode=opts.thresholds_mode)
     return flags
 
 
 def _merge_meta(a: dict, b: dict) -> dict:
+    if a["kind"] == "offscreen" and b["kind"] == "offscreen":
+        later = b if b["end"] >= a["end"] else a  # typing after the look belongs to the piece that holds its end
+        merged = dict(later)
+        for key in ("dirs", "mods"):
+            tot = dict(a[key])
+            for k, n in b[key].items():
+                tot[k] = tot.get(k, 0) + n
+            merged[key] = tot
+        return merged
     if a["kind"] == "count" and b["kind"] == "count":
         return {**a, "hits": a["hits"] + b["hits"], "frames": a["frames"] + b["frames"]}
     if a["kind"] == "camera" and b["kind"] == "camera":
@@ -201,7 +214,14 @@ def _merge_meta(a: dict, b: dict) -> dict:
     return a
 
 
-def _evidence(meta: dict, fallback: str) -> str:
+def _top(votes: dict) -> str:
+    return max(votes, key=lambda k: votes[k])
+
+
+def _evidence(meta: dict, fallback: str, flag: dict | None = None) -> str:
+    if meta["kind"] == "offscreen":
+        dur = (flag["end_s"] - flag["start_s"]) if flag else 0.0
+        return f"looked {_top(meta['dirs'])} for {dur:.1f} s ({' and '.join(sorted(meta['mods']))} outside the screen and keyboard zones)"
     if meta["kind"] == "count":
         return f"{meta['label']} in {meta['hits']} of {meta['frames']} sampled frames"
     if meta["kind"] == "camera":
@@ -272,14 +292,40 @@ def merge_flags(chunk_flag_lists: list[list[dict]]) -> list[dict]:
             dedup.append(f)
     final = [f for f in final if f["type"] != "looking_away_while_typing"] + dedup
 
+    # copy_pattern (the main flag): at least 3 cycles within 60 s of an off-screen look followed by typing within 3 s.
+    # It is computed here, on the merged off-screen looks, because its window may span chunks.
+    cycles = []
+    for f in final:
+        m = f["_meta"]
+        if f["type"] == "off_screen_look" and m["kind"] == "offscreen" and m["typing_after"]:
+            cycles.append({"start": f["start_s"], "end": f["end_s"], "direction": _top(m["dirs"]),
+                           "typing_start": m["typing_start"], "features": m["features"]})
+    for cp in common.copy_patterns(cycles):
+        text = common.copy_pattern_text(cp)
+        final.append({"type": "copy_pattern", "start_s": cp["start"], "end_s": cp["end"], "confidence": 1.0, "source": "sidecar",
+                      "evidence": text, "_meta": {"kind": "text", "text": text}, "_min": 0.0, "_details": {
+                          "cycles": [{"start_s": round(c["start"], 2), "end_s": round(c["end"], 2), "direction": c["direction"],
+                                      "typing_start_s": round(c["typing_start"], 2), "typing_features_10s": c["features"]}
+                                     for c in cp["cycles"]],
+                          "directions": cp["directions"], "typing_features_mean": cp["features"]}})
+
     out = []
     for f in sorted(final, key=lambda f: (f["start_s"], f["type"])):
-        out.append({
+        item = {
             "type": f["type"],
+            "severity": config.SEVERITY.get(f["type"], "minor"),
             "start_s": round(f["start_s"], 2),
             "end_s": round(f["end_s"], 2),
             "confidence": round(float(f["confidence"]), 3),
             "source": f["source"],
-            "evidence": _evidence(f["_meta"], f.get("evidence", "")),
-        })
+            "evidence": _evidence(f["_meta"], f.get("evidence", ""), f),
+        }
+        m = f["_meta"]
+        if m["kind"] == "offscreen":
+            item["details"] = {"direction": _top(m["dirs"]), "typing_after": m["typing_after"], "zones": m["zones"]}
+            if m["typing_after"]:
+                item["details"]["typing_features_10s"] = m["features"]
+        if "_details" in f:
+            item["details"] = f["_details"]
+        out.append(item)
     return out

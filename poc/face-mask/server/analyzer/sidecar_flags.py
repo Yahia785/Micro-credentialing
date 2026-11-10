@@ -23,6 +23,7 @@ def _median_dt(times: list[float]) -> float:
 
 
 def sidecar_flags(frames: list[dict], keys_s: list[float], header: dict | None, *,
+                  key_events: list[tuple[float, str]] | None = None,
                   gaze_source: str | None = None, smoothed: bool | None = None,
                   thresholds_mode: str | None = None) -> list[dict]:
     """Flags for ONE chunk of sidecar frames (t in ms on the session timeline).
@@ -36,7 +37,8 @@ def sidecar_flags(frames: list[dict], keys_s: list[float], header: dict | None, 
     gaze_source = gaze_source or common.GAZE_SOURCE
     smoothed = common.USE_SMOOTHED if smoothed is None else smoothed
     mode = thresholds_mode or common.THRESHOLDS_MODE
-    sc = common.Sidecar(path=Path("chunk"), header=header or {}, frames=frames, keys=list(keys_s))
+    key_events = list(key_events) if key_events is not None else [(k, "unknown") for k in keys_s]
+    sc = common.Sidecar(path=Path("chunk"), header=header or {}, frames=frames, keys=list(keys_s), key_events=key_events)
     base = common.baseline_of(sc, smoothed)
     gname = "gazeH" if gaze_source == "iris" else "blendH"
     th, _ = common.thresholds_for(sc, gaze_source, smoothed, mode)
@@ -84,6 +86,20 @@ def sidecar_flags(frames: list[dict], keys_s: list[float], header: dict | None, 
             text = f"key press during or within {w:g} s of the look-away"
             out.append(_flag("looking_away_while_typing", f["start_s"], f["end_s"], {"kind": "text", "text": text},
                              f["touches_start"], f["touches_end"], text, f["_min"]))
+
+    # Off-screen looks (gaze or head outside the screen AND keyboard zones), with the direction. Needs the calibration.
+    zones = common.build_zones(header or {}, gaze_source, smoothed)
+    if zones is not None:
+        for e in common.offscreen_events(frames, zones, gaze_source, smoothed, min_duration=0.0):
+            s, en = e["start"], e["end"]
+            ts, te = edges(s, en)
+            if (en - s) + 1e-6 < common.OFFSCREEN_MIN_DURATION_S and not (ts or te):
+                continue
+            typed = [t for t, _ in key_events if en <= t <= en + common.COPY_TYPING_WINDOW_S]
+            meta = {"kind": "offscreen", "dirs": e["dirs"], "mods": e["mods"], "end": en, "zones": zones.note,
+                    "typing_after": bool(typed), "typing_start": typed[0] if typed else None,
+                    "features": common.typing_features(key_events, en)}
+            out.append(_flag("off_screen_look", s, en, meta, ts, te, "", common.OFFSCREEN_MIN_DURATION_S))
 
     # Tracking lost (reported, not an accusation). Flicker is joined first, then the minimum duration applies.
     segs = common.lost_segments(frames)

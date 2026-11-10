@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     t0 = time.perf_counter()
-    flags, info = analyze_recording(video, sc.header, sc.frames, sc.keys, opts, chunk_s=args.chunk_s)
+    flags, info = analyze_recording(video, sc.header, sc.frames, sc.keys, opts, chunk_s=args.chunk_s, key_events=sc.key_events)
     total = time.perf_counter() - t0
 
     out_dir = Path(args.out) if args.out else sidecar.parent
@@ -59,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     minutes = (sc.duration_s or info["video_duration_s"]) / 60.0
     print(f"Session {session_id}: {len(flags)} flag(s) -> {out}")
     for f in flags:
-        print(f"  {f['type']:<26} {f['start_s']:8.1f} - {f['end_s']:8.1f} s  conf {f['confidence']:.2f}  [{f['source']}] {f['evidence']}")
+        print(f"  {f['type']:<26} {f['start_s']:8.1f} - {f['end_s']:8.1f} s  {f['severity']:<8} [{f['source']}] {f['evidence']}")
     print(f"\nTiming: {info['chunks']} chunk(s), {minutes * 60:.0f} s of recording")
     print(f"  decode + sample + write temp chunks: {info['split_s']:6.1f} s  ({info['split_s'] / max(minutes, 1e-9):5.1f} s per minute of video)")
     print(f"  analyze_chunk (model, camera, rules): {info['analyze_s']:6.1f} s  ({info['analyze_s'] / max(minutes, 1e-9):5.1f} s per minute of video)")

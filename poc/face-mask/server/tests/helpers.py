@@ -66,3 +66,39 @@ class FakeDetector:
         labels = self.script.get(self.calls, [])
         self.calls += 1
         return [Detection(label, self.score, (0.0, 0.0, 10.0, 10.0)) for label in labels]
+
+
+# ---- vertical gaze / zones --------------------------------------------------------------------------------
+
+def _pt(h, v, yaw, pitch):
+    return {"yaw": yaw, "pitch": pitch, "gazeH": h, "gazeV": v, "blendH": h, "blendV": v}
+
+
+ZONE_HEADER = {"type": "header", "id": "z_normal_1", "calibration": {
+    "baseline": _pt(0.05, 0.1, 0, 10),
+    "edges": {"left": _pt(0.5, 0.1, 12, 10), "right": _pt(-0.35, 0.1, -12, 10), "top": _pt(0.05, -0.3, 0, 3),
+              "bottom": _pt(0.05, 0.5, 0, 17), "keyboard": _pt(0.05, 0.8, 0, 28)}}}
+
+
+def zone_frames(seconds, fps=20, looks=(), lost=()):
+    """Sidecar frames on screen (centre) except `looks` = (start, end, blendH, blendV)."""
+    out = []
+    for i in range(int(seconds * fps)):
+        t = i / fps
+        h, v = 0.05, 0.1
+        for a, b, hh, vv in looks:
+            if a <= t < b:
+                h, v = hh, vv
+        is_lost = any(a <= t < b for a, b in lost)
+        out.append({"type": "frame", "t": t * 1000.0, "faces": 1, "lost": is_lost,
+                    "yaw": None if is_lost else 0.0, "yawRaw": None if is_lost else 0.0,
+                    "pitch": None if is_lost else 10.0, "pitchRaw": None if is_lost else 10.0,
+                    "gazeH": None if is_lost else h, "gazeHRaw": None if is_lost else h,
+                    "blendH": None if is_lost else h, "blendHRaw": None if is_lost else h,
+                    "blendV": None if is_lost else v, "blendVRaw": None if is_lost else v})
+    return out
+
+
+def typing_after(end_s, n=12, step=0.3, cat="char"):
+    """key events (time, category) starting 1 s after a look ended."""
+    return [(end_s + 1.0 + i * step, cat) for i in range(n)]

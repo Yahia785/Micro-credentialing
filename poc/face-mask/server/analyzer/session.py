@@ -94,7 +94,8 @@ def iter_video_chunks(video_path: str | Path, offset_s: float, chunk_s: float, t
 
 def analyze_recording(video_path: str | Path | None, header: dict, frames: list[dict], keys_s: list[float],
                       options: Options | None = None, chunk_s: float = config.CHUNK_S,
-                      offset_s: float | None = None, which: str = "masked") -> tuple[list[dict], dict]:
+                      offset_s: float | None = None, which: str = "masked",
+                      key_events: list[tuple[float, str]] | None = None) -> tuple[list[dict], dict]:
     """Analyze a whole recording chunk by chunk. Returns (final flags, info with timings and chunk count)."""
     opts = options or Options()
     if offset_s is None:
@@ -104,7 +105,9 @@ def analyze_recording(video_path: str | Path | None, header: dict, frames: list[
     done: set[int] = set()
     t_split = t_analyze = 0.0
     video_duration = 0.0
-    key_margin = common.KEY_WINDOW_S
+    key_margin = config.KEY_MARGIN_S
+    if key_events is None:
+        key_events = [(k, "unknown") for k in keys_s]
     try:
         if video_path is not None:
             gen = iter_video_chunks(video_path, offset_s, chunk_s, tmp)
@@ -124,7 +127,8 @@ def analyze_recording(video_path: str | Path | None, header: dict, frames: list[
                 end = start + chunk_s
                 chunk_flags.append(analyze_chunk(
                     path, slice_frames(frames, start, end), start,
-                    keys_s=slice_keys(keys_s, start, end, key_margin), header=header, options=opts))
+                    keys_s=slice_keys(keys_s, start, end, key_margin), header=header, options=opts,
+                    key_events=[e for e in key_events if start - key_margin <= e[0] < end + key_margin]))
                 t_analyze += time.perf_counter() - t1
                 done.add(idx)
                 path.unlink(missing_ok=True)
@@ -138,7 +142,8 @@ def analyze_recording(video_path: str | Path | None, header: dict, frames: list[
                 t1 = time.perf_counter()
                 chunk_flags.append(analyze_chunk(
                     None, slice_frames(frames, start, end), start,
-                    keys_s=slice_keys(keys_s, start, end, key_margin), header=header, options=opts))
+                    keys_s=slice_keys(keys_s, start, end, key_margin), header=header, options=opts,
+                    key_events=[e for e in key_events if start - key_margin <= e[0] < end + key_margin]))
                 t_analyze += time.perf_counter() - t1
         t2 = time.perf_counter()
         flags = merge_flags(chunk_flags)
@@ -179,6 +184,23 @@ def thresholds_used(opts: Options) -> dict:
             "min_enter": common.MIN_ENTER,
             "exit_ratio": common.EXIT_RATIO,
         },
+        "off_screen": {
+            "zone_gaze_margin": common.ZONE_GAZE_MARGIN,
+            "zone_head_margin_deg": common.ZONE_HEAD_MARGIN_DEG,
+            "keyboard_gaze_margin": common.KEYBOARD_GAZE_MARGIN,
+            "keyboard_head_margin_deg": common.KEYBOARD_HEAD_MARGIN_DEG,
+            "fallback_gaze_v_half": common.FALLBACK_GAZE_V_HALF,
+            "fallback_pitch_half_deg": common.FALLBACK_PITCH_HALF_DEG,
+            "min_duration_s": common.OFFSCREEN_MIN_DURATION_S,
+        },
+        "copy_pattern": {
+            "min_cycles": common.COPY_MIN_CYCLES,
+            "window_s": common.COPY_WINDOW_S,
+            "typing_within_s": common.COPY_TYPING_WINDOW_S,
+            "typing_feature_window_s": common.TYPING_FEATURE_WINDOW_S,
+            "typing_pause_s": common.TYPING_PAUSE_S,
+        },
+        "severity": dict(config.SEVERITY),
     }
 
 

@@ -105,7 +105,7 @@ def test_flag_crossing_a_chunk_boundary_is_joined_and_evidence_summed():
     assert (f["start_s"], f["end_s"]) == (57.0, 62.0)
     assert f["evidence"] == "cell phone box in 9 of 10 sampled frames"
     assert f["confidence"] == pytest.approx((0.9 * 3 + 0.6 * 2) / 5, abs=1e-3)
-    assert set(f) == {"type", "start_s", "end_s", "confidence", "source", "evidence"}
+    assert set(f) == {"type", "severity", "start_s", "end_s", "confidence", "source", "evidence"}
 
 
 def test_fragments_too_short_alone_but_long_together_survive():

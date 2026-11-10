@@ -98,7 +98,7 @@ def test_flags_file_content_has_no_images(tmp_path):
     out = merge_flags([run_fake(tmp_path, {i: ["cell phone"] for i in range(2, 10)}, 12)])
     text = json.dumps(out)
     assert "data:image" not in text and "base64" not in text
-    assert set(out[0]) == {"type", "start_s", "end_s", "confidence", "source", "evidence"}
+    assert set(out[0]) == {"type", "severity", "start_s", "end_s", "confidence", "source", "evidence"}
 
 
 # ---- CLI end to end ------------------------------------------------------------------------------------
