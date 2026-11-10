@@ -28,7 +28,7 @@ Only the masked view is shown on the page. The raw camera element is hidden and 
 
 `header` line: id, laptop, scenario, start time, size, delegate (GPU/CPU), `detectLongSide`, user agent, mask options, recorder start offsets, `setup` (did the setup check pass, did the person continue anyway, which checks failed) and `calibration` (baseline, noise, and the left/right edge readings).
 
-`frame` lines: `t` (ms since recording start), `faces`, `lost`; each of `yaw`, `pitch`, `gazeH`, `gazeV`, `blendH` twice: `...Raw` (straight from the tracker) and the plain name (One Euro smoothed); `roll` (raw); the eight blendshape scores `eyeLookInLeft`, `eyeLookOutLeft`, `eyeLookInRight`, `eyeLookOutRight`, `eyeLookUpLeft`, `eyeLookDownLeft`, `eyeLookUpRight`, `eyeLookDownRight`; timings `snapMs`, `detectMs`, `drawMs`, `procMs` (ms per stage); and `maskBoxes` (one `[x, y, w, h]` in video pixels per masked face, after scaling and forehead lift; empty when tracking is lost). `key` lines hold the **time only, never the key**. Readings are for the first face; `null` when tracking is lost.
+`frame` lines: `t` (ms since recording start), `faces`, `lost`; each of `yaw`, `pitch`, `gazeH`, `gazeV`, `blendH`, `blendV` twice: `...Raw` (straight from the tracker) and the plain name (One Euro smoothed); `roll` (raw); the eight blendshape scores `eyeLookInLeft`, `eyeLookOutLeft`, `eyeLookInRight`, `eyeLookOutRight`, `eyeLookUpLeft`, `eyeLookDownLeft`, `eyeLookUpRight`, `eyeLookDownRight`; timings `snapMs`, `detectMs`, `drawMs`, `procMs` (ms per stage); and `maskBoxes` (one `[x, y, w, h]` in video pixels per masked face, after scaling and forehead lift; empty when tracking is lost). `blendV` is the vertical gaze from the eyeLookUp/eyeLookDown scores of both eyes (+ = down). `key` lines hold the **time and a category only, never the key**: `char` (any single printable character), `backspace`, `delete`, `enter`, `space` or `other` (Shift, arrows, Tab and shortcuts such as Ctrl+V). The key value is read in the browser only to pick the category and is never stored. Readings are for the first face; `null` when tracking is lost.
 
 Sign conventions: `yaw > 0` = face turns toward the right side of the image (your own left, the image is not mirrored); `pitch > 0` = looking down; `gazeH > 0` = iris toward image right; `gazeV > 0` = iris low; `blendH > 0` = blendshape gaze toward the image right (built from eyeLookOutLeft + eyeLookInRight - eyeLookInLeft - eyeLookOutRight, halved; check on screen that it has the same sign as `gazeH`).
 
@@ -48,7 +48,7 @@ Open http://localhost:5180 in Chrome and allow camera and microphone. The page w
 
 1. **Start camera.** The big badge shows the delegate (GPU or CPU) and the live fps (red below 15).
 2. **Step 1, setup check.** Fit your face in the dashed guide box. A live checklist shows green or red for: face found, lighting (brightness and contrast of the face region), face size (at least 30% of frame height) and face centered. **Continue** unlocks when all are green. **Continue anyway** is for research recordings; the sidecar header then lists which checks failed.
-3. **Step 2, calibration (about 9 s).** Press Start calibration. Look at the red dot in the middle of the screen for 5 s without moving your head, then at the left-edge dot and the right-edge dot (2 s each; the first 0.5 s of each is ignored, so each edge reading uses about 1.5 s of data). The median yaw, pitch and gaze become your **baseline**, their spread is the **noise**, and the edge readings show your range. All are stored in the header, and all look-away decisions use values minus this baseline. Use **Recalibrate** if you moved.
+3. **Step 2, calibration (about 16 s).** Press Start calibration. Look at the red dot in the middle of the screen for 5 s without moving your head, then at the dots at the left, right, top and bottom edges (2 s each; the first 0.5 s of each is ignored, so each reading uses about 1.5 s of data), then **look at your keyboard** for 3 s. The median yaw, pitch and gaze become your **baseline**, their spread is the **noise**, and the edge readings show your range. Yaw, pitch, gazeH, gazeV, blendH and blendV at every point are stored in the header (`calibration.baseline` and `calibration.edges.left/right/top/bottom/keyboard`, each also as `...Raw`). Look-away decisions use values minus this baseline, and the screen and keyboard zones below are built from these points. Use **Recalibrate** if you moved.
 4. **Start recording**, then **Stop and save**.
 
 The checkbox **Cover top of head and hair** (on by default) extends the mask upward over the hair.
@@ -95,10 +95,12 @@ On 3 laptops, one of them low-end. About 1 minute each. Type the laptop name, pi
 Open `raw-<id>.webm` in VLC. For each time the student looks away on purpose, note start and end seconds from the start of the video. Save `sidecar-<id>.labels.csv` next to the sidecar (same name, `.labels.csv` instead of `.jsonl`):
 
 ```
-start_s,end_s,label
-12.0,15.5,look-away
-33.2,35.0,look-away
+start_s,end_s,label,direction
+12.0,15.5,look-away,down
+33.2,35.0,look-away,right
 ```
+
+`direction` is optional (empty = any): `left`, `right`, `up` or `down` as seen by the student looking at the screen. Old files without the column still work.
 
 The raw and masked videos start within a few ms of each other; the sidecar header lists each recorder's start offset if you need to correct it.
 
@@ -116,7 +118,7 @@ python test3_lookaway.py ..\recordings\laptopA
 | --- | --- | --- |
 | 1 speed | average fps, 10th-percentile fps, % lost frames, ms per frame, detect ms | average fps >= 15 = PASS, 10 to 15 = OK (minimum), below 10 = FAIL (check the low-end laptop especially) |
 | 2 leaks | Face detectors (Haar frontal, Haar profile on the frame and its mirror, and YuNet) on every frame of `masked-*.webm`. Each hit is classed **OUTSIDE** (not covered by a mask box from the sidecar, so possibly a real face) or **INSIDE** (on the mask, usually just the cartoon fooling the detector). See below | **0 OUTSIDE hits that show a real face, and none of the reviewed INSIDE samples show a real face**, judged by eye |
-| 3 look-away | sidecar events vs your labels: labels, found, extra events, events with a key press within 2 s. Options: `--gaze-source iris|blend`, `--raw`, `--thresholds fixed|calibrated` | 90% or more of all labels are found |
+| 3 look-away | sidecar events (look-away rule plus off-screen looks) vs your labels: labels, found, direction right, extra events, events with a key press within 2 s, cycles and copy patterns. Options: `--gaze-source iris|blend`, `--raw`, `--thresholds fixed|calibrated` | 90% or more of all labels are found, and (if the labels have directions) 90% or more of the directions are right |
 | 5 raw vs masked | object and camera checks on the raw and the masked video of the same session; are the flags the same? (needs the server venv, see "Server analysis") | 90% or more of the raw flags are also found in the masked video |
 | 6 jitter | on `normal` clips: std of yaw and gaze (raw vs smoothed, iris vs blendshape) and look-away events per minute (all false flags) | 0 false look-aways per minute on every normal clip, with smoothing on |
 | 4 identity (manual) | see below | people do no better than chance |
@@ -143,6 +145,7 @@ Look-away rule (constants at the top of `analysis\common.py`). All values are ta
 - **Eye thresholds, two options** (`--thresholds` in test 3 and test 6, `THRESHOLDS_MODE` in `common.py`; the output always says which was used):
   - `fixed` (default): enter 0.5, exit 0.35 for everyone.
   - `calibrated`: from each person's calibration edge readings. For each edge, `d = edge reading - baseline`; `enter = max(EDGE_FACTOR x |d|, MIN_ENTER)` (`EDGE_FACTOR` 1.2, `MIN_ENTER` 0.15, so jitter cannot trigger it), `exit = enter x 0.7`. The edge whose `d` is positive sets the positive side, the edge whose `d` is negative sets the negative side, so a person who looks far one way and little the other gets different limits per side (if only one side is usable the other copies it; with no usable edge it falls back to fixed and says so). Use this when the gaze range on screen is small (for example about +/-0.13 at the screen edges, where a fixed 0.5 would never fire).
+- **Off-screen looks, vertical gaze and the copy pattern** (also in `common.py`; see 'Looking down and up' below).
 - `GAZE_SOURCE` is `blend` (blendshapes, the default: in real tests it caught the most eye-only glances with no false flags) or `iris` (landmarks; with the fixed 0.5 threshold it missed every eye-only glance). `USE_SMOOTHED` switches to the raw fields. Both can be set per run in test 3 (`--gaze-source`) and are compared side by side in test 6.
 
 Every script exits with a clear message when the folder has no matching files.
@@ -154,6 +157,18 @@ python speed_report.py ..\recordings\laptopA\speedtest-dell-20261104-104000.json
 ```
 
 Prints one row per delegate and tracking size with the speed verdict, and the largest tracking size that still reaches 15 fps on GPU and on CPU. Use it to pick the tracking size for students without a GPU.
+
+### Looking down and up: zones, off-screen looks, the copy pattern
+
+Real cheating is usually reading from a phone below the camera or a second screen at the side or up, never shown to the camera. The rules in `analysis\common.py`:
+
+- **Screen zone:** the box in (gaze horizontal, gaze vertical) spanned by the centre, left, right, top and bottom calibration readings plus `ZONE_GAZE_MARGIN` (0.15), and the same in (yaw, pitch) plus `ZONE_HEAD_MARGIN_DEG` (8). **Keyboard zone:** a box around the keyboard reading (`KEYBOARD_GAZE_MARGIN` 0.25, `KEYBOARD_HEAD_MARGIN_DEG` 10).
+- **Off-screen frame:** the gaze point OR the head point is outside both the screen zone and the keyboard zone. The direction (left, right, up, down, as the student sees it) comes from the calibration, not from sign conventions: the side of the left dot's reading is "left", and so on. Looking at the keyboard is not off-screen.
+- **`off_screen_look`:** off-screen for at least 1.5 s (gaps under 0.5 s merged; tracking-lost frames never count), with the direction in the evidence.
+- **`copy_pattern` (the main flag):** at least 3 cycles within 60 s, where a cycle is an off-screen look followed by typing within 3 s after it ends. The evidence gives the number of cycles and their directions, plus the typing features next to it.
+- **Typing features** per 10 s window starting where each look ended: keys per second, pause count (silences over 1 s, counting the silence before the first and after the last key) and backspace ratio (only keys with a known category count, so old recordings without categories give no ratio).
+- `looking_away_while_typing` stays. `phone_visible` is only a minor flag.
+- **Old recordings** (before the vertical calibration existed) have no top, bottom or keyboard reading and no `blendV`. `blendV` is then derived from the eyeLook scores and smoothed, and the missing zone parts are guessed (`FALLBACK_GAZE_V_HALF` 0.30, `FALLBACK_PITCH_HALF_DEG` 10, and no keyboard zone). Every result then says `partly guessed` in the zone note. Record again with the new calibration before trusting vertical results.
 
 ### Test 6: jitter (record a clean `normal` clip first)
 
@@ -211,8 +226,12 @@ In `analysis\common.py`: `EDGE_FACTOR`, `MIN_ENTER`, `EXIT_RATIO`, `THRESHOLDS_M
 | `second_person` | video | more than one `person` box in a sampled frame |
 | `camera_blocked` | video | no model: mean brightness below 25 or sharpness (variance of the Laplacian, frame scaled to 320 px wide) below 40 |
 | `looking_away` | sidecar | the rule in `analysis\common.py` is imported, not copied: baseline-relative yaw or gaze, hysteresis, minimum durations (default gaze source blendshape, `fixed` thresholds) |
-| `looking_away_while_typing` | sidecar | the main rule: a `looking_away` event with a key press during it or within 2 s |
+| `looking_away_while_typing` | sidecar | a `looking_away` event with a key press during it or within 2 s |
+| `off_screen_look` | sidecar | gaze or head outside the screen and keyboard zones for at least 1.5 s; the direction is in the evidence (see 'Looking down and up') |
+| `copy_pattern` | sidecar | **the main flag**: 3 or more cycles within 60 s of an off-screen look followed by typing within 3 s. Computed in `merge_flags` because the 60 s window can span chunks. Evidence: cycles, directions and the typing features |
 | `tracking_lost` | sidecar | no face for at least 2 s. This is reported, not an accusation |
+
+Every flag has a `severity`: `major` (copy_pattern, second_person), `moderate` (off_screen_look, looking_away_while_typing, camera_blocked, extra_laptop), `minor` (phone_visible, book_visible, looking_away) or `info` (tracking_lost). `phone_visible` is minor on purpose: real cheating is a phone that is NOT shown to the camera. Change `SEVERITY` in `server\analyzer\config.py`.
 
 Every detection must last a minimum time (phone 1.5 s; book, extra laptop, second person, camera blocked, tracking lost 2.0 s; looking away 1.0 s for the head and 1.5 s for the eyes) and detections of the same type closer together than the join gap (1.5 s for objects, 1.0 s camera, 0.5 s sidecar types) are joined into one flag. All thresholds are constants in `server\analyzer\config.py`. The camera thresholds come from real clips: normal masked and raw frames measured brightness 84 to 158 and sharpness 400 to 800; a Gaussian blur of sigma 8 gives about 10 and flat noise about 7. **They have not been tried on a really covered or blurred camera yet.**
 
@@ -276,8 +295,16 @@ For every session with both `raw-<id>` and `masked-<id>` videos (record with "Al
   "thresholds": {"sample_fps": 2.0, "object_confidence": 0.4, "min_duration_s": {}, "join_gap_s": {}, "camera_min_brightness": 25.0, "camera_min_sharpness": 40.0, "look_away": {}},
   "video": {"chunks": 3, "sample_fps": 2.0},
   "flags": [
-    {"type": "second_person", "start_s": 50.0, "end_s": 70.0, "confidence": 0.85, "source": "video",
+    {"type": "second_person", "severity": "major", "start_s": 50.0, "end_s": 70.0, "confidence": 0.85, "source": "video",
      "evidence": "more than one person box in 40 of 40 sampled frames"},
+    {"type": "copy_pattern", "severity": "major", "start_s": 14.8, "end_s": 52.4, "confidence": 1.0, "source": "sidecar",
+     "evidence": "5 cycles in 38 s (down x5); typing after the looks: 1.5 keys/s, 1.6 pauses over 1 s per 10 s window, 12% backspace",
+     "details": {"cycles": [{"start_s": 14.8, "end_s": 17.4, "direction": "down", "typing_start_s": 18.1,
+                            "typing_features_10s": {"t0": 17.4, "keys": 15, "keys_per_s": 1.5, "pauses": 2, "backspace_ratio": 0.13}}],
+                 "directions": {"down": 5}, "typing_features_mean": {"keys_per_s": 1.5, "pauses": 1.6, "backspace_ratio": 0.12}}},
+    {"type": "off_screen_look", "severity": "moderate", "start_s": 14.8, "end_s": 17.4, "confidence": 1.0, "source": "sidecar",
+     "evidence": "looked down for 2.7 s (gaze outside the screen and keyboard zones)",
+     "details": {"direction": "down", "typing_after": true, "zones": "calibrated", "typing_features_10s": {}}},
     {"type": "looking_away_while_typing", "start_s": 57.0, "end_s": 63.0, "confidence": 1.0, "source": "sidecar",
      "evidence": "key press during or within 2 s of the look-away"}
   ]
