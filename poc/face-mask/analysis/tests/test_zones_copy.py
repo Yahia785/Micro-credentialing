@@ -301,3 +301,10 @@ def test_labels_with_a_direction_column(tmp_path):
     (tmp_path / "sidecar-x_normal_1.labels.csv").write_text("start_s,end_s,label\n10,13,look-away\n")
     assert load_labels_ex(p)[0]["direction"] == ""                # old files without the column still load
     assert common.load_labels(p) == [(10.0, 13.0, "look-away")]
+
+
+def test_backspace_ratio_is_unknown_when_categories_are_missing():
+    f = typing_features([(100.5, "unknown"), (101.0, "unknown")], 100)
+    assert f["keys"] == 2 and f["backspace_ratio"] is None
+    f2 = typing_features([(100.5, "unknown"), (101.0, "backspace"), (101.5, "char")], 100)
+    assert f2["backspace_ratio"] == 0.5                      # only keys with a known category count

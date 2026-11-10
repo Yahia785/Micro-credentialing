@@ -615,9 +615,10 @@ def typing_features(key_events: list[tuple[float, str]], t0: float, window: floa
     n = len(ks)
     edges = [t0] + [t for t, _ in ks] + [t0 + window]
     pauses = sum(1 for a, b in zip(edges, edges[1:]) if b - a > TYPING_PAUSE_S)
-    backs = sum(1 for _, c in ks if c == "backspace")
+    known = [c for _, c in ks if c != "unknown"]          # sidecars from older clients have no categories
+    backs = sum(1 for c in known if c == "backspace")
     return {"t0": round(t0, 2), "keys": n, "keys_per_s": round(n / window, 2), "pauses": pauses,
-            "backspace_ratio": round(backs / n, 3) if n else None}
+            "backspace_ratio": round(backs / len(known), 3) if known else None}
 
 
 def find_cycles(events: list[dict], key_events: list[tuple[float, str]],
@@ -694,7 +695,18 @@ def all_look_events(sc: "Sidecar", gaze_source: str = GAZE_SOURCE, smoothed: boo
           for a, b in sidecar_events(sc, gaze_source, smoothed, thresholds_mode)]
     off, _ = off_screen_events_of(sc, gaze_source, smoothed)
     ev += [{"start": e["start"], "end": e["end"], "kind": "off_screen", "direction": e["direction"]} for e in off]
-    return sorted(ev, key=lambda e: e["start"])
+    # one event per real look: overlapping look-away and off-screen events are merged (the direction comes from the zones)
+    merged: list[dict] = []
+    for e in sorted(ev, key=lambda e: e["start"]):
+        if merged and e["start"] <= merged[-1]["end"]:
+            m = merged[-1]
+            m["end"] = max(m["end"], e["end"])
+            if e["kind"] not in m["kind"].split("+"):
+                m["kind"] += "+" + e["kind"]
+            m["direction"] = m["direction"] or e["direction"]
+        else:
+            merged.append(dict(e))
+    return merged
 
 
 def load_labels_ex(sidecar_path: str | Path) -> list[dict] | None:
