@@ -65,7 +65,7 @@ describe("OneEuroFilter", () => {
 describe("ReadingSmoother", () => {
   it("passes null through without disturbing the state", () => {
     const s = new ReadingSmoother();
-    const base: Readings = { yaw: 1, pitch: 2, gazeH: 0.1, gazeV: 0, blendH: 0 };
+    const base: Readings = { yaw: 1, pitch: 2, gazeH: 0.1, gazeV: 0, blendH: 0, blendV: 0 };
     s.apply(base, 0);
     const out = s.apply({ ...base, gazeH: null }, 33);
     expect(out.gazeH).toBeNull();
@@ -82,7 +82,7 @@ describe("calibration math", () => {
     expect(std([1])).toBeNull();
   });
   it("median baseline ignores outliers; std is the noise", () => {
-    const rs: Readings[] = [0, 1, 2, 3, 100].map((v) => ({ yaw: v, pitch: 5, gazeH: 0.2, gazeV: null, blendH: 0 }));
+    const rs: Readings[] = [0, 1, 2, 3, 100].map((v) => ({ yaw: v, pitch: 5, gazeH: 0.2, gazeV: null, blendH: 0, blendV: 0 }));
     const { baseline, noise, n } = summarizeReadings(rs);
     expect(n).toBe(5);
     expect(baseline.yaw).toBe(2);
@@ -92,8 +92,8 @@ describe("calibration math", () => {
   });
   it("buildCalibration keeps raw and smoothed apart and stores both edges", () => {
     const mk = (yaw: number, gazeH: number): CalibrationSample => ({
-      s: { yaw, pitch: 0, gazeH, gazeV: 0, blendH: gazeH },
-      r: { yaw: yaw + 1, pitch: 0, gazeH: gazeH + 0.1, gazeV: 0, blendH: gazeH },
+      s: { yaw, pitch: 0, gazeH, gazeV: 0, blendH: gazeH, blendV: 0 },
+      r: { yaw: yaw + 1, pitch: 0, gazeH: gazeH + 0.1, gazeV: 0, blendH: gazeH, blendV: 0 },
     });
     const c = buildCalibration([mk(2, 0.1), mk(4, 0.1), mk(3, 0.1)], [mk(-20, -0.8)], [mk(22, 0.9)]);
     expect(c.baseline.yaw).toBe(3);

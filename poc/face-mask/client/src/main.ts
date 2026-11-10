@@ -5,6 +5,7 @@ import {
   CALIB_MIN_EDGE_SAMPLES,
   CALIB_MIN_SAMPLES,
   CALIB_EDGE_SETTLE_S,
+  CALIB_KEYBOARD_S,
   CALIB_SETTLE_S,
   CAMERA_HEIGHT,
   CAMERA_WIDTH,
@@ -19,7 +20,8 @@ import {
   type MaskOptions,
 } from "./config";
 import { drawFaceMask, drawLostBanner, drawPixelated } from "./mask";
-import { BLENDSHAPE_KEYS, blendshapeGazeH, gazeFromLandmarks, headPoseFromMatrix, irisOffsets } from "./math";
+import { keyCategory } from "./keys";
+import { BLENDSHAPE_KEYS, blendshapeGazeH, blendshapeGazeV, gazeFromLandmarks, headPoseFromMatrix, irisOffsets } from "./math";
 import { RecordingSession, safe, timestamp, type FrameRecord } from "./recorder";
 import { evaluateSetup, faceBoxFromLandmarks, lumaStats, type Check } from "./setup";
 import { IrisOffsetSmoother, ReadingSmoother, type Readings } from "./smoothing";
@@ -102,7 +104,7 @@ const recentTimes: number[] = [];
 let totalFrames = 0;
 let lostFrames = 0;
 let lastUi = 0;
-const live = { faces: 0, lost: false, yaw: NaN, pitch: NaN, gazeH: NaN, gazeV: NaN, blendH: NaN, fps: 0 };
+const live = { faces: 0, lost: false, yaw: NaN, pitch: NaN, gazeH: NaN, gazeV: NaN, blendH: NaN, blendV: NaN, fps: 0 };
 
 function setText(id: string, text: string, cls = "") {
   const el = $(id);
@@ -230,7 +232,7 @@ function processFrame(): void {
   const t3 = performance.now();
 
   // Readings (first face only): raw, then smoothed.
-  const raw: Readings = { yaw: null, pitch: null, gazeH: null, gazeV: null, blendH: null };
+  const raw: Readings = { yaw: null, pitch: null, gazeH: null, gazeV: null, blendH: null, blendV: null };
   let roll: number | null = null;
   if (!lost) {
     if (matrices[0]) {
@@ -244,7 +246,10 @@ function processFrame(): void {
       raw.gazeH = g.h;
       raw.gazeV = g.v;
     }
-    if (blendshapes) raw.blendH = blendshapeGazeH(blendshapes);
+    if (blendshapes) {
+      raw.blendH = blendshapeGazeH(blendshapes);
+      raw.blendV = blendshapeGazeV(blendshapes);
+    }
   }
   const sm = lost ? raw : smoother.apply(raw, t0);
 
@@ -258,7 +263,7 @@ function processFrame(): void {
   }
   Object.assign(live, {
     faces: faces.length, lost,
-    yaw: nz(sm.yaw), pitch: nz(sm.pitch), gazeH: nz(sm.gazeH), gazeV: nz(sm.gazeV), blendH: nz(sm.blendH),
+    yaw: nz(sm.yaw), pitch: nz(sm.pitch), gazeH: nz(sm.gazeH), gazeV: nz(sm.gazeV), blendH: nz(sm.blendH), blendV: nz(sm.blendV),
   });
 
   // Setup check (a few times per second, only before calibration).
@@ -287,7 +292,7 @@ function processFrame(): void {
       t: session.now(), faces: faces.length, lost,
       yawRaw: raw.yaw, yaw: sm.yaw, pitchRaw: raw.pitch, pitch: sm.pitch, roll,
       gazeHRaw: raw.gazeH, gazeH: sm.gazeH, gazeVRaw: raw.gazeV, gazeV: sm.gazeV,
-      blendHRaw: raw.blendH, blendH: sm.blendH, bs,
+      blendHRaw: raw.blendH, blendH: sm.blendH, blendVRaw: raw.blendV, blendV: sm.blendV, bs,
       snapMs: t1 - t0, detectMs: t2 - t1, drawMs: t3 - t2, procMs: now - t0, maskBoxes,
     };
     session.addFrame(rec);
@@ -306,7 +311,7 @@ function updatePanel() {
   setText("vFaces", String(live.faces));
   setText("vPose", `${f(live.yaw, 0)}° / ${f(live.pitch, 0)}°`);
   setText("vGaze", `${f(live.gazeH, 2)} / ${f(live.gazeV, 2)}`);
-  setText("vBlend", f(live.blendH, 2));
+  setText("vBlend", `${f(live.blendH, 2)} / ${f(live.blendV, 2)}`);
   if (live.lost) setText("vStatus", "TRACKING LOST", "warn");
   else setText("vStatus", session ? "recording" : "tracking", "ok");
   const badge = $("badge");
@@ -379,13 +384,17 @@ async function runCalibration() {
   const dot = $("dot");
   overlay.hidden = false;
   const stages = [
-    { name: "center", s: CALIB_CENTER_S, settle: CALIB_SETTLE_S, x: 50, text: "Look at the dot in the middle of the screen" },
-    { name: "left", s: CALIB_EDGE_S, settle: CALIB_EDGE_SETTLE_S, x: 3, text: "Now look at the dot at the LEFT edge" },
-    { name: "right", s: CALIB_EDGE_S, settle: CALIB_EDGE_SETTLE_S, x: 97, text: "Now look at the dot at the RIGHT edge" },
+    { name: "center", s: CALIB_CENTER_S, settle: CALIB_SETTLE_S, x: 50, y: 50, text: "Look at the dot in the middle of the screen" },
+    { name: "left", s: CALIB_EDGE_S, settle: CALIB_EDGE_SETTLE_S, x: 3, y: 50, text: "Now look at the dot at the LEFT edge" },
+    { name: "right", s: CALIB_EDGE_S, settle: CALIB_EDGE_SETTLE_S, x: 97, y: 50, text: "Now look at the dot at the RIGHT edge" },
+    { name: "top", s: CALIB_EDGE_S, settle: CALIB_EDGE_SETTLE_S, x: 50, y: 4, text: "Now look at the dot at the TOP edge" },
+    { name: "bottom", s: CALIB_EDGE_S, settle: CALIB_EDGE_SETTLE_S, x: 50, y: 96, text: "Now look at the dot at the BOTTOM edge" },
+    { name: "keyboard", s: CALIB_KEYBOARD_S, settle: CALIB_EDGE_SETTLE_S, x: -10, y: -10, text: "Look at your keyboard" }, // dot off screen
   ];
-  const bufs: Record<string, CalibrationSample[]> = { center: [], left: [], right: [] };
+  const bufs: Record<string, CalibrationSample[]> = { center: [], left: [], right: [], top: [], bottom: [], keyboard: [] };
   for (const st of stages) {
     dot.style.left = st.x + "%";
+    dot.style.top = st.y + "%";
     $("overlayText").textContent = st.text;
     calibBuf = bufs[st.name];
     calibStart = performance.now();
@@ -396,15 +405,18 @@ async function runCalibration() {
   }
   overlay.hidden = true;
   $<HTMLButtonElement>("btnCalibrate").disabled = false;
-  if (bufs.center.length < CALIB_MIN_SAMPLES || bufs.left.length < CALIB_MIN_EDGE_SAMPLES || bufs.right.length < CALIB_MIN_EDGE_SAMPLES) {
+  const short =
+    bufs.center.length < CALIB_MIN_SAMPLES ||
+    ["left", "right", "top", "bottom", "keyboard"].some((k) => bufs[k].length < CALIB_MIN_EDGE_SAMPLES);
+  if (short) {
     setText(
       "calibMsg",
-      `Not enough face data (${bufs.center.length}/${bufs.left.length}/${bufs.right.length} samples). Keep your face in view and try again.`,
+      `Not enough face data (samples per stage: ${Object.entries(bufs).map(([k, v]) => `${k} ${v.length}`).join(", ")}). Keep your face in view and try again.`,
       "warn",
     );
     return;
   }
-  calibration = buildCalibration(bufs.center, bufs.left, bufs.right);
+  calibration = buildCalibration(bufs.center, bufs.left, bufs.right, { top: bufs.top, bottom: bufs.bottom, keyboard: bufs.keyboard });
   const b = calibration.baseline;
   const fx = (v: number | null, d = 2) => (v === null ? "-" : v.toFixed(d));
   setText(
@@ -469,9 +481,10 @@ btnStop.addEventListener("click", async () => {
   laptopEl.disabled = scenarioEl.disabled = saveRawEl.disabled = false;
 });
 
-// Key presses: only the TIME is recorded, and only while recording. The key itself is never read.
-typingEl.addEventListener("keydown", () => {
-  if (session && !stopping) session.addKey();
+// Key presses: only the TIME and a CATEGORY (char, backspace, delete, enter, space, other) are recorded, and only while
+// recording. The key value is read only to choose the category and is never stored.
+typingEl.addEventListener("keydown", (e) => {
+  if (session && !stopping) session.addKey(keyCategory(e));
 });
 
 

@@ -8,9 +8,10 @@ export interface Readings {
   gazeH: number | null;
   gazeV: number | null;
   blendH: number | null;
+  blendV: number | null;
 }
 
-const KEYS = ["yaw", "pitch", "gazeH", "gazeV", "blendH"] as const;
+const KEYS = ["yaw", "pitch", "gazeH", "gazeV", "blendH", "blendV"] as const;
 
 /** One filter per reading. A null input leaves the filter state alone and gives null back. */
 export class ReadingSmoother {
@@ -20,6 +21,7 @@ export class ReadingSmoother {
     gazeH: new OneEuroFilter(ONE_EURO_GAZE),
     gazeV: new OneEuroFilter(ONE_EURO_GAZE),
     blendH: new OneEuroFilter(ONE_EURO_GAZE),
+    blendV: new OneEuroFilter(ONE_EURO_GAZE),
   };
 
   apply(raw: Readings, tMs: number): Readings {

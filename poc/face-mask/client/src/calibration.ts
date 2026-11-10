@@ -2,7 +2,7 @@
 import type { Readings } from "./smoothing";
 
 export type Key = keyof Readings;
-export const CAL_KEYS: Key[] = ["yaw", "pitch", "gazeH", "gazeV", "blendH"];
+export const CAL_KEYS: Key[] = ["yaw", "pitch", "gazeH", "gazeV", "blendH", "blendV"];
 export type Stats = Record<Key, number | null>;
 
 export function median(xs: number[]): number | null {
@@ -46,16 +46,27 @@ export interface CalibrationResult {
   baselineRaw: Stats;
   noiseRaw: Stats;
   samples: number;
-  edges: { left: Stats; right: Stats; leftRaw: Stats; rightRaw: Stats };
+  /** Readings at the screen edges and the keyboard (top, bottom and keyboard only when those stages were run). */
+  edges: {
+    left: Stats; right: Stats; leftRaw: Stats; rightRaw: Stats;
+    top?: Stats; bottom?: Stats; keyboard?: Stats; topRaw?: Stats; bottomRaw?: Stats; keyboardRaw?: Stats;
+  };
 }
 
 export function buildCalibration(
   center: CalibrationSample[],
   left: CalibrationSample[],
   right: CalibrationSample[],
+  extra: { top?: CalibrationSample[]; bottom?: CalibrationSample[]; keyboard?: CalibrationSample[] } = {},
 ): CalibrationResult {
   const c = summarizeReadings(center.map((x) => x.s));
   const cr = summarizeReadings(center.map((x) => x.r));
+  const more: Record<string, Stats> = {};
+  for (const [name, samples] of Object.entries(extra)) {
+    if (!samples || samples.length === 0) continue;
+    more[name] = summarizeReadings(samples.map((x) => x.s)).baseline;
+    more[name + "Raw"] = summarizeReadings(samples.map((x) => x.r)).baseline;
+  }
   return {
     baseline: c.baseline,
     noise: c.noise,
@@ -67,6 +78,7 @@ export function buildCalibration(
       right: summarizeReadings(right.map((x) => x.s)).baseline,
       leftRaw: summarizeReadings(left.map((x) => x.r)).baseline,
       rightRaw: summarizeReadings(right.map((x) => x.r)).baseline,
+      ...more,
     },
   };
 }

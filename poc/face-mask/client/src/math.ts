@@ -267,6 +267,16 @@ export function blendshapeGazeH(bs: Record<string, number>): number | null {
   return (a + b - c - d) / 2;
 }
 
+/**
+ * Vertical gaze from blendshape scores, both eyes: + = looking DOWN, - = looking UP (same sign as the iris gazeV).
+ * null if a score is missing.
+ */
+export function blendshapeGazeV(bs: Record<string, number>): number | null {
+  const dl = bs.eyeLookDownLeft, dr = bs.eyeLookDownRight, ul = bs.eyeLookUpLeft, ur = bs.eyeLookUpRight;
+  if ([dl, dr, ul, ur].some((v) => v === undefined)) return null;
+  return (dl + dr - ul - ur) / 2;
+}
+
 export const BLENDSHAPE_KEYS = [
   "eyeLookInLeft", "eyeLookOutLeft", "eyeLookInRight", "eyeLookOutRight",
   "eyeLookUpLeft", "eyeLookDownLeft", "eyeLookUpRight", "eyeLookDownRight",

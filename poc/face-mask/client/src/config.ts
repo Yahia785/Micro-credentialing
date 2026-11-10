@@ -43,6 +43,7 @@ export const CALIB_CENTER_S = 5;
 export const CALIB_EDGE_S = 2; // per edge (left, then right) = 4 s total
 export const CALIB_SETTLE_S = 0.4; // centre stage: ignore the first part while the eyes settle on the dot
 export const CALIB_EDGE_SETTLE_S = 0.5; // edge stages: ignore the first part (eyes travel to the edge); 2.0 - 0.5 = 1.5 s of data
+export const CALIB_KEYBOARD_S = 3; // "Look at your keyboard" stage (the first CALIB_EDGE_SETTLE_S is ignored too)
 export const CALIB_MIN_SAMPLES = 8; // center stage
 export const CALIB_MIN_EDGE_SAMPLES = 3;
 

@@ -18,6 +18,9 @@ export interface FrameRecord {
   /** Horizontal gaze from the blendshapes (raw and smoothed). */
   blendHRaw: number | null;
   blendH: number | null;
+  /** Vertical gaze from the blendshapes (+ = down), raw and smoothed. */
+  blendVRaw: number | null;
+  blendV: number | null;
   /** Blendshape scores: eyeLookInLeft ... eyeLookDownRight. */
   bs: Record<string, number | null>;
   /** Per-stage timing in ms. */
@@ -71,6 +74,8 @@ function frameLine(f: FrameRecord) {
     gazeV: round(f.gazeV),
     blendHRaw: round(f.blendHRaw),
     blendH: round(f.blendH),
+    blendVRaw: round(f.blendVRaw),
+    blendV: round(f.blendV),
     ...Object.fromEntries(Object.entries(f.bs).map(([k, v]) => [k, round(v)])),
     snapMs: round(f.snapMs, 1),
     detectMs: round(f.detectMs, 1),
@@ -118,7 +123,7 @@ export class RecordingSession {
   private masked: OneRecorder;
   private raw: OneRecorder | null = null;
   private frames: FrameRecord[] = [];
-  private keys: number[] = [];
+  private keys: { t: number; cat: string }[] = [];
   private lost = 0;
 
   constructor(
@@ -145,9 +150,9 @@ export class RecordingSession {
     if (f.lost) this.lost++;
   }
 
-  /** Only the TIME of a key press is stored. Never the key. */
-  addKey(): void {
-    this.keys.push(this.now());
+  /** Only the TIME and the CATEGORY of a key press are stored (char, backspace, delete, enter, space, other). Never the key. */
+  addKey(cat: string): void {
+    this.keys.push({ t: this.now(), cat });
   }
 
   async stopAndDownload(): Promise<void> {
@@ -177,12 +182,16 @@ export class RecordingSession {
     // Frames and key presses are written in time order.
     let ki = 0;
     for (const f of this.frames) {
-      while (ki < this.keys.length && this.keys[ki] <= f.t) {
-        lines.push(JSON.stringify({ type: "key", t: round(this.keys[ki++], 1) }));
+      while (ki < this.keys.length && this.keys[ki].t <= f.t) {
+        const k = this.keys[ki++];
+        lines.push(JSON.stringify({ type: "key", t: round(k.t, 1), cat: k.cat }));
       }
       lines.push(JSON.stringify(frameLine(f)));
     }
-    while (ki < this.keys.length) lines.push(JSON.stringify({ type: "key", t: round(this.keys[ki++], 1) }));
+    while (ki < this.keys.length) {
+      const k = this.keys[ki++];
+      lines.push(JSON.stringify({ type: "key", t: round(k.t, 1), cat: k.cat }));
+    }
     const s = summarize(
       this.frames.map((f) => f.t),
       this.lost,
