@@ -302,6 +302,19 @@ For every session with both `raw-<id>` and `masked-<id>` videos (record with "Al
 
   YOLO11 nano takes about 65 ms per sampled frame here, so a 60 s chunk (120 frames) needs about 8 s of model time. Even with one thread a 60 s chunk takes well under a minute, so 15 minutes of Lambda time is far more than a one-chunk invocation needs. Lambda vCPUs are slower than this laptop and this was not run on Lambda, so measure again there before relying on the numbers.
 
+### Debugging: why did a clip give no flags?
+
+Run the debug script on the clip (raw or masked) before blaming the detector:
+
+```powershell
+cd poc\face-mask\server
+.\.venv\Scripts\python.exe scripts\debug_detections.py ..\recordings\raw-<id>.webm
+```
+
+For every sampled frame it prints the time, brightness, sharpness and ALL YOLO boxes (every COCO class, score 0.10 or more), saves 10 frames with the boxes drawn to `server\out\debug\<video name>\`, and ends with a summary (best score per class, how many frames were dark or blurred). Look at the saved frames: if the phone is not in the image, or the paper is not on the lens (brightness stays near its normal value and sharpness stays in the hundreds), there is nothing to detect and zero flags is the right answer. When recording test clips: hold the phone clearly in front of the camera, upright and fully in view, for at least 3 s; press the paper flat against the lens for at least 3 s.
+
+The detector path was checked against the reference Ultralytics PyTorch model on 49 public COCO images (`scripts\fetch_test_image.py` downloads the one phone image the tests use): identical person, laptop, phone and book counts on 43 of 49 images, and the other 6 differ by one borderline box. `tests\test_pipeline_regression.py` guards colour order, letterbox and scale maths, class ids, the sampling rate, and a real phone through the whole path.
+
 ### Settings worth tuning
 
 `server\analyzer\config.py`: `OBJECT_CONF`, `SAMPLE_FPS`, `CAMERA_MIN_BRIGHTNESS`, `CAMERA_MIN_SHARPNESS`, `MIN_DURATION_S`, `JOIN_GAP_S`, `CLASSES`. The look-away rule stays in `analysis\common.py`.
