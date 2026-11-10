@@ -330,7 +330,68 @@ async function listSubmissionInterviews({ submissionId }) {
   return { submissionId, interviews: items.map(view.toInterviewSummary) };
 }
 
+const MAX_REVIEW_NOTE_LENGTH = 4000;
+
+/**
+ * Admin only (the handler enforces it): save the instructor's review of an interview. `overrides` maps a main question
+ * number to { rubricItemId: true|false } (shown / not shown); only items the instructor changed are sent. The grade is a
+ * number from 0 to 100 or null. The agent's own checks are stored on the turns and are not touched.
+ */
+async function saveInterviewReview({ userId, interviewId, body, now = Date.now() }) {
+  if (!interviewId || typeof interviewId !== 'string') throw new ValidationError('interviewId is required');
+  const input = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+
+  const meta = await interviews.getInterviewMeta(interviewId);
+  if (!meta) throw new NotFoundError('Interview');
+
+  const { grade = null, note = '', overrides = {} } = input;
+  if (grade !== null && (typeof grade !== 'number' || !Number.isFinite(grade) || grade < 0 || grade > 100)) {
+    throw new ValidationError('grade must be a number from 0 to 100, or null');
+  }
+  if (typeof note !== 'string' || note.length > MAX_REVIEW_NOTE_LENGTH) {
+    throw new ValidationError(`note must be text of at most ${MAX_REVIEW_NOTE_LENGTH} characters`);
+  }
+  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
+    throw new ValidationError('overrides must be an object');
+  }
+
+  const positions = view.mainPositions(meta.configSnapshot);
+  const clean = {};
+  Object.entries(overrides).forEach(([questionKey, items]) => {
+    const number = Number(questionKey);
+    if (!Number.isInteger(number) || number < 1 || number > positions.length) {
+      throw new ValidationError(`Unknown main question: ${questionKey}`);
+    }
+    if (!items || typeof items !== 'object' || Array.isArray(items)) {
+      throw new ValidationError(`overrides for question ${questionKey} must be an object`);
+    }
+    const rubric = engine.rubricFor(meta.configSnapshot, positions[number - 1]);
+    const kept = {};
+    Object.entries(items).forEach(([itemId, value]) => {
+      if (!rubric.some((item) => item.id === itemId)) {
+        throw new ValidationError(`Unknown rubric item ${itemId} for question ${questionKey}`);
+      }
+      if (typeof value !== 'boolean') throw new ValidationError('Each override must be true (shown) or false (not shown)');
+      kept[itemId] = value;
+    });
+    if (Object.keys(kept).length) clean[String(number)] = kept;
+  });
+
+  const review = {
+    overrides: clean,
+    grade,
+    note: note.trim(),
+    reviewedBy: userId,
+    reviewedAt: new Date(now).toISOString(),
+  };
+  await interviews.saveInterviewReview(interviewId, review);
+  log.info('Interview review saved', { interviewId, overrideCount: Object.values(clean).reduce((n, o) => n + Object.keys(o).length, 0) });
+  return { review };
+}
+
 module.exports = {
+  saveInterviewReview,
+  MAX_REVIEW_NOTE_LENGTH,
   startInterview,
   startPracticeInterview,
   listSubmissionInterviews,

@@ -202,7 +202,26 @@ async function endInterview(interviewId, { status, endReason, now = Date.now() }
   }
 }
 
+/** Replace the instructor's review stored on the interview. The agent's recorded checks are never touched. */
+async function saveInterviewReview(interviewId, review) {
+  try {
+    await dynamodb.send(new UpdateCommand({
+      TableName: table(),
+      Key: { interviewId, sk: META_SK },
+      UpdateExpression: 'SET #review = :review',
+      ConditionExpression: 'attribute_exists(interviewId)',
+      ExpressionAttributeNames: { '#review': 'review' },
+      ExpressionAttributeValues: { ':review': review },
+    }));
+  } catch (error) {
+    if (isConditionFailure(error)) throw new AppError('Interview not found', 404);
+    throw error;
+  }
+  return review;
+}
+
 module.exports = {
+  saveInterviewReview,
   interviewIdFor,
   practiceInterviewId,
   listInterviewsBySubmission,

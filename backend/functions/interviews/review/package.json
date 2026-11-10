@@ -1,0 +1,7 @@
+{
+  "name": "interview-review-function",
+  "version": "1.0.0",
+  "description": "Interview endpoint (save instructor review, admin)",
+  "main": "index.js",
+  "dependencies": {}
+}

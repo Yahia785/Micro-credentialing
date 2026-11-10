@@ -1681,6 +1681,38 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: Users
 
+  # ------------------------------------------
+  # LAMBDA: Save the instructor's review of an interview (admin)
+  # ------------------------------------------
+  SaveInterviewReviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/interviews/review/
+      Handler: index.handler
+      Description: Saves the instructor's overrides, grade and note for an interview, admin only
+      Events:
+        SaveInterviewReview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews/{interviewId}/review
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsInterviewReview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews/{interviewId}/review
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref InterviewsTable
+        - DynamoDBReadPolicy:
+            TableName: Users
+
   # ==========================================
   # DYNAMODB TABLES
   # ==========================================

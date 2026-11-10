@@ -91,6 +91,38 @@ function toCheck(source, rubric) {
   };
 }
 
+/**
+ * Per rubric item of one main question: what the agent found across all the answers (shown if any answer showed it), the
+ * instructor's override when there is one, and the final value. The agent's own checks stay as recorded on the answers.
+ */
+function toRubricSummary(group, overrides) {
+  const checks = group.answers.map((a) => a.check).filter(Boolean);
+  return group.rubric.map((item) => {
+    let agentShown = null;
+    let evidence = null;
+    checks.forEach((check) => {
+      const found = check.items.find((i) => i.id === item.id);
+      if (!found || found.shown === null) return;
+      if (found.shown === true) {
+        agentShown = true;
+        if (found.evidence && found.evidence !== NOT_SHOWN) evidence = found.evidence;
+      } else if (agentShown === null) {
+        agentShown = false;
+      }
+    });
+    const override = overrides && typeof overrides[item.id] === 'boolean' ? overrides[item.id] : null;
+    return {
+      id: item.id,
+      text: item.text,
+      agentShown,
+      evidence,
+      instructorShown: override,
+      changed: override !== null && override !== agentShown,
+      shown: override !== null ? override : agentShown,
+    };
+  });
+}
+
 /** Admin view: the full instructor record. */
 function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
   const config = meta.configSnapshot || { themes: [] };
@@ -143,9 +175,15 @@ function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
     }
   });
 
+  const review = meta.review || null;
+  groups.forEach((group) => {
+    group.rubricSummary = toRubricSummary(group, review && review.overrides ? review.overrides[String(group.index)] : null);
+  });
+
   const { sk, configSnapshot, ...fields } = meta;
   return {
     ...fields,
+    review,
     isPractice: meta.isPractice === true,
     promptVersion: meta.promptVersion || null,
     modelId: meta.modelId || null,
@@ -178,4 +216,4 @@ function toInterviewSummary(meta) {
   };
 }
 
-module.exports = { toStudentInterview, toAdminInterview, toInterviewSummary, toCheck, NOT_SHOWN };
+module.exports = { mainPositions, toRubricSummary, toStudentInterview, toAdminInterview, toInterviewSummary, toCheck, NOT_SHOWN };
