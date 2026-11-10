@@ -1044,6 +1044,9 @@ Resources:
             TableName: Submissions
         - DynamoDBReadPolicy:
             TableName: Users
+        # A held submission (a problem with the interview) is recognised by its problem's setup when it has no flag.
+        - DynamoDBReadPolicy:
+            TableName: Milestones
 
   # ==========================================
   # PROCTORING FUNCTIONS

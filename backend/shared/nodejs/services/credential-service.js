@@ -310,6 +310,18 @@ async function approveAndIssueCredential({ submissionId, reviewNotes, adjustedSc
     credentialMetadata: customCredentialMetadata
   });
 
+  // A held submission (a problem with the interview) was not counted when it was submitted: the instructor's approval counts it.
+  if (submission.heldForReview) {
+    try {
+      await updateUser(submission.userId, {
+        credentialsCount: (student.credentialsCount || 0) + 1,
+        milestonesCompleted: (student.milestonesCompleted || 0) + 1
+      });
+    } catch (countError) {
+      log.error('Failed to update the credential count after approval', { error: countError.message });
+    }
+  }
+
   log.info('Review approved, credential pushed to BCdiploma', { submissionId, campaignId });
   log.info('Polling for certificate to be ready', { campaignId });
 

@@ -78,6 +78,12 @@ describe('GET /milestones', () => {
     expect(milestones.find((m) => m.milestoneId === 'm1').interview.themes[0].criteria).toEqual(['SECRET CRITERION']);
   });
 
+  it('tells an admin too, with the same boolean, whether the interview is enabled', async () => {
+    const { milestones } = json(await milestonesGet(as('admin1')));
+    expect(milestones.find((m) => m.milestoneId === 'm1').interviewEnabled).toBe(true);
+    expect(milestones.find((m) => m.milestoneId === 'e1').interviewEnabled).toBeUndefined();
+  });
+
   it('treats an unknown user as a student', async () => {
     getUser.mockResolvedValue(undefined);
     expect(json(await milestonesGet(as('ghost'))).milestones.every((m) => !m.rubric && !m.interview)).toBe(true);

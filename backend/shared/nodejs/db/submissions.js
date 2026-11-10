@@ -27,6 +27,8 @@ async function createSubmission(submissionData) {
       // How the session ended ('submit_button' | 'left_page'). Top-level on purpose:
       // save-recording-metadata overwrites the whole proctoringData map.
       endedBy: submissionData.endedBy || 'submit_button',
+      // Held for the instructor (a problem with the interview): the student sees no result until it is reviewed.
+      ...(submissionData.heldForReview && { heldForReview: true }),
       // Optional initial proctoring state (e.g. forced 'pending' review for left_page).
       ...(submissionData.proctoringData && { proctoringData: submissionData.proctoringData }),
       passedTests: 0,

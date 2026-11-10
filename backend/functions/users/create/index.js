@@ -3,6 +3,7 @@ const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
+const { toStudentUser } = require('/opt/nodejs/utils/assessment-view');
 
 // List of admin emails
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
@@ -57,7 +58,7 @@ exports.handler = withHandler(async (ctx) => {
     });
 
     log.info('User created', { user });
-    return successResponse(201, { message: 'User profile created', user });
+    return successResponse(201, { message: 'User profile created', user: toStudentUser(user, { isAdmin: user && user.role === 'admin' }) });
 
   } catch (error) {
     log.error('Error creating user', { error: error.message });

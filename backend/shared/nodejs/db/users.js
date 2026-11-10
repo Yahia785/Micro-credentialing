@@ -73,6 +73,8 @@ async function addCompletedMilestone(userId, milestoneData) {
     submissionId: milestoneData.submissionId,
     // Additive: set when automatic grading failed, so the student's list can show "under review".
     ...(milestoneData.gradingFailed && { gradingFailed: true }),
+    // Held for the instructor: read paths hide the result of this entry until it is reviewed.
+    ...(milestoneData.heldForReview && { heldForReview: true }),
   };
 
   // First, try to atomically append to the existing array.

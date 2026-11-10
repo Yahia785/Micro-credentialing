@@ -109,7 +109,7 @@ const event = (userId, extra = {}) => ({
 const body = (res) => JSON.parse(res.body);
 
 describe('student view (GET /interviews/{id} as the owner)', () => {
-  const STUDENT_KEYS = ['interviewId', 'status', 'startedAt', 'endedAt', 'deadline', 'timeLeftMs', 'serverNow', 'currentQuestion', 'progress', 'turns'];
+  const STUDENT_KEYS = ['interviewId', 'status', 'startedAt', 'endedAt', 'deadline', 'timeLeftMs', 'serverNow', 'currentQuestion', 'progress', 'turns', 'code'];
 
   it('has only the allowed fields: status, time left, the questions asked so far and their own answers', async () => {
     const res = await getHandler(event('u1', { pathParameters: { interviewId: 'int_sub1' } }), {});
@@ -119,6 +119,8 @@ describe('student view (GET /interviews/{id} as the owner)', () => {
     expect(interview.status).toBe('in_progress');
     expect(interview.timeLeftMs).toBeGreaterThan(0);
     expect(interview.currentQuestion).toBe('Why two levels?');
+    // The submitted code is held for the instructor, so the interview may show it only while it is running.
+    expect(interview.code).toBe(SECRET_CODE);
     expect(interview.progress).toEqual({ questionNumber: 2, questionCount: 2 });
     expect(interview.turns).toEqual([
       { role: 'host', text: 'Walk me through the readings.', createdAt: iso(0) },
@@ -139,15 +141,18 @@ describe('student view (GET /interviews/{id} as the owner)', () => {
       'CRITERION-TEXT', 'RUBRIC-', 'criteria', 'rubric', 'evidence', 'quote', 'missing', 'target', 'isHint', 'guard', 'repairs',
       'reason', 'MODEL-SAID', 'modelId', 'deepseek', 'qwen', 'promptVersion', 'host.v5', 'configSnapshot', 'models', 'calls',
       'latencyMs', 'inputTokens', 'clientTiming', 'themeId', 'userId', 'submissionId', 'milestoneId', 'isPractice', 'endDetail',
-      SECRET_CODE, 'Why two levels?',
+      'Why two levels?',
     ];
     for (const word of forbidden) expect(json).not.toContain(word);
   });
 
   it('has no currentQuestion once the interview is over', async () => {
     interviews.getInterviewMeta.mockResolvedValue(meta({ status: 'completed', endedAt: iso(300000), endDetail: { reason: 'secret', evidence: {} } }));
-    const { interview } = body(await getHandler(event('u1', { pathParameters: { interviewId: 'int_sub1' } }), {}));
+    const res = await getHandler(event('u1', { pathParameters: { interviewId: 'int_sub1' } }), {});
+    const { interview } = body(res);
     expect(interview.currentQuestion).toBeNull();
+    expect(interview.code).toBeNull();
+    expect(res.body).not.toContain(SECRET_CODE);
     expect(interview.timeLeftMs).toBe(0);
     expect(JSON.stringify(interview)).not.toContain('secret');
   });
@@ -169,6 +174,18 @@ describe('student view (GET /interviews/{id} as the owner)', () => {
 
 describe('admin view (GET /interviews/{id} as an admin)', () => {
   const get = async () => body(await getHandler(event('admin-1', { pathParameters: { interviewId: 'int_sub1' } }), {})).interview;
+
+  it('shows the total time added while the agent worked, and the student view never does', async () => {
+    interviews.getInterviewMeta.mockResolvedValue(meta({ extraTimeMs: 7300 }));
+    expect((await get()).extraTimeMs).toBe(7300);
+    interviews.getInterviewMeta.mockResolvedValue(meta());
+    expect((await get()).extraTimeMs).toBe(0);
+
+    interviews.getInterviewMeta.mockResolvedValue(meta({ extraTimeMs: 7300 }));
+    const student = await getHandler(event('u1', { pathParameters: { interviewId: 'int_sub1' } }), {});
+    expect(student.body).not.toContain('extraTimeMs');
+    expect(student.body).not.toContain('7300');
+  });
 
   it('has the interview header: prompt version, both model ids, start, deadline, end, status, isPractice and the code', async () => {
     const i = await get();

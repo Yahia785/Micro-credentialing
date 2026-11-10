@@ -207,12 +207,13 @@ describe('submitAnswer', () => {
     userId: 'u1', interviewId: 'int_sub1', answer: SECRET_ANSWER, now: NOW + 60000,
     clientTiming: { firstKeystrokeMs: 1200, pasteCount: 1, focusLossCount: 0 },
     converseFn: reply({ action: 'follow_up', question: 'Why line 12?', reason: 'vague' }),
+    clock: () => 0, // no time passes, so the deadline does not move
     ...over,
   });
 
-  it('stores the answer and the follow-up, and returns only the question', async () => {
+  it('stores the answer and the follow-up, and returns the question with the deadline', async () => {
     const result = await answer();
-    expect(result).toEqual({ question: 'Why line 12?', deadline: meta().deadline });
+    expect(result).toEqual({ question: 'Why line 12?', deadline: meta().deadline, serverNow: expect.any(String) });
 
     const call = interviews.appendTurns.mock.calls[0][0];
     expect(call.expectedTurnCount).toBe(1);
@@ -341,6 +342,74 @@ describe('submitAnswer', () => {
     it('still accepts an answer exactly at the deadline', async () => {
       const result = await answer({ now: NOW + 10 * 60000 });
       expect(result.question).toBeDefined();
+    });
+  });
+
+  describe('time the agent works does not count', () => {
+    /** A clock that reads 1000 when the work starts and 1000 + workMs when it ends. */
+    const clockFor = (workMs) => {
+      const readings = [1000, 1000 + workMs];
+      return jest.fn(() => readings.shift());
+    };
+    const original = () => Date.parse(meta().deadline);
+
+    it('adds exactly the time spent producing the next question to the deadline, and returns the new one', async () => {
+      const result = await answer({ clock: clockFor(4321) });
+      expect(Date.parse(result.deadline)).toBe(original() + 4321);
+      const { metaUpdates } = interviews.appendTurns.mock.calls[0][0];
+      expect(metaUpdates).toMatchObject({ deadline: result.deadline, extraTimeMs: 4321 });
+    });
+
+    it('counts a slow model call: the clock covers the model calls themselves', async () => {
+      const converseFn = jest.fn(async () => ({ text: JSON.stringify({ action: 'next_main', question: '', reason: 'ok' }), inputTokens: 1, outputTokens: 1, latencyMs: 1 }));
+      const clock = clockFor(9000);
+      const result = await answer({ converseFn, clock });
+      expect(converseFn).toHaveBeenCalled();
+      expect(clock).toHaveBeenCalledTimes(2);
+      expect(Date.parse(result.deadline)).toBe(original() + 9000);
+    });
+
+    it('adds up over several answers and keeps the running total on the interview', async () => {
+      interviews.getInterviewMeta.mockResolvedValue(meta({ extraTimeMs: 1500, deadline: new Date(original() + 1500).toISOString() }));
+      const result = await answer({ clock: clockFor(2500) });
+      expect(Date.parse(result.deadline)).toBe(original() + 4000);
+      expect(interviews.appendTurns.mock.calls[0][0].metaUpdates.extraTimeMs).toBe(4000);
+    });
+
+    it('extends the deadline when the model failed and the engine fell back, since the student still waited', async () => {
+      const result = await answer({
+        clock: clockFor(20000),
+        converseFn: async () => { throw new ModelUnavailableError('ThrottlingException'); },
+      });
+      expect(result.question).toBe('Main A2?');
+      expect(Date.parse(result.deadline)).toBe(original() + 20000);
+    });
+
+    it('gives no extension to an answer that arrives after the deadline', async () => {
+      const clock = jest.fn(() => 0);
+      const result = await answer({ now: NOW + 10 * 60000 + 1, clock });
+      expect(result).toEqual({ ended: true, status: 'timed_out' });
+      expect(clock).not.toHaveBeenCalled();
+      expect(interviews.appendTurns).not.toHaveBeenCalled();
+    });
+
+    it('checks the incoming answer against the deadline as it stood before this answer', async () => {
+      // Time was added earlier, so the stored deadline is later: an answer between the original and the new deadline is on time.
+      interviews.getInterviewMeta.mockResolvedValue(meta({ extraTimeMs: 60000, deadline: new Date(original() + 60000).toISOString() }));
+      const result = await answer({ now: NOW + 10 * 60000 + 30000, clock: clockFor(100) });
+      expect(result.question).toBeDefined();
+    });
+
+    it('adds nothing when the answer ends the interview', async () => {
+      interviews.getInterviewMeta.mockResolvedValue(meta({ themeIndex: 0, mainIndex: 1, followUpCount: 1, turnCount: 1 }));
+      const result = await answer({ clock: clockFor(5000), converseFn: reply({ action: 'end', question: '', reason: 'done' }) });
+      expect(result).toEqual({ ended: true, status: 'completed' });
+      expect(interviews.appendTurns.mock.calls[0][0].metaUpdates).not.toHaveProperty('deadline');
+    });
+
+    it('never moves the deadline backwards', async () => {
+      const result = await answer({ clock: jest.fn().mockReturnValueOnce(5000).mockReturnValueOnce(1000) });
+      expect(Date.parse(result.deadline)).toBe(original());
     });
   });
 

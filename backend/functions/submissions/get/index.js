@@ -4,7 +4,8 @@ const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
-const { toStudentSubmission } = require('/opt/nodejs/utils/assessment-view');
+const { getMilestone } = require('/opt/nodejs/db/milestones');
+const { toStudentSubmission, isHeldForReview, isUnderReview, underReviewSubmission } = require('/opt/nodejs/utils/assessment-view');
 
 /**
  * Lambda Handler: Get Submission
@@ -39,6 +40,19 @@ exports.handler = withHandler(async (ctx) => {
   }
 
   log.info('Submission found', { submissionId });
+
+  // A submission of a problem with the interview is held for the instructor: until it is approved or rejected the student gets
+  // its status and submitted time only. Submissions saved before the flag existed are held by their problem's current setup.
+  if (!isAdmin) {
+    let held = submission;
+    if (submission.heldForReview !== true) {
+      const milestone = await getMilestone(submission.milestoneId);
+      if (isHeldForReview(milestone)) held = { ...submission, heldForReview: true };
+    }
+    if (isUnderReview(held)) {
+      return successResponse(200, { submission: underReviewSubmission(held) });
+    }
+  }
 
   // Filter test results for non-admin users (hide input/output for hidden tests)
   let filteredSubmission = { ...submission };

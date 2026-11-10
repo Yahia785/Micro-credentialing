@@ -15,7 +15,7 @@ const {
 const { runCppBatch, getCodeRunnerName } = require('../utils/codeRunner');
 const { ValidationError, NotFoundError, ExternalServiceError } = require('../utils/errors');
 const { END_REASONS, parseEndedBy } = require('../utils/submission-end-reason');
-const { canSeeProblem } = require('../utils/assessment-view');
+const { canSeeProblem, isHeldForReview, underReviewSubmission } = require('../utils/assessment-view');
 
 /**
  * Save a submission whose grading failed so it is never lost.
@@ -25,7 +25,7 @@ const { canSeeProblem } = require('../utils/assessment-view');
  * Returns a normal 200-style result so the client gets a submissionId and uploads its recordings.
  */
 async function saveGradingFailure({ submissionRecord, alreadyCreated, reason, errorMessage }) {
-  const { submissionId, userId, milestoneId, totalTests } = submissionRecord;
+  const { submissionId, userId, milestoneId, totalTests, heldForReview } = submissionRecord;
   const reviewFields = { proctoringData: { reviewStatus: 'pending' } };
 
   if (alreadyCreated) {
@@ -53,12 +53,16 @@ async function saveGradingFailure({ submissionRecord, alreadyCreated, reason, er
       passedTests: 0,
       totalTests,
       submissionId,
-      gradingFailed: true
+      gradingFailed: true,
+      ...(heldForReview && { heldForReview: true })
     });
   } catch (error) {
     // Don't fail the response if this fails: the submission itself is saved.
     log.error('Error updating user milestones after grading failure', { submissionId, error: error.message });
   }
+
+  // Held for the instructor: the student is only told it is under review.
+  if (heldForReview) return { ...underReviewSubmission({ submissionId, milestoneId, submittedAt: submissionRecord.createdAt }), gradingFailed: true };
 
   return {
     submissionId,
@@ -144,6 +148,9 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
   // Fetch user profile (needed for submission record and admin check)
   const user = await getUser(userId);
 
+  // A problem with the interview is held for the instructor: no result is shown to the student and nothing is auto-approved.
+  const heldForReview = isHeldForReview(milestone);
+
   // A hidden problem can only be submitted by admins and the users on its preview list.
   if (!canSeeProblem(milestone, userId, { isAdmin: !!user && user.role === 'admin', ok: true })) {
     throw new NotFoundError('Milestone');
@@ -179,8 +186,10 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
     language,
     status: 'pending',
     endedBy,
-    // Force the review queue entry now: for left_page the recording upload may never happen.
-    ...(leftPage && { proctoringData: { reviewStatus: 'pending' } }),
+    // Force the review queue entry now: for left_page the recording upload may never happen. A held submission always waits for
+    // the instructor, even if no recording is ever uploaded.
+    ...((leftPage || heldForReview) && { proctoringData: { reviewStatus: 'pending' } }),
+    ...(heldForReview && { heldForReview: true }),
     passedTests: 0,
     totalTests: testCasesToRun.length,
     score: 0,
@@ -228,6 +237,7 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
 
       await createSubmission(mockSubmission);
 
+      if (heldForReview) return underReviewSubmission(mockSubmission);
       return mockSubmission;
     }
   }
@@ -299,8 +309,9 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
   log.info('Submission metrics', { metrics });
 
   // Determine if credential should be awarded (100% pass rate)
-  // Never for left_page submissions: those wait for an instructor.
-  const credentialAwarded = metrics.status === 'passed' && !leftPage;
+  // Never for left_page submissions: those wait for an instructor. Never for a held submission (a problem with the interview):
+  // a perfect score does not approve it, the instructor decides.
+  const credentialAwarded = metrics.status === 'passed' && !leftPage && !heldForReview;
 
   // Update submission with results
   const updatedSubmission = await updateSubmission(submissionId, {
@@ -329,7 +340,8 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
       score: metrics.score,
       passedTests: metrics.passedTests,
       totalTests: metrics.totalTests,
-      submissionId: submissionId
+      submissionId: submissionId,
+      ...(heldForReview && { heldForReview: true })
     });
 
     log.info('Added to completedMilestones', { userId, milestoneId });
@@ -354,6 +366,11 @@ async function processSubmission({ userId, milestoneId, code, language, deadline
   const isAdmin = user && user.role === 'admin';
 
   log.info('User role checked', { role: user?.role, isAdmin });
+
+  // The student of a held submission gets no result at all: only that it is under review. Admins still see everything.
+  if (heldForReview && !isAdmin) {
+    return underReviewSubmission(updatedSubmission);
+  }
 
   // Format test results for response
   // Admins see full details, regular users see hidden test details

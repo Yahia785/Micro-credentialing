@@ -3,6 +3,7 @@ const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
+const { toStudentUser } = require('/opt/nodejs/utils/assessment-view');
 
 /**
  * Lambda Handler: Verify Email Change
@@ -48,7 +49,7 @@ exports.handler = withHandler(async (ctx) => {
 
     return successResponse(200, {
       message: 'Email successfully changed!',
-      user: updatedUser
+      user: toStudentUser(updatedUser, { isAdmin: updatedUser && updatedUser.role === 'admin' })
     });
 
   } catch (dbError) {

@@ -173,7 +173,10 @@ async function startPracticeInterview({ userId, submissionId, now = Date.now() }
 /**
  * Store the student's answer and return the next question, or { ended: true }.
  */
-async function submitAnswer({ userId, interviewId, answer, clientTiming, now = Date.now(), converseFn }) {
+/** Milliseconds from a monotonic clock, for measuring how long the agent worked. */
+const monotonicMs = () => performance.now();
+
+async function submitAnswer({ userId, interviewId, answer, clientTiming, now = Date.now(), converseFn, clock = monotonicMs }) {
   if (typeof answer !== 'string' || !answer.trim()) throw new ValidationError('answer is required');
   if (answer.length > MAX_ANSWER_LENGTH) {
     throw new ValidationError(`answer must not exceed ${MAX_ANSWER_LENGTH} characters`);
@@ -189,6 +192,10 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, now = D
     log.info('Interview timed out', { interviewId });
     return { ended: true, status: STATUS.TIMED_OUT };
   }
+
+  // The answer arrived in time. From here until the next question is ready is the agent's working time: it is added to the
+  // deadline below, so the student's clock does not run while they wait.
+  const workStartedAt = clock();
 
   const [turns, submission] = await Promise.all([
     interviews.getInterviewTurns(interviewId),
@@ -257,6 +264,10 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, now = D
     return { ended: true, status: STATUS.COMPLETED };
   }
 
+  // Exactly the time spent producing the next question (database reads and model calls included).
+  const addedMs = Math.max(0, Math.round(clock() - workStartedAt));
+  const deadline = new Date(Date.parse(meta.deadline) + addedMs).toISOString();
+
   const hostTurn = {
     role: 'host',
     text: decision.question,
@@ -275,11 +286,11 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, now = D
     interviewId,
     expectedTurnCount: meta.turnCount,
     turns: [studentTurn, hostTurn],
-    metaUpdates: stateFields(decision.state),
+    metaUpdates: { ...stateFields(decision.state), deadline, extraTimeMs: (meta.extraTimeMs || 0) + addedMs },
     now,
   });
-  log.info('Interview answer processed', logFields);
-  return { question: decision.question, deadline: meta.deadline };
+  log.info('Interview answer processed', { ...logFields, addedMs });
+  return { question: decision.question, deadline, serverNow: new Date().toISOString() };
 }
 
 const toStudentInterview = view.toStudentInterview;
@@ -301,9 +312,12 @@ async function getInterview({ userId, interviewId, isAdmin, now = Date.now() }) 
   }
 
   const turns = await interviews.getInterviewTurns(interviewId);
-  if (!isAdmin) return { interview: toStudentInterview(current, turns, { now }) };
-
   const submission = await getSubmission(meta.submissionId);
+  if (!isAdmin) {
+    const code = current.status === STATUS.IN_PROGRESS && submission ? submission.code || '' : null;
+    return { interview: toStudentInterview(current, turns, { now, code }) };
+  }
+
   return { interview: toAdminInterview(current, turns, { code: submission ? submission.code || '' : null, now }) };
 }
 

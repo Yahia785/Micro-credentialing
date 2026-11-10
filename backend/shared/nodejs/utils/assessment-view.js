@@ -36,10 +36,13 @@ function canSeeProblem(assessment, userId, viewer) {
   return Array.isArray(assessment.previewUserIds) && !!userId && assessment.previewUserIds.includes(userId);
 }
 
-/** Admin view: everything, plus criteriaCount so every client can rely on it. */
+/** Admin view: everything, plus criteriaCount and interviewEnabled so every client can rely on them. */
 function toAdminAssessment(assessment) {
-  if (!assessment || !Array.isArray(assessment.rubric)) return assessment;
-  return { ...assessment, criteriaCount: assessment.rubric.length };
+  if (!assessment) return assessment;
+  const view = { ...assessment };
+  if (Array.isArray(assessment.rubric)) view.criteriaCount = assessment.rubric.length;
+  if (assessment.interview) view.interviewEnabled = assessment.interview.enabled === true;
+  return view;
 }
 
 /** Non-admin view: no rubric text, no interview setup. */
@@ -63,11 +66,63 @@ function forViewer(assessment, isAdmin) {
 const REVIEWED = ['approved', 'rejected'];
 
 /**
+ * A C++ coding problem with the interview enabled is held for the instructor: until the submission is approved or rejected the
+ * student sees nothing about how they did (no score, no pass/fail, no tests, no output, no code), and no result is ever final
+ * without the instructor.
+ */
+function isHeldForReview(milestone) {
+  return !!milestone && milestone.type !== 'embedded' && milestone.language === 'cpp' && !!milestone.interview && milestone.interview.enabled === true;
+}
+
+const isReviewedStatus = (status) => REVIEWED.includes(status);
+
+/** A submission (or a completedMilestones entry) that is held and still waiting for the instructor. */
+function isUnderReview(record) {
+  if (!record || record.heldForReview !== true) return false;
+  return !isReviewedStatus(record.proctoringData && record.proctoringData.reviewStatus);
+}
+
+/** What a student sees of a held submission that is still under review: its status and when it was submitted, nothing else. */
+function underReviewSubmission(submission) {
+  return {
+    submissionId: submission.submissionId,
+    milestoneId: submission.milestoneId,
+    status: 'under_review',
+    underReview: true,
+    submittedAt: submission.submittedAt || submission.createdAt || null,
+    proctoringData: { reviewStatus: 'pending' },
+  };
+}
+
+/**
+ * The student's completedMilestones list. An entry that is under review keeps only the problem, the submission and the date:
+ * no score, no test counts, no pass/fail. Admins get the stored list unchanged.
+ */
+function toStudentUser(user, { isAdmin = false } = {}) {
+  if (!user || isAdmin || !Array.isArray(user.completedMilestones)) return user;
+  return {
+    ...user,
+    completedMilestones: user.completedMilestones.map((entry) => {
+      if (!isUnderReview(entry)) return entry;
+      return {
+        milestoneId: entry.milestoneId,
+        submissionId: entry.submissionId,
+        completedAt: entry.completedAt,
+        heldForReview: true,
+        underReview: true,
+        proctoringData: { reviewStatus: 'pending' },
+      };
+    }),
+  };
+}
+
+/**
  * Embedded submissions carry the rubric text in rubricResults (criterion + feedback). A student
  * sees it only once the instructor has reviewed the submission, which is when the UI shows it.
  * Before that, the placeholder rows would leak the rubric, so they are dropped.
  */
 function toStudentSubmission(submission) {
+  if (isUnderReview(submission)) return underReviewSubmission(submission);
   if (!submission || submission.type !== 'embedded') return submission;
   const reviewed = REVIEWED.includes(submission.proctoringData?.reviewStatus);
   if (reviewed) return submission;
@@ -77,6 +132,10 @@ function toStudentSubmission(submission) {
 
 module.exports = {
   isAdminUser,
+  isHeldForReview,
+  isUnderReview,
+  underReviewSubmission,
+  toStudentUser,
   viewerFor,
   canSeeProblem,
   toAdminAssessment,

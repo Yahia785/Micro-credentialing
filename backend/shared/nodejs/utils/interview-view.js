@@ -19,7 +19,7 @@ function countMainQuestions(config) {
 }
 
 /** Student view. Built field by field from an allow-list, so a new recorded field can never leak by accident. */
-function toStudentInterview(meta, turns, { now = Date.now() } = {}) {
+function toStudentInterview(meta, turns, { now = Date.now(), code = null } = {}) {
   const shown = turns.map((t) => ({
     role: t.role,
     text: t.text,
@@ -38,6 +38,8 @@ function toStudentInterview(meta, turns, { now = Date.now() } = {}) {
     serverNow: new Date(now).toISOString(),
     // The question the student is answering now (already in `turns`); null when nothing is waiting for an answer.
     currentQuestion: waiting ? last.text : null,
+    // The submitted code is held for the instructor, so it is shown only while the interview is running (never after it ends).
+    code: meta.status === 'in_progress' && typeof code === 'string' ? code : null,
     progress: {
       questionNumber: asked,
       questionCount: countMainQuestions(meta.configSnapshot),
@@ -149,6 +151,8 @@ function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
     modelId: meta.modelId || null,
     checkerModelId: meta.checkerModelId || null,
     writerModelId: meta.writerModelId || null,
+    // Total time added to the deadline while the agent was working on the student's answers.
+    extraTimeMs: meta.extraTimeMs || 0,
     timeLeftMs: timeLeftMs(meta, now),
     serverNow: new Date(now).toISOString(),
     code,

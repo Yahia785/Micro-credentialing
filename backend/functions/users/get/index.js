@@ -3,6 +3,7 @@ const { withHandler } = require('/opt/nodejs/middleware/handler');
 const { successResponse } = require('/opt/nodejs/utils/responses');
 const { errorResponse } = require('/opt/nodejs/utils/errors');
 const log = require('/opt/nodejs/utils/logger');
+const { toStudentUser } = require('/opt/nodejs/utils/assessment-view');
 
 /**
  * Lambda Handler: Get User Profile
@@ -24,5 +25,8 @@ exports.handler = withHandler(async (ctx) => {
   }
 
   log.info('User found', { userId });
-  return successResponse(200, { user });
+  // Students never receive the result of a submission that is waiting for the instructor.
+  const viewer = userId === ctx.userId ? user : await getUser(ctx.userId);
+  const isAdmin = !!viewer && viewer.role === 'admin';
+  return successResponse(200, { user: toStudentUser(user, { isAdmin }) });
 });
