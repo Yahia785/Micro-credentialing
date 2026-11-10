@@ -1,0 +1,98 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) 0;
+}
+
+.loadingText {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.alertText {
+  margin: 0 0 var(--space-2);
+}
+
+.picker {
+  max-width: 32rem;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-8);
+  margin: 0;
+}
+
+.fact {
+  min-width: 0;
+}
+
+.factLabel {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.factValue {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: var(--font-weight-medium);
+}
+
+.running {
+  margin-top: var(--space-4);
+}
+
+.details {
+  margin-top: var(--space-4);
+  font-size: var(--font-size-sm);
+}
+
+.summary {
+  cursor: pointer;
+  color: var(--color-brand);
+  font-weight: var(--font-weight-medium);
+}
+
+.techList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-3) var(--space-6);
+  margin: var(--space-3) 0 0;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.code {
+  position: sticky;
+  top: var(--space-4);
+}
+
+.questions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+@media (max-width: 960px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .code {
+    position: static;
+  }
+}

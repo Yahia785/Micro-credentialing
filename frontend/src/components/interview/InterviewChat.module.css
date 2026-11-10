@@ -1,0 +1,162 @@
+.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.chatHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex: none;
+  min-height: var(--space-12);
+  padding: 0 var(--space-4);
+  background-color: var(--color-gray-50);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.chatTitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* The only part of the chat that scrolls. */
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-5) var(--space-4);
+  overflow-y: auto;
+  list-style: none;
+  background-color: var(--color-bg-page);
+}
+
+.message {
+  max-width: min(90%, 44rem);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+/* The interviewer: left, light grey. */
+.host {
+  align-self: flex-start;
+  background-color: var(--color-bg-card);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+/* The student: right, solid brand colour with white text. */
+.student {
+  align-self: flex-end;
+  background-color: var(--color-brand);
+  border-color: var(--color-brand);
+  border-bottom-right-radius: var(--radius-sm);
+  color: var(--color-text-inverse);
+}
+
+/* The question waiting for an answer: a brand border all round, a soft tint and a small shadow. */
+.current {
+  background-color: var(--color-brand-subtle-bg);
+  border: 2px solid var(--color-brand);
+  box-shadow: var(--shadow-md);
+}
+
+.author {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.student .author {
+  color: var(--color-text-inverse);
+  opacity: 0.9;
+}
+
+.text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: var(--line-height-relaxed);
+}
+
+.thinking {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: flex-start;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-secondary);
+}
+
+.fixed {
+  flex: none;
+  margin: 0 var(--space-4) var(--space-3);
+}
+
+.alertText {
+  margin: 0 0 var(--space-2);
+}
+
+/* The answer box and Send stay at the bottom of the pane. */
+.footer {
+  flex: none;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  background-color: var(--color-bg-card);
+  border-top: 1px solid var(--color-divider);
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Grows with the text (see InterviewChat); the user does not resize it by hand. */
+.answerBox {
+  resize: none;
+  line-height: var(--line-height-normal);
+}
+
+.composerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Stacked on a narrow screen: the chat gets a height of its own so the messages still scroll and the box stays at the bottom. */
+@media (max-width: 960px) {
+  .chat {
+    height: 80vh;
+    height: 80dvh;
+    min-height: 32rem;
+    flex: none;
+  }
+}

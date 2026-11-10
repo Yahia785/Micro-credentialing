@@ -179,6 +179,7 @@ export function AssessmentsPage() {
                     isAdmin={isAdmin}
                     courseSuggestions={courseNames}
                     onOpen={session.openAssessment}
+                    onOpenInterview={session.openInterview}
                     onDelete={handleDelete}
                     onSaveCourse={handleSaveCourse}
                   />

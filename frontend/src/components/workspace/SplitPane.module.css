@@ -1,0 +1,80 @@
+/* With the left pane hidden, the right one takes the full width. */
+.split.alone {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pane[hidden],
+.divider[hidden] {
+  display: none;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, var(--split-left)) var(--space-3) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+/* Each pane fills the height and decides for itself what scrolls. */
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.divider {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+/* A thin line in the middle of a wider, easier to grab strip. */
+.divider::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background-color: var(--color-gray-300);
+  transition: background-color 150ms;
+}
+
+.divider:hover::after,
+.dragging::after {
+  background-color: var(--color-brand);
+}
+
+.divider:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: -2px;
+}
+
+/* Narrow screens: the panes stack, the page body scrolls inside the workspace, and there is nothing to drag. */
+@media (max-width: 960px) {
+  .split {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    overflow-y: auto;
+  }
+
+  .pane {
+    flex: none;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .divider {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .divider::after {
+    transition: none;
+  }
+}

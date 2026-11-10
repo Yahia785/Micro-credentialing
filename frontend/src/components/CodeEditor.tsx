@@ -7,7 +7,14 @@ import { submitEmbeddedAssessment } from '../api/embedded-assessments';
 import { getTestCases } from '../api/testcases';
 import { TestCaseResult } from './TestCaseResult';
 import { uploadRecording, saveRecordingMetadata, sendClientLogs } from '../api/proctoring';
+import { useNavigate } from 'react-router';
 import { fetchAuthSession } from 'aws-amplify/auth';
+import type { Difficulty } from '../utils/difficulty';
+import { Alert, Badge, Button, DifficultyBadge } from './ui';
+import { SplitPane } from './workspace/SplitPane';
+import { WorkspaceShell } from './workspace/WorkspaceShell';
+import { WorkspaceTabs } from './workspace/WorkspaceTabs';
+import styles from './CodeEditor.module.css';
 import { proctoringLogger } from '../utils/proctoringLogger';
 
 interface TestResult {
@@ -47,6 +54,10 @@ interface Milestone {
 const UNGRADED_GRADING_FAILED_MESSAGE =
   'Your work has been saved. Automatic grading is unavailable right now, so your instructor will review your submission.';
 const UNGRADED_MANUAL_MESSAGE = 'Your work has been submitted. Your instructor will review and grade it.';
+// A problem with the interview: nothing about the result is shown until the instructor has reviewed it.
+const UNDER_REVIEW_MESSAGE =
+  'Your submission is under review. Your results, the test cases and your code will be visible after your instructor reviews it.';
+const UNDER_REVIEW_CODE = '// Your submitted code is hidden while your submission is under review.\n// It will become visible after your instructor reviews it.';
 
 interface CodeEditorProps {
   milestone: Milestone;
@@ -77,6 +88,7 @@ export function CodeEditor({
   onSubmitSettled,
   ref
 }: CodeEditorProps) {
+  const navigate = useNavigate();
   // Default language and starter code if not provided
   const defaultLanguage = milestone.language || 'python';
   const defaultStarterCode = milestone.starterCode || getDefaultStarterCode(defaultLanguage);
@@ -133,6 +145,14 @@ export function CodeEditor({
             console.log('✅ Found submitted code:', submission);
             
             setSubmissionData(submission);
+
+            // Held for the instructor: the server sent only its status and time. Show the message, no code and no results.
+            if (submission.underReview) {
+              setCode(UNDER_REVIEW_CODE);
+              setOutput(`${UNDER_REVIEW_MESSAGE}\n\nSubmitted: ${new Date(submission.submittedAt).toLocaleString()}`);
+              setActiveTab('output');
+              return;
+            }
             
             const reviewStatus = submission.proctoringData?.reviewStatus;
             const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
@@ -398,20 +418,6 @@ const stopRecording = () => {
   });
 };
 
-  // Lock body scroll when modal is open
-  useEffect(() => {
-    // Save original body overflow
-    const originalOverflow = document.body.style.overflow;
-    
-    // Lock scroll
-    document.body.style.overflow = 'hidden';
-    
-    // Cleanup: restore original overflow when component unmounts
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, []);
-
   /**
    * Open OnlineGDB in new tab
    */
@@ -537,6 +543,8 @@ const stopRecording = () => {
         setHasSubmitted(true);
       } else if (result.submission) {
         const { status, passedTests, totalTests, testResults: submissionResults, submissionId, gradingFailed, gradingMode } = result.submission;
+        // Lets the page continue with the interview after a submit (see useAssessmentSession).
+        outcome = { ok: true, submissionId, code, endedBy };
         // Never graded automatically: the instructor will review it, so don't show a score or a failure.
         const ungradedMessage = gradingFailed === true
           ? UNGRADED_GRADING_FAILED_MESSAGE
@@ -669,7 +677,11 @@ const stopRecording = () => {
         
          const isEmbeddedSubmission = milestone.type === 'embedded';
         
-        if (ungradedMessage) {
+        if (result.submission.underReview) {
+          // No score and no results: the instructor decides.
+          setOutput(UNDER_REVIEW_MESSAGE);
+          setSubmissionStatus('idle');
+        } else if (ungradedMessage) {
           setOutput(`${ungradedMessage}\n\nYou can now close the editor.`);
           setSubmissionStatus('idle');
           if (isEmbeddedSubmission) {
@@ -727,735 +739,368 @@ const stopRecording = () => {
     return outcome;
   };
 
-  const getDifficultyColor = (difficulty: string) => {
-    switch (difficulty.toLowerCase()) {
-      case 'easy':
-        return '#28a745';
-      case 'medium':
-        return '#ffc107';
-      case 'hard':
-        return '#dc3545';
-      default:
-        return '#6c757d';
+  // ---- Layout (markup only): the full-window workspace. All handlers and state above are unchanged. ----
+  const sessionOpen = !hasSubmitted && !isAlreadyCompleted && !isViewMode;
+  const difficultyKey = String(milestone.difficulty).toLowerCase();
+  const knownDifficulty = difficultyKey === 'easy' || difficultyKey === 'medium' || difficultyKey === 'hard';
+
+  /**
+   * Before the submission the session cannot simply be closed: leaving goes through the existing leave guard, which asks for
+   * confirmation and then submits the current code. After the submission this is the old Close button.
+   */
+  const handleExit = async () => {
+    if (sessionOpen) {
+      navigate('/');
+      return;
     }
+    // Call onSubmitSuccess if there was a successful submission
+    if (submissionStatus === 'success' && onSubmitSuccess) {
+      console.log('✅ Submission successful, refreshing problems list...');
+      await onSubmitSuccess();
+      console.log('✅ Problems list refreshed');
+    }
+
+    console.log('🔄 Closing editor and reloading problems...');
+    await onClose();
+    console.log('✅ Editor closed and problems updated');
   };
 
-  return (
-    <div 
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 1000,
-        padding: '20px',
-        overflow: 'hidden'
-      }}
-      onClick={(e) => {
-        // Prevent clicks on overlay from propagating
-        if (e.target === e.currentTarget) {
-          e.stopPropagation();
-        }
-      }}
-      onWheel={(e) => {
-        // Prevent scroll events from propagating to background
-        e.stopPropagation();
-      }}
-      onTouchMove={(e) => {
-        // Prevent touch scroll on mobile
-        e.stopPropagation();
-      }}
-    >
-      <div style={{
-        backgroundColor: 'white',
-        borderRadius: '12px',
-        width: '100%',
-        maxWidth: '1400px',
-        height: '90vh',
-        display: 'flex',
-        flexDirection: 'column',
-        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '20px 30px',
-          borderBottom: '2px solid #e0e0e0',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          backgroundColor: '#f8f9fa'
-        }}>
-          <div style={{ display: 'flex', gap: '15px', flexDirection: 'column', alignItems: 'flex-start' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-              <h2 style={{ margin: 0, color: '#333' }}>{milestone.title}</h2>
-              <span style={{
-                backgroundColor: getDifficultyColor(milestone.difficulty),
-                color: 'white',
-                padding: '6px 12px',
-                borderRadius: '4px',
-                fontSize: '14px',
-                fontWeight: 'bold',
-                textTransform: 'capitalize'
-              }}>
-                {milestone.difficulty}
-              </span>
-              {isAlreadyCompleted && (
-                <span style={{
-                  backgroundColor: '#28a745',
-                  color: 'white',
-                  padding: '6px 12px',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  fontWeight: 'bold'
-                }}>
-                  ✅ Completed
-                </span>
-              )}
-            </div>
-            {milestone.concept && (
-              <p style={{
-                margin: 0,
-                color: '#007bff',
-                fontSize: '14px',
-                fontWeight: '500',
-                fontStyle: 'italic'
-              }}>
-                📚 Concept: {milestone.concept}
-              </p>
-            )}
-          </div>
-          <button
-            onClick={async () => {
-              // Call onSubmitSuccess if there was a successful submission
-              if (submissionStatus === 'success' && onSubmitSuccess) {
-                console.log('✅ Submission successful, refreshing problems list...');
-                await onSubmitSuccess();
-                console.log('✅ Problems list refreshed');
-              }
-              
-              console.log('🔄 Closing editor and reloading problems...');
-              await onClose();
-              console.log('✅ Editor closed and problems updated');
-            }}
-            disabled={!hasSubmitted && !isAlreadyCompleted && !isViewMode}
-            style={{
-              padding: '8px 16px',
-              backgroundColor: (!hasSubmitted && !isAlreadyCompleted && !isViewMode) ? '#dee2e6' : '#6c757d',
-              color: (!hasSubmitted && !isAlreadyCompleted && !isViewMode) ? '#6c757d' : 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: (!hasSubmitted && !isAlreadyCompleted && !isViewMode) ? 'not-allowed' : 'pointer',
-              fontSize: '14px',
-              fontWeight: 'bold',
-              opacity: (!hasSubmitted && !isAlreadyCompleted && !isViewMode) ? 0.6 : 1
-            }}
-            title={
-              (!hasSubmitted && !isAlreadyCompleted && !isViewMode)
-                ? '🔒 You must submit before closing'
-                : 'Close coding environment'
-            }
-          >
-            {(!hasSubmitted && !isAlreadyCompleted && !isViewMode) ? '🔒 Submit First' : 'Close'}
-          </button>
+  const sessionNotice = isAlreadyCompleted && completedMilestone ? (() => {
+    const reviewStatus = submissionData?.proctoringData?.reviewStatus;
+    const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
+    const isEmbeddedType = milestone.type === 'embedded';
+    const isApproved = reviewStatus === 'approved';
+    const isRejected = reviewStatus === 'rejected';
+    const effectiveScore = submissionData?.score;
+    const isPassed = isApproved && effectiveScore >= 83;
+    // Embedded work is always held for review; coding work only when it was never graded.
+    const isHeldCoding = !isEmbeddedType && completedMilestone.heldForReview === true;
+    const isUnderReview = !isReviewed && (isEmbeddedType || completedMilestone.gradingFailed === true || completedMilestone.underReview === true);
+
+    let variant: 'info' | 'success' | 'warning' | 'danger';
+    let message: string;
+
+    if (isUnderReview) {
+      variant = 'info';
+      message = 'Submission under review';
+    } else if (isHeldCoding && (isApproved || isRejected)) {
+      // A problem with the interview, after the instructor's decision.
+      variant = isApproved ? 'success' : 'danger';
+      message = isApproved ? 'Approved by your instructor' : 'Rejected by your instructor';
+    } else if (isEmbeddedType && isApproved && isPassed) {
+      variant = 'success';
+      message = 'Passed';
+    } else if (isEmbeddedType && isApproved) {
+      // Approved (reviewed) but below the passing threshold: no credential issued
+      variant = 'warning';
+      message = 'Reviewed and approved';
+    } else if (isEmbeddedType && isRejected) {
+      variant = 'danger';
+      message = 'Submission rejected';
+    } else {
+      // Regular coding problem: shown by score
+      variant = completedMilestone.score === 100 ? 'success' : 'danger';
+      message = completedMilestone.score === 100 ? 'Problem completed successfully' : 'Failed';
+    }
+
+    const submittedOn = new Date(completedMilestone.completedAt).toLocaleDateString();
+    const instructorFeedback = isHeldCoding && (isApproved || isRejected)
+      ? (submissionData?.proctoringData?.rejectionReason || submissionData?.proctoringData?.reviewNotes || null)
+      : null;
+    return (
+      <Alert variant={variant} title={message}>
+        <div className={styles.notice}>
+          <p className={styles.noticeLine}>
+            {isUnderReview
+              ? `Submitted on: ${submittedOn}`
+              : isEmbeddedType
+                ? `Score: ${submissionData?.score}% | Submitted on: ${submittedOn}`
+                : `Score: ${completedMilestone.passedTests}/${completedMilestone.totalTests} (${completedMilestone.score}%) | Submitted on: ${submittedOn}`}
+          </p>
+          <p className={styles.noticeLine}>
+            {isUnderReview
+              ? (completedMilestone.underReview ? UNDER_REVIEW_MESSAGE : 'Your submission is being reviewed by the instructor. Results will be available after the review is complete.')
+              : isHeldCoding && (isApproved || isRejected)
+              ? 'Your instructor has reviewed your submission. Viewing your solution in read-only mode.'
+              : isEmbeddedType && isPassed
+                ? 'You have successfully passed this assessment. Viewing your solution in read-only mode.'
+                : isEmbeddedType && isApproved
+                  ? 'Your submission was reviewed and approved but did not meet the passing threshold. Viewing your submission in read-only mode.'
+                  : isEmbeddedType && isRejected
+                    ? 'Your submission was rejected for a policy violation. Please review the feedback below.'
+                    : completedMilestone.score === 100
+                      ? 'You have successfully completed this problem. Viewing your solution in read-only mode.'
+                      : 'You have submitted this problem. Only one submission is allowed per problem. Viewing your submission in read-only mode.'}
+          </p>
+          {instructorFeedback && (
+            <p className={styles.noticeLine}>
+              <strong>Instructor feedback:</strong> {instructorFeedback}
+            </p>
+          )}
+          {isEmbeddedType && isRejected && (submissionData?.proctoringData?.rejectionReason || submissionData?.proctoringData?.reviewNotes) && (
+            <p className={styles.noticeLine}>
+              <strong>Rejection reason:</strong> {submissionData.proctoringData.rejectionReason || submissionData.proctoringData.reviewNotes}
+            </p>
+          )}
+          {isEmbeddedType && isRejected && submissionData?.proctoringData?.policyViolated && (
+            <p className={styles.noticeLine}>
+              <strong>Policy violated:</strong> {submissionData.proctoringData.policyViolated}
+            </p>
+          )}
+          {isEmbeddedType && isRejected && submissionData?.proctoringData?.rejectionReason && submissionData?.proctoringData?.reviewNotes && submissionData.proctoringData.reviewNotes !== 'Rejected' && (
+            <p className={styles.noticeLine}>
+              <strong>Instructor notes:</strong> {submissionData.proctoringData.reviewNotes}
+            </p>
+          )}
         </div>
+      </Alert>
+    );
+  })() : null;
 
-        {isAlreadyCompleted && completedMilestone && (() => {
-          const reviewStatus = submissionData?.proctoringData?.reviewStatus;
-          const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
-          const isEmbeddedType = milestone.type === 'embedded';
-          const isApproved = reviewStatus === 'approved';
-          const isRejected = reviewStatus === 'rejected';
-          const effectiveScore = submissionData?.score;
-          const isPassed = isApproved && effectiveScore >= 83;
-          // Embedded work is always held for review; coding work only when it was never graded.
-          const isUnderReview = !isReviewed && (isEmbeddedType || completedMilestone.gradingFailed === true);
+  const descriptionTab = (() => {
+    const reviewStatus = submissionData?.proctoringData?.reviewStatus;
+    const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
+    const isEmbeddedType = milestone.type === 'embedded';
+    const hideDescription = isEmbeddedType && (isViewMode || hasSubmitted) && !isReviewed;
 
-          // Determine colors and message based on type and status
-          let bgColor, borderColor, textColor, message;
+    return (
+      <>
+        {milestone.concept && <p className={styles.concept}>Concept: {milestone.concept}</p>}
 
-          if (isUnderReview) {
-            // Still under review
-            bgColor = '#e7f3ff';
-            borderColor = '#007bff';
-            textColor = '#004085';
-            message = '📋 Submission Under Review';
-          } else if (isEmbeddedType && isApproved && isPassed) {
-            // Approved by instructor and meets the passing threshold
-            bgColor = '#d4edda';
-            borderColor = '#28a745';
-            textColor = '#155724';
-            message = '✅ Passed';
-          } else if (isEmbeddedType && isApproved) {
-            // Approved (reviewed) but below the passing threshold — no credential issued
-            bgColor = '#fff3cd';
-            borderColor = '#ffc107';
-            textColor = '#856404';
-            message = '📝 Reviewed & Approved';
-          } else if (isEmbeddedType && isRejected) {
-            // Rejected by instructor (disqualified for a policy violation)
-            bgColor = '#f8d7da';
-            borderColor = '#dc3545';
-            textColor = '#721c24';
-            message = '❌ Submission Rejected';
-          } else {
-            // Regular coding problem - show by score
-            bgColor = completedMilestone.score === 100 ? '#d4edda' : '#f8d7da';
-            borderColor = completedMilestone.score === 100 ? '#28a745' : '#dc3545';
-            textColor = completedMilestone.score === 100 ? '#155724' : '#721c24';
-            message = completedMilestone.score === 100
-              ? '🏆 Problem Completed Successfully!'
-              : '❌ Failed';
-          }
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Problem description</h2>
+          {hideDescription ? (
+            <p className={styles.locked}>
+              Problem details are hidden while your submission is under review.
+              They will become available after the instructor completes the review.
+            </p>
+          ) : (
+            <p className={styles.description}>{milestone.description}</p>
+          )}
+        </section>
 
-          return (
-            <div style={{
-              padding: '15px 30px',
-              backgroundColor: bgColor,
-              borderBottom: `2px solid ${borderColor}`,
-              color: textColor
-            }}>
-              <strong>{message}</strong>
-              <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
-                {isUnderReview
-                  ? `Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
-                  : isEmbeddedType
-                    ? `Score: ${submissionData?.score}% | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
-                    : `Score: ${completedMilestone.passedTests}/${completedMilestone.totalTests} (${completedMilestone.score}%) | Submitted on: ${new Date(completedMilestone.completedAt).toLocaleDateString()}`
-                }
+        {completedMilestone?.underReview !== true && (<>
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Sample test cases</h2>
+          {loadingTestCases ? (
+            <p className={styles.hint} role="status">Loading test cases…</p>
+          ) : testCasesError ? (
+            <Alert variant="danger">{testCasesError}</Alert>
+          ) : sampleTestCases.length > 0 ? (
+            <>
+              <p className={styles.hint}>Use these examples to check your output before submitting.</p>
+              {sampleTestCases.map((testCase, index) => (
+                <div key={testCase.testCaseId || index} className={styles.testCase}>
+                  <h3 className={styles.testCaseTitle}>Test case {index + 1}</h3>
+                  <p className={styles.boxLabel}>Input</p>
+                  <pre className={styles.box}>{testCase.input}</pre>
+                  <p className={styles.boxLabel}>Expected output</p>
+                  <pre className={styles.box}>{testCase.expectedOutput}</pre>
+                </div>
+              ))}
+            </>
+          ) : (
+            <Alert variant="warning">
+              No sample test cases available. Submit your solution to test against hidden test cases.
+            </Alert>
+          )}
+        </section>
+
+        <section className={styles.howTo}>
+          <h2 className={styles.howToTitle}>How to test your code?</h2>
+          <ol className={styles.howToList}>
+            <li> Copy your code and test in onlineGDB</li>
+          </ol>
+          <div className={styles.buttonRow}>
+            <Button
+              size="sm"
+              variant={copiedToClipboard ? 'secondary' : 'primary'}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('📋 Copy Code button clicked!');
+                handleCopyCode();
+              }}
+            >
+              {copiedToClipboard ? 'Copied' : 'Copy code'}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('🔗 Open OnlineGDB button clicked!');
+                handleOpenInOnlineGDB();
+              }}
+            >
+              Open OnlineGDB
+            </Button>
+          </div>
+        </section>
+        </>)}
+      </>
+    );
+  })();
+
+  const resultsTab = (
+    <>
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Submission results</h2>
+        <pre className={styles.results}>{actualOutput || 'Click "Submit" to see results here...'}</pre>
+
+        {submissionStatus === 'success' && milestone.type !== 'embedded' && (
+          <div className={styles.accepted}>
+            <h3 className={styles.acceptedTitle}>Submission accepted</h3>
+            <p>Congratulations! Your credential will be awarded shortly.</p>
+          </div>
+        )}
+      </section>
+
+      {testResults.length > 0 && (
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Test case results</h2>
+          {testResults.map((result, index) => (
+            <TestCaseResult key={index} result={result} index={index} />
+          ))}
+        </section>
+      )}
+
+      {/* Rubric breakdown for reviewed embedded submissions */}
+      {isViewMode && submissionData?.type === 'embedded' && (() => {
+        const reviewStatus = submissionData?.proctoringData?.reviewStatus;
+        const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
+
+        if (!isReviewed || !submissionData.rubricResults) return null;
+
+        return (
+          <div className={styles.stack}>
+            {reviewStatus === 'rejected' && (
+              <Alert variant="danger" title="Submission rejected">
+                {(submissionData.proctoringData?.rejectionReason || submissionData.proctoringData?.reviewNotes) && (
+                  <>Reason: {submissionData.proctoringData.rejectionReason || submissionData.proctoringData.reviewNotes}</>
+                )}
+              </Alert>
+            )}
+
+            {reviewStatus === 'approved' && (
+              <Alert variant="success" title="Submission reviewed and approved">
+                {submissionData.originalScore !== undefined && submissionData.originalScore !== submissionData.score && (
+                  <>Score adjusted by instructor: {submissionData.originalScore}% → {submissionData.score}%</>
+                )}
+              </Alert>
+            )}
+
+            <section>
+              <h2 className={styles.sectionTitle}>AI grading results</h2>
+              <p className={styles.scoreLine}>
+                Score: {submissionData.passedCriteria}/{submissionData.totalCriteria} criteria ({submissionData.score}%)
               </p>
-              <p style={{ margin: '5px 0 0 0', fontSize: '13px', fontStyle: 'italic' }}>
-                {isUnderReview
-                  ? 'Your submission is being reviewed by the instructor. Results will be available after the review is complete.'
-                  : isEmbeddedType && isPassed
-                    ? 'You have successfully passed this assessment. Viewing your solution in read-only mode.'
-                    : isEmbeddedType && isApproved
-                      ? 'Your submission was reviewed and approved but did not meet the passing threshold. Viewing your submission in read-only mode.'
-                      : isEmbeddedType && isRejected
-                        ? 'Your submission was rejected for a policy violation. Please review the feedback below.'
-                        : completedMilestone.score === 100
-                          ? 'You have successfully completed this problem. Viewing your solution in read-only mode.'
-                          : 'You have submitted this problem. Only one submission is allowed per problem. Viewing your submission in read-only mode.'}
+              <p className={styles.scoreLine}>
+                Submitted: {new Date(submissionData.submittedAt || submissionData.createdAt).toLocaleString()}
               </p>
-              {isEmbeddedType && isRejected && (submissionData?.proctoringData?.rejectionReason || submissionData?.proctoringData?.reviewNotes) && (
-                <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#721c24', fontWeight: 'bold' }}>
-                  Rejection Reason: {submissionData.proctoringData.rejectionReason || submissionData.proctoringData.reviewNotes}
-                </p>
-              )}
-              {isEmbeddedType && isRejected && submissionData?.proctoringData?.policyViolated && (
-                <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#721c24' }}>
-                  Policy Violated: {submissionData.proctoringData.policyViolated}
-                </p>
-              )}
-              {isEmbeddedType && isRejected && submissionData?.proctoringData?.rejectionReason && submissionData?.proctoringData?.reviewNotes && submissionData.proctoringData.reviewNotes !== 'Rejected' && (
-                <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#721c24' }}>
-                  Instructor Notes: {submissionData.proctoringData.reviewNotes}
-                </p>
-              )}
-            </div>
-          );
-        })()}
+            </section>
 
-        {/* Main Content Area */}
-        <div style={{
-          flex: 1,
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          overflow: 'hidden'
-        }}>
-          {/* Left Panel: Problem Description / Output */}
-          <div style={{
-            borderRight: '2px solid #e0e0e0',
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: 0
-          }}>
-            {/* Tabs */}
-            <div style={{
-              display: 'flex',
-              borderBottom: '2px solid #e0e0e0',
-              backgroundColor: '#f8f9fa'
-            }}>
-              <button
-                onClick={() => setActiveTab('description')}
-                style={{
-                  flex: 1,
-                  padding: '15px',
-                  border: 'none',
-                  backgroundColor: activeTab === 'description' ? 'white' : 'transparent',
-                  borderBottom: activeTab === 'description' ? '3px solid #007bff' : 'none',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: activeTab === 'description' ? 'bold' : 'normal',
-                  color: activeTab === 'description' ? '#007bff' : '#666'
-                }}
-              >
-                📋 Description
-              </button>
-              <button
-                onClick={() => setActiveTab('output')}
-                style={{
-                  flex: 1,
-                  padding: '15px',
-                  border: 'none',
-                  backgroundColor: activeTab === 'output' ? 'white' : 'transparent',
-                  borderBottom: activeTab === 'output' ? '3px solid #007bff' : 'none',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: activeTab === 'output' ? 'bold' : 'normal',
-                  color: activeTab === 'output' ? '#007bff' : '#666'
-                }}
-              >
-                📊 Submission Results
-              </button>
-            </div>
+            <section>
+              <h2 className={styles.sectionTitle}>Grading breakdown</h2>
+              {submissionData.rubricResults.map((result: any, index: number) => {
+                // Check if this criterion was modified by instructor
+                const wasModified = submissionData.criteriaModifications && submissionData.criteriaModifications[index] !== undefined;
+                const instructorValue = wasModified ? submissionData.criteriaModifications[index] : result.passed;
 
-            {/* Tab Content */}
-            <div style={{
-              flex: 1,
-              minHeight: 0,
-              overflow: 'auto',
-              padding: '20px'
-            }}>
-              {activeTab === 'description' ? (
-                <div>
-                  <h3 style={{ color: '#333', marginTop: 0 }}>Problem Description</h3>
-                  {(() => {
-                    const reviewStatus = submissionData?.proctoringData?.reviewStatus;
-                    const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
-                    const isEmbeddedType = milestone.type === 'embedded';
-                   const hideDescription = isEmbeddedType && (isViewMode || hasSubmitted) && !isReviewed;
-                    
-                    if (hideDescription) {
-                      return (
-                        <div style={{
-                          padding: '20px',
-                          backgroundColor: '#e7f3ff',
-                          borderRadius: '8px',
-                          border: '1px solid #b8daff',
-                          color: '#004085',
-                          textAlign: 'center'
-                        }}>
-                          <p style={{ fontSize: '16px', margin: '0 0 8px 0' }}>🔒</p>
-                          <p style={{ margin: 0, lineHeight: '1.6' }}>
-                            Problem details are hidden while your submission is under review.
-                            They will become available after the instructor completes the review.
-                          </p>
-                        </div>
-                      );
-                    }
-                    return (
-                      <p style={{ color: '#666', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
-                        {milestone.description}
+                return (
+                  <div key={index} className={`${styles.rubricItem} ${instructorValue ? styles.rubricPass : styles.rubricFail}`}>
+                    <Badge variant={instructorValue ? 'success' : 'danger'}>{instructorValue ? 'Pass' : 'Fail'}</Badge>
+                    <div className={styles.rubricBody}>
+                      <p className={styles.rubricCriterion}>
+                        {result.criterion}
+                        {wasModified && <Badge variant="warning">Updated by instructor</Badge>}
                       </p>
-                    );
-                  })()}
-
-                  {/* Sample Test Cases */}
-                  {loadingTestCases ? (
-                    <div style={{
-                      marginTop: '20px',
-                      padding: '15px',
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: '8px',
-                      border: '1px solid #e0e0e0',
-                      textAlign: 'center',
-                      color: '#666'
-                    }}>
-                      Loading test cases...
-                    </div>
-                  ) : testCasesError ? (
-                    <div style={{
-                      marginTop: '20px',
-                      padding: '15px',
-                      backgroundColor: '#f8d7da',
-                      borderRadius: '8px',
-                      border: '1px solid #f5c6cb',
-                      color: '#721c24'
-                    }}>
-                      ⚠️ {testCasesError}
-                    </div>
-                  ) : sampleTestCases.length > 0 ? (
-                    <div style={{
-                      marginTop: '20px',
-                      padding: '15px',
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: '8px',
-                      border: '1px solid #e0e0e0'
-                    }}>
-                      <h4 style={{ color: '#333', marginTop: 0 }}>📝 Sample Test Cases</h4>
-                      <p style={{ color: '#666', fontSize: '13px', marginBottom: '15px' }}>
-                        Use these examples to test your code in OnlineGDB before submitting.
-                      </p>
-                      {sampleTestCases.map((testCase, index) => (
-                        <div key={testCase.testCaseId || index} style={{ marginBottom: '15px' }}>
-                          <p style={{ margin: '5px 0', color: '#666', fontWeight: 'bold' }}>
-                            Test Case {index + 1}:
-                          </p>
-                          <div style={{ margin: '5px 0', color: '#666' }}>
-                            <strong>Input:</strong>
-                            <pre style={{
-                              background: '#fff',
-                              padding: '8px',
-                              borderRadius: '4px',
-                              margin: '5px 0',
-                              fontSize: '13px',
-                              color: '#333',
-                              border: '1px solid #dee2e6'
-                            }}>
-                              {testCase.input}
-                            </pre>
-                          </div>
-                          <div style={{ margin: '5px 0', color: '#666' }}>
-                            <strong>Expected Output:</strong>
-                            <pre style={{
-                              background: '#fff',
-                              padding: '8px',
-                              borderRadius: '4px',
-                              margin: '5px 0',
-                              fontSize: '13px',
-                              color: '#333',
-                              border: '1px solid #dee2e6'
-                            }}>
-                              {testCase.expectedOutput}
-                            </pre>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={{
-                      marginTop: '20px',
-                      padding: '15px',
-                      backgroundColor: '#fff3cd',
-                      borderRadius: '8px',
-                      border: '1px solid #ffc107',
-                      color: '#856404'
-                    }}>
-                      ℹ️ No sample test cases available. Submit your solution to test against hidden test cases.
-                    </div>
-                  )}
-
-                  {/* Instructions */}
-                  <div style={{
-                    marginTop: '20px',
-                    padding: '15px',
-                    backgroundColor: '#e7f3ff',
-                    borderRadius: '8px',
-                    border: '2px solid #0066cc'
-                  }}>
-                    <h4 style={{ color: '#0066cc', marginTop: 0 }}> How to test your code? </h4>
-                    <ol style={{ color: '#333', lineHeight: '1.8', paddingLeft: '20px' }}>
-                      <li> Copy your code and test in onlineGDB</li>
-                    </ol>
-
-                    <div style={{
-                      display: 'flex',
-                      gap: '10px',
-                      marginTop: '15px',
-                      flexWrap: 'wrap'
-                    }}>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          console.log('📋 Copy Code button clicked!');
-                          handleCopyCode();
-                        }}
-                        style={{
-                          padding: '12px 20px',
-                          background: copiedToClipboard ? '#28a745' : '#007bff',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          fontSize: '14px',
-                          fontWeight: 'bold',
-                          transition: 'background 0.3s',
-                          boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                          pointerEvents: 'auto'
-                        }}
-                      >
-                        {copiedToClipboard ? '✅ Copied!' : '📋 Copy Code'}
-                      </button>
-
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          console.log('🔗 Open OnlineGDB button clicked!');
-                          handleOpenInOnlineGDB();
-                        }}
-                        style={{
-                          padding: '12px 20px',
-                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          fontSize: '14px',
-                          fontWeight: 'bold',
-                          boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                          transition: 'transform 0.2s',
-                          pointerEvents: 'auto'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'translateY(-2px)';
-                          e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.15)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
-                        }}
-                      >
-                        🔗 Open OnlineGDB
-                      </button>
+                      <p className={styles.rubricFeedback}>{result.feedback}</p>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div>
-                  <h3 style={{ color: '#333', marginTop: 0 }}>Submission Results</h3>
-                  <pre style={{
-                    backgroundColor: '#f5f5f5',
-                    padding: '15px',
-                    borderRadius: '8px',
-                    overflow: 'auto',
-                    fontSize: '14px',
-                    lineHeight: '1.5',
-                    color: '#333',
-                    minHeight: '100px',
-                    border: '1px solid #e0e0e0',
-                    whiteSpace: 'pre-wrap'
-                  }}>
-                    {actualOutput || 'Click "Submit" to see results here...'}
-                  </pre>
-                  
-                 {submissionStatus === 'success' && milestone.type !== 'embedded' && (
-                    <div style={{
-                      marginTop: '20px',
-                      padding: '20px',
-                      backgroundColor: '#d4edda',
-                      borderRadius: '8px',
-                      border: '2px solid #28a745',
-                      textAlign: 'center'
-                    }}>
-                      <div style={{ fontSize: '48px', marginBottom: '10px' }}>🎉</div>
-                      <h3 style={{ color: '#155724', margin: '0 0 10px 0' }}>
-                        Submission Accepted!
-                      </h3>
-                      <p style={{ color: '#155724', margin: 0, fontSize: '16px' }}>
-                        Congratulations! Your credential will be awarded shortly.
-                      </p>
-                    </div>
-                  )}
-
-                  {testResults.length > 0 && (
-                    <div style={{ marginTop: '20px' }}>
-                      <h3 style={{ color: '#333' }}>Test Case Results</h3>
-                      {testResults.map((result, index) => (
-                        <TestCaseResult key={index} result={result} index={index} />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Rubric breakdown for reviewed embedded submissions */}
-                  {isViewMode && submissionData?.type === 'embedded' && (() => {
-                    const reviewStatus = submissionData?.proctoringData?.reviewStatus;
-                    const isReviewed = reviewStatus === 'approved' || reviewStatus === 'rejected';
-                    
-                    if (!isReviewed || !submissionData.rubricResults) return null;
-                    
-                    return (
-                      <div style={{ marginTop: '20px' }}>
-                        {/* Rejection reason banner */}
-                        {reviewStatus === 'rejected' && (
-                          <div style={{
-                            padding: '15px',
-                            backgroundColor: '#f8d7da',
-                            borderRadius: '8px',
-                            border: '1px solid #f5c6cb',
-                            marginBottom: '15px',
-                            color: '#721c24'
-                          }}>
-                            <strong>❌ Submission Rejected</strong>
-                            {(submissionData.proctoringData?.rejectionReason || submissionData.proctoringData?.reviewNotes) && (
-                              <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>
-                                Reason: {submissionData.proctoringData.rejectionReason || submissionData.proctoringData.reviewNotes}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                        
-                        {reviewStatus === 'approved' && (
-                          <div style={{
-                            padding: '15px',
-                            backgroundColor: '#d4edda',
-                            borderRadius: '8px',
-                            border: '1px solid #c3e6cb',
-                            marginBottom: '15px',
-                            color: '#155724'
-                          }}>
-                            <strong>✅ Submission Reviewed & Approved</strong>
-                            {submissionData.originalScore !== undefined && submissionData.originalScore !== submissionData.score && (
-                              <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>
-                                Score adjusted by instructor: {submissionData.originalScore}% → {submissionData.score}%
-                              </p>
-                            )}
-                          </div>
-                        )}
-                        {/* AI Grading Results */}
-                        <div style={{ marginBottom: '20px' }}>
-                          <h3 style={{ color: '#333' }}>AI Grading Results</h3>
-                          <p style={{ color: '#666', margin: '5px 0' }}>
-                            Score: {submissionData.passedCriteria}/{submissionData.totalCriteria} criteria ({submissionData.score}%)
-                          </p>
-                          <p style={{ color: '#666', margin: '5px 0', fontSize: '14px' }}>
-                            Submitted: {new Date(submissionData.submittedAt || submissionData.createdAt).toLocaleString()}
-                          </p>
-                        </div>
-
-                        <h3 style={{ color: '#333' }}>Grading Breakdown</h3>
-{submissionData.rubricResults.map((result: any, index: number) => {
-  // Check if this criterion was modified by instructor
-  const wasModified = submissionData.criteriaModifications && submissionData.criteriaModifications[index] !== undefined;
-  const instructorValue = wasModified ? submissionData.criteriaModifications[index] : result.passed;
-  
-  return (
-    <div
-      key={index}
-      style={{
-        display: 'flex', 
-        alignItems: 'flex-start', 
-        gap: '10px',
-        padding: '10px', 
-        marginBottom: '8px',
-        background: instructorValue ? '#d4edda' : '#f8d7da',
-        borderRadius: '6px',
-        border: `1px solid ${instructorValue ? '#c3e6cb' : '#f5c6cb'}`
-      }}
-    >
-      <span style={{
-        background: instructorValue ? '#28a745' : '#dc3545',
-        color: 'white', 
-        padding: '2px 8px', 
-        borderRadius: '4px',
-        fontSize: '11px', 
-        whiteSpace: 'nowrap', 
-        flexShrink: 0
-      }}>
-        {instructorValue ? '✓ PASS' : '✗ FAIL'}
-      </span>
-      
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ margin: 0, color: '#333', fontSize: '13px', fontWeight: '500' }}>
-          {result.criterion}
-          {wasModified && (
-            <span style={{
-              marginLeft: '8px',
-              fontSize: '11px',
-              background: '#fff3cd',
-              color: '#856404',
-              padding: '2px 6px',
-              borderRadius: '3px',
-              fontWeight: 'normal',
-              display: 'inline-block'
-            }}>
-              (Updated by Instructor)
-            </span>
-          )}
-        </p>
-        <p style={{ margin: '4px 0 0 0', color: '#666', fontSize: '12px' }}>
-          {result.feedback}
-        </p>
-      </div>
-    </div>
-  );
-})}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-            </div>
+                );
+              })}
+            </section>
           </div>
+        );
+      })()}
+    </>
+  );
 
-          {/* Right Panel: Code Editor */}
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column'
-          }}>
-            {/* Editor Header */}
-            <div style={{
-              padding: '15px 20px',
-              backgroundColor: '#f8f9fa',
-              borderBottom: '2px solid #e0e0e0',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <span style={{
-                fontSize: '14px',
-                fontWeight: 'bold',
-                color: '#333'
-              }}>
-                💻 Code Editor - {defaultLanguage.toUpperCase()}
-              </span>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  onClick={handleSubmit}
-                  disabled={isSubmitting || hasSubmitted || isAlreadyCompleted || isViewMode}
-                  style={{
-                    padding: '10px 20px',
-                    backgroundColor: (isSubmitting || hasSubmitted || isAlreadyCompleted) ? '#6c757d' : '#28a745',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: (isSubmitting || hasSubmitted || isAlreadyCompleted) ? 'not-allowed' : 'pointer',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    opacity: (isSubmitting || hasSubmitted || isAlreadyCompleted) ? 0.6 : 1
-                  }}
-                  title={
-                    isViewMode
-                      ? 'View mode - submission disabled'
-                      : isAlreadyCompleted 
-                      ? 'Already completed'
-                      : hasSubmitted
-                      ? 'Already submitted in this session'
-                      : 'Submit for final grading (uses Judge0)'
-                  }
-                >
-                  {isSubmitting ? '⏳ Submitting...' : hasSubmitted ? '🔒 Submitted' : '✅ Submit'}
-                </button>
-              </div>
+  return (
+    <WorkspaceShell
+      label={`Coding workspace: ${milestone.title}`}
+      exit={
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleExit}
+          title={sessionOpen ? 'Leaving asks for confirmation and submits your current code as your final answer' : 'Close the coding environment'}
+        >
+          {sessionOpen ? 'Exit' : 'Close'}
+        </Button>
+      }
+      title={milestone.title}
+      badges={
+        <>
+          {knownDifficulty && <DifficultyBadge difficulty={difficultyKey as Difficulty} />}
+          {isAlreadyCompleted && <Badge variant="success">Completed</Badge>}
+        </>
+      }
+      status={
+        isRecording && !isViewMode ? (
+          <span className={styles.recording}>
+            <span className={styles.recordingDot} aria-hidden="true" />
+            Recording
+          </span>
+        ) : undefined
+      }
+      actions={
+        <Button
+          onClick={handleSubmit}
+          disabled={isSubmitting || hasSubmitted || isAlreadyCompleted || isViewMode}
+          loading={isSubmitting}
+          title={
+            isViewMode
+              ? 'View mode - submission disabled'
+              : isAlreadyCompleted
+              ? 'Already completed'
+              : hasSubmitted
+              ? 'Already submitted in this session'
+              : 'Submit for final grading (uses Judge0)'
+          }
+        >
+          {isSubmitting ? 'Submitting…' : hasSubmitted ? 'Submitted' : 'Submit'}
+        </Button>
+      }
+      notice={sessionNotice}
+    >
+      <SplitPane
+        dividerLabel="Resize the description and editor panels"
+        left={
+          <WorkspaceTabs
+            label="Problem"
+            active={activeTab}
+            onChange={setActiveTab}
+            tabs={[
+              { id: 'description', label: 'Description' },
+              { id: 'output', label: 'Submission Results' },
+            ]}
+          >
+            {activeTab === 'description' ? descriptionTab : resultsTab}
+          </WorkspaceTabs>
+        }
+        right={
+          <section className={styles.editorPane} aria-label="Code editor">
+            <div className={styles.editorHeader}>
+              <span>Code editor: {defaultLanguage.toUpperCase()}</span>
+              {(isAlreadyCompleted || isViewMode) && <span className={styles.editorMode}>Read only</span>}
             </div>
 
             {/* Monaco Editor */}
-            <div style={{ flex: 1, position: 'relative' }}>
-              {loadingSubmission && (
-                <div style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  zIndex: 10,
-                  color: 'white',
-                  fontSize: '16px',
-                  fontWeight: 'bold'
-                }}>
-                  📖 Loading your submitted code...
-                </div>
-              )}
+            <div className={styles.editorBody}>
+              {loadingSubmission && <div className={styles.loadingOverlay} role="status">Loading your submitted code…</div>}
               <Editor
                 height="100%"
                 language={defaultLanguage}
@@ -1477,23 +1122,17 @@ const stopRecording = () => {
             </div>
 
             {/* Editor Footer with Instructions */}
-            <div style={{
-              padding: '15px 20px',
-              backgroundColor: (isAlreadyCompleted || isViewMode) ? '#d4edda' : '#fff3cd',
-              borderTop: `2px solid ${(isAlreadyCompleted || isViewMode) ? '#28a745' : '#ffc107'}`,
-              fontSize: '13px',
-              color: (isAlreadyCompleted || isViewMode) ? '#155724' : '#856404'
-            }}>
-              <strong>💡 {(isAlreadyCompleted || isViewMode) ? 'View Mode' : 'Workflow'}:</strong> {
+            <div className={`${styles.editorFooter} ${(isAlreadyCompleted || isViewMode) ? styles.editorFooterView : ''}`}>
+              <strong>{(isAlreadyCompleted || isViewMode) ? 'View mode' : 'Workflow'}:</strong> {
                 (isAlreadyCompleted || isViewMode)
                   ? 'You are viewing your previous submission. Editor is read-only.'
                   : 'Copy code → Test in OnlineGDB → Paste final solution here → Submit'
               }
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
+          </section>
+        }
+      />
+    </WorkspaceShell>
   );
 }
 

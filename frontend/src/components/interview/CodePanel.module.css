@@ -1,0 +1,123 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+/* The toggle only exists on narrow screens, where the code sits above the chat. */
+.toggle {
+  display: none;
+}
+
+/* Fill mode: the panel is as tall as its pane, and the code scrolls inside it. */
+.fill {
+  flex: 1;
+  min-height: 0;
+}
+
+.fill .body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.fill .scroller {
+  flex: 1;
+  max-height: none;
+  min-height: 0;
+}
+
+.body {
+  min-height: 0;
+  padding: var(--space-3);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.scroller {
+  max-height: 70vh;
+  overflow: auto;
+  background-color: var(--color-gray-50);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.code {
+  margin: 0;
+  padding: var(--space-3) var(--space-3) var(--space-3) 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+  counter-reset: line;
+  tab-size: 4;
+}
+
+.code code {
+  font-family: inherit;
+}
+
+/* Line numbers come from a counter, so selecting and copying the code does not include them. */
+.line {
+  display: block;
+  padding-left: calc(var(--space-12) + var(--space-3));
+  position: relative;
+  white-space: pre;
+  counter-increment: line;
+}
+
+.line::before {
+  content: counter(line);
+  position: absolute;
+  left: 0;
+  width: var(--space-10);
+  text-align: right;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+@media (max-width: 960px) {
+  .toggle {
+    display: inline-flex;
+  }
+
+  .collapsed {
+    display: none;
+  }
+
+  .scroller {
+    max-height: 40vh;
+  }
+
+  .fill .scroller {
+    max-height: 50vh;
+  }
+
+  .fill .collapsed {
+    display: none;
+  }
+}

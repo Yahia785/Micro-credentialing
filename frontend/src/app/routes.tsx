@@ -5,7 +5,9 @@ import { RequireAdmin } from './RequireAdmin';
 import { AdminReviewsPage } from '../pages/AdminReviewsPage';
 import { AssessmentsPage } from '../pages/AssessmentsPage';
 import { CredentialsPage } from '../pages/CredentialsPage';
+import { InterviewReviewPage } from '../pages/InterviewReviewPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
+import { PracticeInterviewPage } from '../pages/PracticeInterviewPage';
 import { ProfilePage } from '../pages/ProfilePage';
 
 /** Route metadata read by AppLayout to set the document title. */
@@ -57,6 +59,24 @@ export const router = createBrowserRouter([
           </RequireAdmin>
         ),
         handle: { title: 'Reviews' } satisfies RouteHandle,
+      },
+      {
+        path: 'admin/reviews/:submissionId/interview',
+        element: (
+          <RequireAdmin>
+            <InterviewReviewPage />
+          </RequireAdmin>
+        ),
+        handle: { title: 'Interview review' } satisfies RouteHandle,
+      },
+      {
+        path: 'admin/reviews/:submissionId/interview/practice/:interviewId',
+        element: (
+          <RequireAdmin>
+            <PracticeInterviewPage />
+          </RequireAdmin>
+        ),
+        handle: { title: 'Practice interview' } satisfies RouteHandle,
       },
       ...devRoutes,
       {

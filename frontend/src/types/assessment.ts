@@ -24,6 +24,10 @@ export interface CodingAssessment extends AssessmentBase {
   testCaseCount?: number;
   /** Hidden from students; the API only returns such problems to admins. */
   isHidden?: boolean;
+  /** True when finishing this problem is followed by the interview. The questions are never sent to students. */
+  interviewEnabled?: boolean;
+  /** Length of the interview in minutes, when enabled. */
+  interviewTimeLimitMinutes?: number;
 }
 
 /** An embedded systems assessment graded against a rubric. */

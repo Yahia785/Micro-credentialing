@@ -1,0 +1,68 @@
+.tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.list {
+  display: flex;
+  flex: none;
+  background-color: var(--color-gray-50);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  flex: 1;
+  min-height: var(--space-12);
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: 0;
+  border-bottom: var(--space-1) solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background-color 150ms, color 150ms;
+}
+
+.tab:hover {
+  background-color: var(--color-gray-100);
+  color: var(--color-text-primary);
+}
+
+/* The active tab: white like the panel below it, bold, with a brand underline. */
+.active,
+.active:hover {
+  background-color: var(--color-bg-card);
+  border-bottom-color: var(--color-brand);
+  color: var(--color-brand);
+  font-weight: var(--font-weight-bold);
+}
+
+.panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6) var(--space-8);
+}
+
+/* Stacked on a narrow screen: the tabs get a sensible height of their own. */
+@media (max-width: 960px) {
+  .tabs {
+    min-height: 32rem;
+    max-height: 80vh;
+    max-height: 80dvh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab {
+    transition: none;
+  }
+}

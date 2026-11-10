@@ -2,9 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import { getSubmission } from '../api/submissions';
 import type { CodeEditorHandle } from '../components/CodeEditor';
 import { useUser } from '../context/UserContext';
-import type { Assessment } from '../types/assessment';
+import type { Assessment, CodingAssessment } from '../types/assessment';
+import type { SubmitOutcome } from '../types/submission';
 import { useAssessmentNavigationGuard } from './useAssessmentNavigationGuard';
 import { useStopStreamsOnUnmount } from './useStopStreamsOnUnmount';
+
+export interface InterviewTarget {
+  assessment: CodingAssessment;
+  submissionId: string;
+  /** The code that was just submitted. Absent when the interview is opened later. */
+  code?: string;
+}
 
 /**
  * The proctored-session logic shared by every kind of assessment: the proctoring permission flow,
@@ -23,6 +31,8 @@ export function useAssessmentSession(reload: () => Promise<void>) {
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   // True once the editor's own submission has fully finished; nothing is left to lose by leaving.
   const [submissionSettled, setSubmissionSettled] = useState(false);
+  // The interview that follows a submission of a problem that has one. It replaces the editor on screen.
+  const [interviewTarget, setInterviewTarget] = useState<InterviewTarget | null>(null);
 
   // A proctored session is live while the editor is open with streams and nothing has been submitted yet.
   const isProctoredSessionActive = Boolean(
@@ -99,6 +109,43 @@ export function useAssessmentSession(reload: () => Promise<void>) {
     await refreshProfile();
   };
 
+  /** A finished editor submission: for a C++ problem with an interview, the student continues with the interview. */
+  const handleSubmitSettled = (outcome?: SubmitOutcome) => {
+    setSubmissionSettled(true);
+    const assessment = selectedAssessment;
+    if (
+      !outcome?.ok ||
+      !outcome.submissionId ||
+      outcome.endedBy !== 'submit_button' ||
+      assessment?.kind !== 'coding' ||
+      !assessment.interviewEnabled ||
+      assessment.language !== 'cpp'
+    ) {
+      return;
+    }
+    // The recordings are already uploaded: stop the cameras and replace the editor with the interview.
+    webcamStream?.getTracks().forEach((track) => track.stop());
+    screenStream?.getTracks().forEach((track) => track.stop());
+    setWebcamStream(null);
+    setScreenStream(null);
+    setSelectedAssessment(null);
+    setPendingAssessment(null);
+    setInterviewTarget({ assessment, submissionId: outcome.submissionId, code: outcome.code });
+    void refreshProfile();
+  };
+
+  /** Opens the interview of an assessment the student has already submitted (start it, or continue where it was). */
+  const openInterview = (assessment: CodingAssessment, submissionId: string) => {
+    setInterviewTarget({ assessment, submissionId });
+  };
+
+  const closeInterview = async () => {
+    setInterviewTarget(null);
+    setSubmissionSettled(false);
+    await reload();
+    await refreshProfile();
+  };
+
   return {
     userProfile,
     selectedAssessment,
@@ -108,12 +155,15 @@ export function useAssessmentSession(reload: () => Promise<void>) {
     screenStream,
     isSubmittingOnLeave,
     editorRef,
+    interviewTarget,
     openAssessment,
+    openInterview,
+    closeInterview,
     handleProctoringGranted,
     handleProctoringCancelled,
     handleCloseEditor,
     handleSubmitSuccess,
-    markSubmissionSettled: () => setSubmissionSettled(true),
+    markSubmissionSettled: handleSubmitSettled,
   };
 }
 

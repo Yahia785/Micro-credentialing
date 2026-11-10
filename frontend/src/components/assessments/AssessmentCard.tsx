@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import type { FormEvent } from 'react';
 import { CourseNotSavedError } from '../../api/assessments';
-import type { Assessment } from '../../types/assessment';
+import type { Assessment, CodingAssessment } from '../../types/assessment';
 import type { CompletedMilestone } from '../../types/user';
 import { getTypeLabel } from '../../utils/assessments';
 import { Alert, Badge, Button, Card, DifficultyBadge, FormField, Input, StatusBadge } from '../ui';
@@ -16,6 +16,8 @@ interface AssessmentCardProps {
   isAdmin: boolean;
   courseSuggestions: string[];
   onOpen: (assessment: Assessment) => void;
+  /** Opens the interview of a submitted problem that has one (starts it, or continues where it was). */
+  onOpenInterview: (assessment: CodingAssessment, submissionId: string) => void;
   onDelete: (assessment: Assessment) => void;
   /** Saves the course (empty string clears it). Rejects on failure. */
   onSaveCourse: (assessment: Assessment, course: string) => Promise<void>;
@@ -33,6 +35,13 @@ function StatusIndicator({
     if (reviewStatus === 'rejected') return <StatusBadge status="rejected" />;
     // Default to pending / under review
     return <StatusBadge status="pending" />;
+  }
+
+  // A problem with the interview: under review until the instructor decides, with no grade shown.
+  if (completed?.underReview) return <StatusBadge status="pending" />;
+  const decision = completed?.proctoringData?.reviewStatus;
+  if (completed?.heldForReview && (decision === 'approved' || decision === 'rejected')) {
+    return <StatusBadge status={decision} />;
   }
 
   // Never graded (grading was unavailable): under review, not a score.
@@ -54,6 +63,7 @@ export function AssessmentCard({
   isAdmin,
   courseSuggestions,
   onOpen,
+  onOpenInterview,
   onDelete,
   onSaveCourse,
 }: AssessmentCardProps) {
@@ -107,6 +117,15 @@ export function AssessmentCard({
             >
               {isCompleted ? 'View submission' : 'Start assessment'}
             </Button>
+
+            {assessment.kind === 'coding' &&
+              assessment.interviewEnabled &&
+              assessment.language === 'cpp' &&
+              completed?.submissionId && (
+                <Button size="sm" variant="secondary" onClick={() => onOpenInterview(assessment, completed.submissionId)}>
+                  Open interview
+                </Button>
+              )}
 
             {isAdmin && (
               <>

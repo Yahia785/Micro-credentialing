@@ -1,4 +1,5 @@
 import { CodeEditor } from '../CodeEditor';
+import { StudentInterviewScreen } from '../interview/StudentInterviewScreen';
 import { ProctoringInstructions } from '../proctoring/ProctoringInstructions';
 import { BlockingOverlay } from '../ui';
 import type { AssessmentSessionState } from '../../hooks/useAssessmentSession';
@@ -14,6 +15,8 @@ export function AssessmentSession({ session }: { session: AssessmentSessionState
     webcamStream,
     screenStream,
     isSubmittingOnLeave,
+    interviewTarget,
+    closeInterview,
     editorRef,
     handleProctoringGranted,
     handleProctoringCancelled,
@@ -34,6 +37,16 @@ export function AssessmentSession({ session }: { session: AssessmentSessionState
 
       {isSubmittingOnLeave && (
         <BlockingOverlay message="Submitting your work…" detail="Please keep this tab open." />
+      )}
+
+      {interviewTarget && (
+        <StudentInterviewScreen
+          title={interviewTarget.assessment.title}
+          submissionId={interviewTarget.submissionId}
+          timeLimitMinutes={interviewTarget.assessment.interviewTimeLimitMinutes}
+          initialCode={interviewTarget.code}
+          onClose={closeInterview}
+        />
       )}
 
       {selectedAssessment && (

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router';
 import { API_BASE } from '../api/config';
-import { Badge } from './ui';
+import { reviewPath } from '../utils/interview';
+import { Badge, Button } from './ui';
 
 // TODO: Make this per-assessment configurable (should match backend PASSING_THRESHOLD)
 const PASSING_THRESHOLD = 83;
@@ -16,6 +18,8 @@ interface PendingSubmission {
   userId: string;
   milestoneId: string;
   milestoneType?: string;
+  /** The language the code was submitted in. */
+  language?: string;
   studentName: string;
   studentEmail: string;
   problemTitle: string;
@@ -45,6 +49,7 @@ interface PendingSubmission {
 const isUngraded = (s: PendingSubmission) => s.status === 'manual_review' || s.status === 'grading_failed';
 
 export function AdminReviewsTab() {
+  const navigate = useNavigate();
   const [activeSubTab, setActiveSubTab] = useState<'passed' | 'failed' | 'ungraded'>('passed');
   const [passedReviews, setPassedReviews] = useState<PendingSubmission[]>([]);
   const [failedReviews, setFailedReviews] = useState<PendingSubmission[]>([]);
@@ -428,6 +433,13 @@ export function AdminReviewsTab() {
               padding: '20px'
             }}>
               <h3 style={{ marginTop: 0, color: '#333' }}>Review Submission</h3>
+              {selectedSubmission.milestoneType !== 'embedded' && selectedSubmission.language === 'cpp' && (
+                <div>
+                  <Button size="sm" variant="secondary" onClick={() => navigate(reviewPath(selectedSubmission.submissionId))}>
+                    Interview
+                  </Button>
+                </div>
+              )}
               {selectedSubmission.endedBy === 'left_page' && (
                 <p style={{ margin: '0 0 12px' }}>
                   <Badge variant="warning">Left mid-session (auto-submitted)</Badge>
