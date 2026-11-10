@@ -41,6 +41,7 @@ class Sidecar:
     header: dict = field(default_factory=dict)
     frames: list[dict] = field(default_factory=list)
     keys: list[float] = field(default_factory=list)   # seconds
+    key_events: list[tuple[float, str]] = field(default_factory=list)   # (seconds, category); the key itself is never stored
     summary: dict = field(default_factory=dict)
 
     @property
@@ -75,6 +76,7 @@ def load_sidecar(path: str | Path) -> Sidecar:
                 sc.frames.append(rec)
             elif kind == "key":
                 sc.keys.append(rec["t"] / 1000.0)
+                sc.key_events.append((rec["t"] / 1000.0, rec.get("cat") or "unknown"))
             elif kind == "summary":
                 sc.summary = rec
     return sc
@@ -348,3 +350,361 @@ def fps_stats(frames: list[dict]) -> tuple[float, float]:
     inst = [1000.0 / (b - a) for a, b in zip(ts, ts[1:]) if b > a]
     dur = (ts[-1] - ts[0]) / 1000.0
     return (len(ts) - 1) / dur if dur > 0 else 0.0, percentile(inst, 10)
+
+
+# =====================================================================================================
+# Vertical gaze, screen and keyboard zones, off-screen looks, copy pattern, typing features
+# =====================================================================================================
+# Real cheating is reading from a phone below the camera or a second screen at the side or up. The rule above
+# only sees horizontal gaze and yaw. These rules add vertical gaze (blendV) and head pitch, and ask one question:
+# is the person looking at the SCREEN or at the KEYBOARD, or somewhere else?
+#
+# Zones come from the calibration points in the sidecar header: centre, left, right, top, bottom (the screen) and
+# keyboard. A zone is a box in (gaze horizontal, gaze vertical) and a box in (yaw, pitch).
+ZONE_GAZE_MARGIN = 0.15          # added around the box spanned by the screen readings (gaze units)
+ZONE_HEAD_MARGIN_DEG = 8.0       # same for yaw and pitch (degrees)
+KEYBOARD_GAZE_MARGIN = 0.25      # box around the keyboard reading
+KEYBOARD_HEAD_MARGIN_DEG = 10.0
+# Fallback half-ranges, used ONLY for an axis whose calibration readings are missing (recordings made before the
+# vertical calibration existed). Results from fallback zones are guesses: see Zones.note.
+FALLBACK_GAZE_H_HALF = 0.30
+FALLBACK_GAZE_V_HALF = 0.30
+FALLBACK_YAW_HALF_DEG = 15.0
+FALLBACK_PITCH_HALF_DEG = 10.0
+DERIVED_V_TAU_S = 0.16           # smoothing of blendV derived from the eyeLook* scores (old sidecars have no blendV)
+OFFSCREEN_MIN_DURATION_S = 1.5   # off-screen look: outside both zones for at least this long
+COPY_MIN_CYCLES = 3              # copy_pattern: at least this many (off-screen look, then typing) cycles ...
+COPY_WINDOW_S = 60.0             # ... within this many seconds
+COPY_TYPING_WINDOW_S = 3.0       # typing must start within this long after the look ends
+TYPING_FEATURE_WINDOW_S = 10.0   # typing features are computed over this window (starting where the look ended)
+TYPING_PAUSE_S = 1.0             # a gap without a key press longer than this is a pause
+DEFAULT_LEFT_IS_POSITIVE = True  # image-right = student's left: yaw, blendH and gazeH are + when the student looks LEFT
+DEFAULT_UP_IS_POSITIVE = False   # pitch, gazeV and blendV are + when looking DOWN
+_MIN_H_DIFF, _MIN_YAW_DIFF = 0.02, 1.0
+
+
+def gaze_names(source: str) -> tuple[str, str]:
+    if source not in ("iris", "blend"):
+        raise ValueError("gaze source must be 'iris' or 'blend'")
+    return ("gazeH", "gazeV") if source == "iris" else ("blendH", "blendV")
+
+
+def blend_v_from_scores(f: dict) -> float | None:
+    """Vertical blendshape gaze from the eyeLook* scores of a frame (+ = down). None if a score is missing."""
+    dl, dr, ul, ur = (f.get(k) for k in ("eyeLookDownLeft", "eyeLookDownRight", "eyeLookUpLeft", "eyeLookUpRight"))
+    if None in (dl, dr, ul, ur):
+        return None
+    return (dl + dr - ul - ur) / 2
+
+
+def smooth_series(times_s: list[float], values: list[float | None], tau: float = DERIVED_V_TAU_S) -> list[float | None]:
+    """Time-based exponential smoothing; a missing value restarts it."""
+    import math
+    out: list[float | None] = []
+    prev = prev_t = None
+    for t, v in zip(times_s, values):
+        if v is None:
+            prev = prev_t = None
+            out.append(None)
+            continue
+        if prev is None:
+            prev = v
+        else:
+            a = 1 - math.exp(-max(t - prev_t, 1e-6) / tau)
+            prev = prev + a * (v - prev)
+        prev_t = t
+        out.append(prev)
+    return out
+
+
+def gaze_series(frames: list[dict], source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED):
+    """([h per frame], [v per frame], v_was_derived). None for lost frames or missing values.
+
+    Sidecars recorded before vertical gaze existed have no blendV: it is derived from the eyeLook* scores (and
+    smoothed here, because the saved scores are raw)."""
+    hn, vn = gaze_names(source)
+    hs = [None if f.get("lost") else reading(f, hn, smoothed) for f in frames]
+    has_v = any(f.get(vn) is not None or f.get(vn + "Raw") is not None for f in frames)
+    if source == "blend" and not has_v:
+        raw = [None if f.get("lost") else blend_v_from_scores(f) for f in frames]
+        times = [f["t"] / 1000.0 for f in frames]
+        return hs, (smooth_series(times, raw) if smoothed else raw), True
+    return hs, [None if f.get("lost") else reading(f, vn, smoothed) for f in frames], False
+
+
+@dataclass(frozen=True)
+class Box:
+    """Axis-aligned box in two readings: a (horizontal-like) and b (vertical-like)."""
+    lo_a: float
+    hi_a: float
+    lo_b: float
+    hi_b: float
+
+    def contains(self, a: float, b: float) -> bool:
+        return self.lo_a <= a <= self.hi_a and self.lo_b <= b <= self.hi_b
+
+    def worst(self, a: float, b: float) -> tuple[str, int, float]:
+        """(axis 'a' or 'b', side -1 below / +1 above the box, how far outside as a share of the box size)."""
+        span_a = max(self.hi_a - self.lo_a, 1e-6)
+        span_b = max(self.hi_b - self.lo_b, 1e-6)
+        cands = [("a", 0, 0.0)]
+        if a < self.lo_a:
+            cands.append(("a", -1, (self.lo_a - a) / span_a))
+        if a > self.hi_a:
+            cands.append(("a", 1, (a - self.hi_a) / span_a))
+        if b < self.lo_b:
+            cands.append(("b", -1, (self.lo_b - b) / span_b))
+        if b > self.hi_b:
+            cands.append(("b", 1, (b - self.hi_b) / span_b))
+        return max(cands, key=lambda c: c[2])
+
+
+@dataclass(frozen=True)
+class Zones:
+    gaze: Box                       # screen zone in (gaze h, gaze v)
+    head: Box                       # screen zone in (yaw, pitch)
+    kb_gaze: Box | None             # keyboard zone (None if the calibration had no keyboard reading)
+    kb_head: Box | None
+    h_left_positive: bool           # gaze h grows when looking LEFT (from the student's point of view)
+    v_up_positive: bool
+    yaw_left_positive: bool
+    pitch_up_positive: bool
+    note: str                       # "calibrated" or what had to be guessed
+
+
+def _cal_point(header: dict, name: str, smoothed: bool) -> dict | None:
+    cal = header.get("calibration") or {}
+    if name == "center":
+        return cal.get("baseline" if smoothed else "baselineRaw") or cal.get("baseline") or None
+    edges = cal.get("edges") or {}
+    return edges.get(name + ("" if smoothed else "Raw")) or edges.get(name) or None
+
+
+def build_zones(header: dict, source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED) -> Zones | None:
+    """Screen and keyboard zones from the calibration in the sidecar header. None if there is no calibration."""
+    hn, vn = gaze_names(source)
+    pts = {n: _cal_point(header, n, smoothed) for n in ("center", "left", "right", "top", "bottom", "keyboard")}
+    c = pts["center"]
+    if not c or any(c.get(k) is None for k in (hn, "yaw", "pitch")):
+        return None
+    cv = c.get(vn)
+    if cv is None:
+        cv = 0.0
+    guessed: list[str] = []
+
+    def vals(key: str, names: tuple[str, ...]) -> list[float]:
+        return [pts[n][key] for n in names if pts[n] and pts[n].get(key) is not None]
+
+    screen = ("center", "left", "right", "top", "bottom")
+    side_pts = ("left", "right")
+    ud_pts = ("top", "bottom")
+
+    def span(key: str, edge_names: tuple[str, ...], center: float, fallback: float, margin: float, label: str):
+        if vals(key, edge_names):
+            v = vals(key, screen)
+            return min(v) - margin, max(v) + margin
+        guessed.append(label)
+        return center - fallback - margin, center + fallback + margin
+
+    gh = span(hn, side_pts, c[hn], FALLBACK_GAZE_H_HALF, ZONE_GAZE_MARGIN, "horizontal gaze")
+    gv = span(vn, ud_pts, cv, FALLBACK_GAZE_V_HALF, ZONE_GAZE_MARGIN, "vertical gaze (no top/bottom reading)")
+    hy = span("yaw", side_pts, c["yaw"], FALLBACK_YAW_HALF_DEG, ZONE_HEAD_MARGIN_DEG, "yaw")
+    hp = span("pitch", ud_pts, c["pitch"], FALLBACK_PITCH_HALF_DEG, ZONE_HEAD_MARGIN_DEG, "pitch (no top/bottom reading)")
+
+    kb = pts["keyboard"]
+    kb_gaze = kb_head = None
+    if kb and kb.get(hn) is not None and kb.get(vn) is not None:
+        m = KEYBOARD_GAZE_MARGIN
+        kb_gaze = Box(kb[hn] - m, kb[hn] + m, kb[vn] - m, kb[vn] + m)
+    if kb and kb.get("yaw") is not None and kb.get("pitch") is not None:
+        m = KEYBOARD_HEAD_MARGIN_DEG
+        kb_head = Box(kb["yaw"] - m, kb["yaw"] + m, kb["pitch"] - m, kb["pitch"] + m)
+    if kb_gaze is None and kb_head is None:
+        guessed.append("no keyboard zone")
+
+    def sign(key: str, a: str, b: str, min_diff: float, default: bool) -> bool:
+        pa, pb = pts[a], pts[b]
+        if pa and pb and pa.get(key) is not None and pb.get(key) is not None and abs(pa[key] - pb[key]) >= min_diff:
+            return pa[key] > pb[key]
+        return default
+
+    return Zones(
+        gaze=Box(gh[0], gh[1], gv[0], gv[1]), head=Box(hy[0], hy[1], hp[0], hp[1]), kb_gaze=kb_gaze, kb_head=kb_head,
+        h_left_positive=sign(hn, "left", "right", _MIN_H_DIFF, DEFAULT_LEFT_IS_POSITIVE),
+        v_up_positive=sign(vn, "top", "bottom", _MIN_H_DIFF, DEFAULT_UP_IS_POSITIVE),
+        yaw_left_positive=sign("yaw", "left", "right", _MIN_YAW_DIFF, DEFAULT_LEFT_IS_POSITIVE),
+        pitch_up_positive=sign("pitch", "top", "bottom", _MIN_YAW_DIFF, DEFAULT_UP_IS_POSITIVE),
+        note="calibrated" if not guessed else "partly guessed: " + ", ".join(guessed),
+    )
+
+
+def _direction(axis: str, side: int, left_positive: bool, up_positive: bool) -> str:
+    if axis == "a":  # horizontal: side +1 = value above the box
+        return ("left" if left_positive else "right") if side > 0 else ("right" if left_positive else "left")
+    return ("up" if up_positive else "down") if side > 0 else ("down" if up_positive else "up")
+
+
+def offscreen_direction(h, v, yaw, pitch, z: Zones) -> tuple[str, str] | None:
+    """(direction, 'gaze' or 'head') if gaze OR head is outside BOTH the screen zone and the keyboard zone, else None.
+
+    direction is left, right, up or down as seen by the student (decided from the calibration, not from sign
+    conventions). If both gaze and head are outside, the one that is further outside names the direction."""
+    cands = []
+    if h is not None and v is not None and not z.gaze.contains(h, v) and not (z.kb_gaze and z.kb_gaze.contains(h, v)):
+        axis, side, ex = z.gaze.worst(h, v)
+        cands.append((ex, _direction(axis, side, z.h_left_positive, z.v_up_positive), "gaze"))
+    if yaw is not None and pitch is not None and not z.head.contains(yaw, pitch) and not (z.kb_head and z.kb_head.contains(yaw, pitch)):
+        axis, side, ex = z.head.worst(yaw, pitch)
+        cands.append((ex, _direction(axis, side, z.yaw_left_positive, z.pitch_up_positive), "head"))
+    if not cands:
+        return None
+    _, d, m = max(cands, key=lambda c: c[0])
+    return d, m
+
+
+def offscreen_events(frames: list[dict], z: Zones, source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED,
+                     min_duration: float | None = None) -> list[dict]:
+    """Off-screen looks: [{start, end, direction, dirs (frames per direction), mods (frames per gaze/head)}].
+
+    Runs of off-screen frames, gaps shorter than MERGE_GAP_S merged, at least `min_duration`
+    (default OFFSCREEN_MIN_DURATION_S). Lost frames are never off-screen."""
+    hs, vs, _ = gaze_series(frames, source, smoothed)
+    runs: list[dict] = []
+    cur = None
+    for f, h, v in zip(frames, hs, vs):
+        d = None if f.get("lost") else offscreen_direction(h, v, reading(f, "yaw", smoothed), reading(f, "pitch", smoothed), z)
+        t = f["t"] / 1000.0
+        if d is None:
+            if cur:
+                runs.append(cur)
+                cur = None
+            continue
+        if cur is None:
+            cur = {"start": t, "end": t, "dirs": {}, "mods": {}}
+        cur["end"] = t
+        cur["dirs"][d[0]] = cur["dirs"].get(d[0], 0) + 1
+        cur["mods"][d[1]] = cur["mods"].get(d[1], 0) + 1
+    if cur:
+        runs.append(cur)
+    merged: list[dict] = []
+    for r in runs:
+        if merged and r["start"] - merged[-1]["end"] < MERGE_GAP_S:
+            m = merged[-1]
+            m["end"] = r["end"]
+            for key in ("dirs", "mods"):
+                for k, n in r[key].items():
+                    m[key][k] = m[key].get(k, 0) + n
+        else:
+            merged.append(r)
+    need = OFFSCREEN_MIN_DURATION_S if min_duration is None else min_duration
+    out = []
+    for m in merged:
+        if m["end"] - m["start"] >= need:
+            m["direction"] = max(m["dirs"], key=lambda k: m["dirs"][k])
+            out.append(m)
+    return out
+
+
+# ---- typing: key categories, features per window, cycles, copy pattern ---------------------------------
+
+def typing_features(key_events: list[tuple[float, str]], t0: float, window: float = TYPING_FEATURE_WINDOW_S) -> dict:
+    """Typing features of the window [t0, t0 + window): keys, keys per second, pauses (gaps without a key longer
+    than TYPING_PAUSE_S, counting the silence before the first and after the last key), and the share of
+    backspace presses. key_events holds (time_s, category): never the keys themselves."""
+    ks = [(t, c) for t, c in key_events if t0 <= t < t0 + window]
+    n = len(ks)
+    edges = [t0] + [t for t, _ in ks] + [t0 + window]
+    pauses = sum(1 for a, b in zip(edges, edges[1:]) if b - a > TYPING_PAUSE_S)
+    backs = sum(1 for _, c in ks if c == "backspace")
+    return {"t0": round(t0, 2), "keys": n, "keys_per_s": round(n / window, 2), "pauses": pauses,
+            "backspace_ratio": round(backs / n, 3) if n else None}
+
+
+def find_cycles(events: list[dict], key_events: list[tuple[float, str]],
+                typing_window: float = COPY_TYPING_WINDOW_S) -> list[dict]:
+    """A cycle = an off-screen look followed by typing within `typing_window` seconds after it ended."""
+    cycles = []
+    for ev in events:
+        typed = [t for t, _ in key_events if ev["end"] <= t <= ev["end"] + typing_window]
+        if typed:
+            cycles.append({"start": ev["start"], "end": ev["end"], "direction": ev["direction"], "typing_start": typed[0],
+                           "features": typing_features(key_events, ev["end"])})
+    return cycles
+
+
+def directions_text(directions: dict[str, int]) -> str:
+    return ", ".join(f"{d} x{n}" for d, n in sorted(directions.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def copy_patterns(cycles: list[dict], min_cycles: int = COPY_MIN_CYCLES, window: float = COPY_WINDOW_S) -> list[dict]:
+    """copy_pattern: at least `min_cycles` cycles whose starts lie within `window` seconds.
+
+    Returns [{start, end, cycles, directions, features, n_cycles}] (one per cluster of qualifying cycles)."""
+    cs = sorted(cycles, key=lambda c: c["start"])
+    n = len(cs)
+    marked = [False] * n
+    for i in range(n):
+        j = i
+        while j + 1 < n and cs[j + 1]["start"] - cs[i]["start"] <= window:
+            j += 1
+        if j - i + 1 >= min_cycles:
+            for k in range(i, j + 1):
+                marked[k] = True
+    clusters: list[list[dict]] = []
+    for k in range(n):
+        if not marked[k]:
+            continue
+        if clusters and cs[k]["start"] - clusters[-1][-1]["start"] <= window:
+            clusters[-1].append(cs[k])
+        else:
+            clusters.append([cs[k]])
+    out = []
+    for cl in clusters:
+        dirs: dict[str, int] = {}
+        for c in cl:
+            dirs[c["direction"]] = dirs.get(c["direction"], 0) + 1
+        feats = [c["features"] for c in cl]
+        brs = [f["backspace_ratio"] for f in feats if f["backspace_ratio"] is not None]
+        out.append({
+            "start": cl[0]["start"], "end": cl[-1]["end"], "cycles": cl, "n_cycles": len(cl), "directions": dirs,
+            "features": {"keys_per_s": round(sum(f["keys_per_s"] for f in feats) / len(feats), 2),
+                         "pauses": round(sum(f["pauses"] for f in feats) / len(feats), 1),
+                         "backspace_ratio": round(sum(brs) / len(brs), 3) if brs else None},
+        })
+    return out
+
+
+def copy_pattern_text(cp: dict) -> str:
+    f = cp["features"]
+    br = "no backspace data" if f["backspace_ratio"] is None else f"{100 * f['backspace_ratio']:.0f}% backspace"
+    return (f"{cp['n_cycles']} cycles in {cp['end'] - cp['start']:.0f} s ({directions_text(cp['directions'])}); "
+            f"typing after the looks: {f['keys_per_s']:.1f} keys/s, {f['pauses']:.1f} pauses over {TYPING_PAUSE_S:g} s per {TYPING_FEATURE_WINDOW_S:g} s window, {br}")
+
+
+def off_screen_events_of(sc: "Sidecar", gaze_source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED,
+                         min_duration: float | None = None) -> tuple[list[dict], Zones | None]:
+    z = build_zones(sc.header, gaze_source, smoothed)
+    return (offscreen_events(sc.frames, z, gaze_source, smoothed, min_duration) if z else []), z
+
+
+def all_look_events(sc: "Sidecar", gaze_source: str = GAZE_SOURCE, smoothed: bool = USE_SMOOTHED,
+                    thresholds_mode: str = THRESHOLDS_MODE) -> list[dict]:
+    """Every look-away or off-screen event of a recording: [{start, end, kind ('look_away' or 'off_screen'), direction or None}]."""
+    ev = [{"start": a, "end": b, "kind": "look_away", "direction": None}
+          for a, b in sidecar_events(sc, gaze_source, smoothed, thresholds_mode)]
+    off, _ = off_screen_events_of(sc, gaze_source, smoothed)
+    ev += [{"start": e["start"], "end": e["end"], "kind": "off_screen", "direction": e["direction"]} for e in off]
+    return sorted(ev, key=lambda e: e["start"])
+
+
+def load_labels_ex(sidecar_path: str | Path) -> list[dict] | None:
+    """Hand labels with the optional 'direction' column (left, right, up, down; empty = any)."""
+    p = labels_path(sidecar_path)
+    if not p.exists():
+        return None
+    out = []
+    with p.open(newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            out.append({"start": float(row["start_s"]), "end": float(row["end_s"]),
+                        "label": (row.get("label") or "").strip(), "direction": (row.get("direction") or "").strip().lower()})
+    return out
