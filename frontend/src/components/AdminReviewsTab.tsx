@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { API_BASE } from '../api/config';
-import { reviewPath } from '../utils/interview';
-import { Badge, Button } from './ui';
+import { getAdminInterview, listSubmissionInterviews } from '../api/interviews';
+import type { AdminInterview } from '../types/interview';
+import { classNames } from '../utils/classNames';
+import { formatDateTime, reviewPath, summarizeQuestion } from '../utils/interview';
+import { Alert, Badge, Button, Spinner } from './ui';
+import styles from './AdminReviewsTab.module.css';
 
 // TODO: Make this per-assessment configurable (should match backend PASSING_THRESHOLD)
 const PASSING_THRESHOLD = 83;
@@ -11,6 +15,12 @@ interface RubricResult {
   criterion: string;
   passed: boolean;
   feedback: string;
+}
+
+interface TestResult {
+  testCaseId?: string;
+  passed: boolean;
+  isHidden?: boolean;
 }
 
 interface PendingSubmission {
@@ -29,6 +39,8 @@ interface PendingSubmission {
   passedCriteria?: number;
   totalCriteria?: number;
   rubricResults?: RubricResult[];
+  /** One entry per test case, in order. */
+  testResults?: TestResult[];
   submittedAt: string;
   /** 'manual_review' / 'grading_failed' = never graded automatically; the instructor grades it. */
   status?: string;
@@ -45,12 +57,31 @@ interface PendingSubmission {
   };
 }
 
+type SubTab = 'passed' | 'failed' | 'ungraded';
+
 // Submissions the system never graded (manual grading mode, or automatic grading failed).
 const isUngraded = (s: PendingSubmission) => s.status === 'manual_review' || s.status === 'grading_failed';
 
+const scoreText = (s: PendingSubmission) =>
+  isUngraded(s)
+    ? 'Not graded yet'
+    : s.milestoneType === 'embedded'
+      ? `${s.passedCriteria ?? 0}/${s.totalCriteria ?? 0} criteria (${s.score}%)`
+      : `${s.passedTests}/${s.totalTests} tests (${s.score}%)`;
+
+/** The interview of a submission, as the grade overview needs it. */
+type InterviewState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'none' }
+  | { kind: 'error'; message: string }
+  | { kind: 'ready'; interview: AdminInterview };
+
+const hasInterview = (s: PendingSubmission) => s.milestoneType !== 'embedded' && s.language === 'cpp';
+
 export function AdminReviewsTab() {
   const navigate = useNavigate();
-  const [activeSubTab, setActiveSubTab] = useState<'passed' | 'failed' | 'ungraded'>('passed');
+  const [activeSubTab, setActiveSubTab] = useState<SubTab>('passed');
   const [passedReviews, setPassedReviews] = useState<PendingSubmission[]>([]);
   const [failedReviews, setFailedReviews] = useState<PendingSubmission[]>([]);
   const [ungradedReviews, setUngradedReviews] = useState<PendingSubmission[]>([]);
@@ -65,6 +96,7 @@ export function AdminReviewsTab() {
   const [adjustedScore, setAdjustedScore] = useState<string>('');
   const [processing, setProcessing] = useState(false);
   const [criteriaModifications, setCriteriaModifications] = useState<{ [key: number]: boolean }>({});
+  const [interviewState, setInterviewState] = useState<InterviewState>({ kind: 'idle' });
 
   useEffect(() => {
     loadPendingReviews();
@@ -74,19 +106,19 @@ export function AdminReviewsTab() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const token = await getAuthToken();
-      
+
       const [passedRes, failedRes, ungradedRes] = await Promise.all([
         fetch(`${API_BASE}/credentials/get-pending-reviews?filter=passed`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         }),
         fetch(`${API_BASE}/credentials/get-pending-reviews?filter=failed`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         }),
         fetch(`${API_BASE}/credentials/get-pending-reviews?filter=ungraded`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
+          headers: { Authorization: `Bearer ${token}` },
+        }),
       ]);
 
       if (!passedRes.ok || !failedRes.ok || !ungradedRes.ok) {
@@ -96,14 +128,14 @@ export function AdminReviewsTab() {
       const passedData = await passedRes.json();
       const failedData = await failedRes.json();
       const ungradedData = await ungradedRes.json();
-      
+
       setPassedReviews(passedData.submissions || []);
       // The server's 'failed' list also includes ungraded work (older admin screens rely on that); keep it out of Failed here.
       setFailedReviews((failedData.submissions || []).filter((s: PendingSubmission) => !isUngraded(s)));
       setUngradedReviews(ungradedData.submissions || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error loading pending reviews:', err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : 'Failed to load pending reviews');
     } finally {
       setLoading(false);
     }
@@ -114,12 +146,12 @@ export function AdminReviewsTab() {
       setLoadingVideos(true);
       setWebcamUrl(null);
       setScreenUrl(null);
-      
+
       const token = await getAuthToken();
       const response = await fetch(`${API_BASE}/credentials/get-recording-urls/${submissionId}`, {
         headers: {
-          'Authorization': `Bearer ${token}`
-        }
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       if (!response.ok) {
@@ -129,11 +161,31 @@ export function AdminReviewsTab() {
       const data = await response.json();
       setWebcamUrl(data.urls.webcam || null);
       setScreenUrl(data.urls.screen || null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error loading recordings:', err);
-      alert(`Failed to load recordings: ${err.message}`);
+      alert(`Failed to load recordings: ${err instanceof Error ? err.message : 'unknown error'}`);
     } finally {
       setLoadingVideos(false);
+    }
+  };
+
+  /** The student's own interview, if there is one (practice interviews are not the submission's interview). */
+  const loadInterview = async (submission: PendingSubmission) => {
+    if (!hasInterview(submission)) {
+      setInterviewState({ kind: 'idle' });
+      return;
+    }
+    setInterviewState({ kind: 'loading' });
+    try {
+      const list = await listSubmissionInterviews(submission.submissionId);
+      const real = list.find((item) => !item.isPractice);
+      if (!real) {
+        setInterviewState({ kind: 'none' });
+        return;
+      }
+      setInterviewState({ kind: 'ready', interview: await getAdminInterview(real.interviewId) });
+    } catch (err: unknown) {
+      setInterviewState({ kind: 'error', message: err instanceof Error ? err.message : 'Could not load the interview.' });
     }
   };
 
@@ -143,6 +195,7 @@ export function AdminReviewsTab() {
     setRejectionReason('');
     setAdjustedScore('');
     setCriteriaModifications({});
+    void loadInterview(submission);
     await loadRecordingUrls(submission.submissionId);
   };
 
@@ -150,7 +203,7 @@ export function AdminReviewsTab() {
     if (!selectedSubmission) return;
 
     const scoreOverride = adjustedScore.trim() !== '' ? parseInt(adjustedScore) : null;
-    
+
     if (scoreOverride !== null && (isNaN(scoreOverride) || scoreOverride < 0 || scoreOverride > 100)) {
       alert('Adjusted score must be a number between 0 and 100');
       return;
@@ -158,7 +211,7 @@ export function AdminReviewsTab() {
 
     const effectiveScore = scoreOverride !== null ? scoreOverride : selectedSubmission.score;
     const willIssueCredential = effectiveScore >= PASSING_THRESHOLD;
-    
+
     const confirmMessage = willIssueCredential
       ? `Approve this submission and issue credential to ${selectedSubmission.studentName}? (Score: ${effectiveScore}%)`
       : `Approve this submission for ${selectedSubmission.studentName}? No credential will be issued (score: ${effectiveScore}%, threshold: ${PASSING_THRESHOLD}%).`;
@@ -167,20 +220,20 @@ export function AdminReviewsTab() {
 
     try {
       setProcessing(true);
-      
+
       const token = await getAuthToken();
       const response = await fetch(`${API_BASE}/credentials/approve-review`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           submissionId: selectedSubmission.submissionId,
           reviewNotes: reviewNotes || 'Approved',
           ...(scoreOverride !== null && { adjustedScore: scoreOverride }),
-          ...(Object.keys(criteriaModifications).length > 0 && { criteriaModifications })
-        })
+          ...(Object.keys(criteriaModifications).length > 0 && { criteriaModifications }),
+        }),
       });
 
       if (!response.ok) {
@@ -188,22 +241,11 @@ export function AdminReviewsTab() {
         throw new Error(errorData.message || 'Failed to approve review');
       }
 
-      alert(willIssueCredential 
-        ? 'Review approved! Credential will be issued.' 
-        : 'Review approved. No credential issued.');
-      const reviewedId = selectedSubmission.submissionId;
-      const withoutReviewed = (prev: PendingSubmission[]) => prev.filter(s => s.submissionId !== reviewedId);
-      if (activeSubTab === 'passed') {
-        setPassedReviews(withoutReviewed);
-      } else if (activeSubTab === 'ungraded') {
-        setUngradedReviews(withoutReviewed);
-      } else {
-        setFailedReviews(withoutReviewed);
-      }
-      setSelectedSubmission(null);
-    } catch (err: any) {
+      alert(willIssueCredential ? 'Review approved. Credential will be issued.' : 'Review approved. No credential issued.');
+      removeReviewed(selectedSubmission.submissionId);
+    } catch (err: unknown) {
       console.error('Error approving review:', err);
-      alert(`Failed to approve: ${err.message}`);
+      alert(`Failed to approve: ${err instanceof Error ? err.message : 'unknown error'}`);
     } finally {
       setProcessing(false);
     }
@@ -223,19 +265,19 @@ export function AdminReviewsTab() {
 
     try {
       setProcessing(true);
-      
+
       const token = await getAuthToken();
       const response = await fetch(`${API_BASE}/proctoring/reject-review`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           submissionId: selectedSubmission.submissionId,
           rejectionReason: rejectionReason,
-          ...(reviewNotes.trim() && { reviewNotes: reviewNotes.trim() })
-        })
+          ...(reviewNotes.trim() && { reviewNotes: reviewNotes.trim() }),
+        }),
       });
 
       if (!response.ok) {
@@ -243,22 +285,31 @@ export function AdminReviewsTab() {
       }
 
       alert('Review rejected.');
-      const reviewedId = selectedSubmission.submissionId;
-      const withoutReviewed = (prev: PendingSubmission[]) => prev.filter(s => s.submissionId !== reviewedId);
-      if (activeSubTab === 'passed') {
-        setPassedReviews(withoutReviewed);
-      } else if (activeSubTab === 'ungraded') {
-        setUngradedReviews(withoutReviewed);
-      } else {
-        setFailedReviews(withoutReviewed);
-      }
-      setSelectedSubmission(null);
-    } catch (err: any) {
+      removeReviewed(selectedSubmission.submissionId);
+    } catch (err: unknown) {
       console.error('Error rejecting review:', err);
-      alert(`Failed to reject: ${err.message}`);
+      alert(`Failed to reject: ${err instanceof Error ? err.message : 'unknown error'}`);
     } finally {
       setProcessing(false);
     }
+  };
+
+  /** Take a reviewed submission out of its list and go back to the list. */
+  const removeReviewed = (reviewedId: string) => {
+    const without = (prev: PendingSubmission[]) => prev.filter((s) => s.submissionId !== reviewedId);
+    if (activeSubTab === 'passed') {
+      setPassedReviews(without);
+    } else if (activeSubTab === 'ungraded') {
+      setUngradedReviews(without);
+    } else {
+      setFailedReviews(without);
+    }
+    setSelectedSubmission(null);
+  };
+
+  const chooseTab = (tab: SubTab) => {
+    setActiveSubTab(tab);
+    setSelectedSubmission(null);
   };
 
   // Derive the displayed list from active sub-tab
@@ -268,580 +319,425 @@ export function AdminReviewsTab() {
 
   if (loading) {
     return (
-      <div style={{ padding: '20px', textAlign: 'center' }}>
-        <p>Loading pending reviews...</p>
+      <div className={styles.loading}>
+        <Spinner decorative />
+        <p role="status" className={styles.loadingText}>
+          Loading pending reviews…
+        </p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div style={{ padding: '20px' }}>
-        <div style={{
-          backgroundColor: '#f8d7da',
-          color: '#721c24',
-          padding: '15px',
-          borderRadius: '8px'
-        }}>
-          Error: {error}
-        </div>
-      </div>
+      <Alert variant="danger" title="Could not load the reviews">
+        {error}
+      </Alert>
     );
   }
 
-  return (
-    <div style={{ padding: '20px' }}>
-      <h2 style={{ marginBottom: '20px', color: '#333' }}>Proctoring Reviews</h2>
+  const tabs: Array<{ id: SubTab; label: string; count: number }> = [
+    { id: 'passed', label: 'Passed', count: passedReviews.length },
+    { id: 'failed', label: 'Failed', count: failedReviews.length },
+    { id: 'ungraded', label: 'Ungraded', count: ungradedReviews.length },
+  ];
 
+  const adjustedNumber = adjustedScore.trim() !== '' ? parseInt(adjustedScore) : null;
+  const effectiveScore = adjustedNumber !== null && !isNaN(adjustedNumber) ? adjustedNumber : (selectedSubmission?.score ?? 0);
+  const willIssue = effectiveScore >= PASSING_THRESHOLD;
+
+  return (
+    <div className={styles.root}>
       {/* Sub-tab switcher */}
-      <div style={{ display: 'flex', gap: '0', marginBottom: '20px' }}>
-        <button
-          onClick={() => { setActiveSubTab('passed'); setSelectedSubmission(null); }}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: activeSubTab === 'passed' ? '#28a745' : '#f8f9fa',
-            color: activeSubTab === 'passed' ? 'white' : '#333',
-            border: '1px solid #dee2e6',
-            borderRadius: '6px 0 0 6px',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: 'bold'
-          }}
-        >
-          ✅ Passed ({passedReviews.length})
-        </button>
-        <button
-          onClick={() => { setActiveSubTab('failed'); setSelectedSubmission(null); }}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: activeSubTab === 'failed' ? '#dc3545' : '#f8f9fa',
-            color: activeSubTab === 'failed' ? 'white' : '#333',
-            border: '1px solid #dee2e6',
-            borderLeft: 'none',
-            borderRadius: '0',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: 'bold'
-          }}
-        >
-          ❌ Failed ({failedReviews.length})
-        </button>
-        <button
-          onClick={() => { setActiveSubTab('ungraded'); setSelectedSubmission(null); }}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: activeSubTab === 'ungraded' ? '#0066cc' : '#f8f9fa',
-            color: activeSubTab === 'ungraded' ? 'white' : '#333',
-            border: '1px solid #dee2e6',
-            borderLeft: 'none',
-            borderRadius: '0 6px 6px 0',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: 'bold'
-          }}
-        >
-          Ungraded ({ungradedReviews.length})
-        </button>
+      <div className={styles.tabs} role="group" aria-label="Show submissions">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            aria-pressed={activeSubTab === tab.id}
+            className={classNames(styles.tab, activeSubTab === tab.id && styles[`tab_${tab.id}`])}
+            onClick={() => chooseTab(tab.id)}
+          >
+            {tab.label}
+            <span className={styles.tabCount}>{tab.count}</span>
+          </button>
+        ))}
       </div>
-      
+
       {displayedReviews.length === 0 ? (
-        <div style={{
-          padding: '40px',
-          textAlign: 'center',
-          backgroundColor: '#e7f3ff',
-          borderRadius: '8px',
-          color: '#0066cc'
-        }}>
-          <p style={{ fontSize: '18px', margin: 0 }}>
-            {`✅ No ${activeTabLabel.toLowerCase()} submissions pending review!`}
-          </p>
-          <p style={{ fontSize: '14px', margin: '10px 0 0 0' }}>All {activeTabLabel.toLowerCase()} submissions have been reviewed.</p>
+        <div className={styles.empty}>
+          <p className={styles.emptyTitle}>{`No ${activeTabLabel.toLowerCase()} submissions pending review.`}</p>
+          <p className={styles.emptyText}>All {activeTabLabel.toLowerCase()} submissions have been reviewed.</p>
         </div>
       ) : (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: selectedSubmission ? '350px 1fr' : '1fr',
-          gap: '20px'
-        }}>
-          {/* Left: List of pending reviews */}
-          <div>
-            <h3 style={{ color: '#333', marginBottom: '15px' }}>
+        <div className={styles.panes}>
+          {/* The list hides while a submission is open; it keeps its scroll position for Back to list. */}
+          <section className={styles.pane} hidden={selectedSubmission !== null} aria-label={`${activeTabLabel} submissions`}>
+            <h2 className={styles.paneTitle}>
               {activeTabLabel} ({displayedReviews.length})
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {displayedReviews.map((submission) => (
-                <div
-                  key={submission.submissionId}
-                  onClick={() => handleSelectSubmission(submission)}
-                  style={{
-                    padding: '15px',
-                    backgroundColor: selectedSubmission?.submissionId === submission.submissionId 
-                      ? '#e7f3ff' 
-                      : 'white',
-                    border: selectedSubmission?.submissionId === submission.submissionId
-                      ? '2px solid #007bff'
-                      : '1px solid #dee2e6',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (selectedSubmission?.submissionId !== submission.submissionId) {
-                      e.currentTarget.style.backgroundColor = '#f8f9fa';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (selectedSubmission?.submissionId !== submission.submissionId) {
-                      e.currentTarget.style.backgroundColor = 'white';
-                    }
-                  }}
-                >
-                  <h4 style={{ margin: '0 0 8px 0', color: '#333', fontSize: '16px' }}>
-                    {submission.studentName}
-                  </h4>
-                  {submission.endedBy === 'left_page' && (
-                    <p style={{ margin: '4px 0' }}>
-                      <Badge variant="warning">Left mid-session (auto-submitted)</Badge>
-                    </p>
-                  )}
-                  <p style={{ margin: '4px 0', fontSize: '14px', color: '#666' }}>
-                    {submission.problemTitle}
-                  </p>
-                  <p style={{ 
-                    margin: '4px 0', fontSize: '13px', fontWeight: 'bold',
-                    color: submission.score >= PASSING_THRESHOLD ? '#28a745' : '#dc3545'
-                  }}>
-                    Score: {isUngraded(submission) ? 'Not graded yet' : submission.milestoneType === 'embedded'
-                      ? `${submission.passedCriteria ?? 0}/${submission.totalCriteria ?? 0} criteria (${submission.score}%)`
-                      : `${submission.passedTests}/${submission.totalTests} (${submission.score}%)`
-                    }
-                  </p>
-                  <p style={{ margin: '4px 0', fontSize: '12px', color: '#999' }}>
-                    {new Date(submission.submittedAt).toLocaleString()}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
+            </h2>
+            <ul className={styles.list}>
+              {displayedReviews.map((submission) => {
+                const passing = !isUngraded(submission) && submission.score >= PASSING_THRESHOLD;
+                return (
+                  <li key={submission.submissionId}>
+                    <button
+                      type="button"
+                      className={classNames(
+                        styles.item,
+                        isUngraded(submission) ? styles.itemUngraded : passing ? styles.itemPassing : styles.itemFailing,
+                      )}
+                      onClick={() => void handleSelectSubmission(submission)}
+                    >
+                      <span className={styles.itemName}>{submission.studentName}</span>
+                      <span className={styles.itemProblem}>{submission.problemTitle}</span>
+                      <span className={styles.itemMeta}>
+                        <span className={styles.itemScore}>{scoreText(submission)}</span>
+                        {submission.endedBy === 'left_page' && <Badge variant="warning">Left mid-session</Badge>}
+                      </span>
+                      <span className={styles.itemDate}>{new Date(submission.submittedAt).toLocaleString()}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
 
-          {/* Right: Selected submission details */}
+          {/* Selected submission */}
           {selectedSubmission && (
-            <div style={{
-              backgroundColor: 'white',
-              border: '1px solid #dee2e6',
-              borderRadius: '8px',
-              padding: '20px'
-            }}>
-              <h3 style={{ marginTop: 0, color: '#333' }}>Review Submission</h3>
-              {selectedSubmission.milestoneType !== 'embedded' && selectedSubmission.language === 'cpp' && (
-                <div>
-                  <Button size="sm" variant="secondary" onClick={() => navigate(reviewPath(selectedSubmission.submissionId))}>
-                    Interview
-                  </Button>
-                </div>
-              )}
-              {selectedSubmission.endedBy === 'left_page' && (
-                <p style={{ margin: '0 0 12px' }}>
-                  <Badge variant="warning">Left mid-session (auto-submitted)</Badge>
-                </p>
-              )}
-
-              {/* Student Info */}
-              <div style={{ marginBottom: '20px' }}>
-                <p style={{ margin: '5px 0', color: '#000' }}><strong>Student:</strong> {selectedSubmission.studentName}</p>
-                <p style={{ margin: '5px 0', color: '#000' }}><strong>Email:</strong> {selectedSubmission.studentEmail}</p>
-                <p style={{ margin: '5px 0', color: '#000' }}><strong>Problem:</strong> {selectedSubmission.problemTitle}</p>
-                <p style={{ margin: '5px 0', color: '#000' }}>
-                  <strong>Score:</strong>{' '}
-                  {isUngraded(selectedSubmission)
-                    ? 'Not graded yet. Enter an adjusted score below to grade it.'
-                    : selectedSubmission.milestoneType === 'embedded'
-                    ? `${selectedSubmission.passedCriteria ?? 0} / ${selectedSubmission.totalCriteria ?? 0} criteria (${selectedSubmission.score}%)`
-                    : `${selectedSubmission.passedTests}/${selectedSubmission.totalTests} (${selectedSubmission.score}%)`
-                  }
-                </p>
-                <p style={{ margin: '5px 0', color: '#000' }}>
-                  <strong>Passing threshold:</strong> {PASSING_THRESHOLD}%
-                </p>
+            <section className={classNames(styles.pane, styles.detail)} aria-label="Review submission">
+              <div className={styles.detailBar}>
+                <Button variant="secondary" size="sm" onClick={() => setSelectedSubmission(null)}>
+                  Back to list
+                </Button>
+                <h2 className={styles.detailTitle}>Review submission</h2>
               </div>
 
-                {/* Rubric breakdown — embedded submissions only */}
-                {selectedSubmission.milestoneType === 'embedded' && selectedSubmission.rubricResults && (
-                  <div style={{ marginBottom: '20px' }}>
-                    <h4 style={{ color: '#333', marginBottom: '12px' }}>AI Grading Breakdown</h4>
-                    {selectedSubmission.rubricResults.map((result, index) => (
-                      <div
-                        key={index}
-                        style={{
-                          display: 'flex', alignItems: 'flex-start', gap: '10px',
-                          padding: '10px', marginBottom: '8px',
-                          background: result.passed ? '#d4edda' : '#f8d7da',
-                          borderRadius: '6px',
-                          border: `1px solid ${result.passed ? '#c3e6cb' : '#f5c6cb'}`
-                        }}
+              <div className={styles.detailBody}>
+                {/* Who and what */}
+                <div className={styles.card}>
+                  <div className={styles.cardHead}>
+                    <h3 className={styles.cardTitle}>{selectedSubmission.studentName}</h3>
+                    {selectedSubmission.endedBy === 'left_page' && <Badge variant="warning">Left mid-session (auto-submitted)</Badge>}
+                  </div>
+                  <dl className={styles.facts}>
+                    <div>
+                      <dt>Email</dt>
+                      <dd>{selectedSubmission.studentEmail}</dd>
+                    </div>
+                    <div>
+                      <dt>Problem</dt>
+                      <dd>{selectedSubmission.problemTitle}</dd>
+                    </div>
+                    <div>
+                      <dt>Submitted</dt>
+                      <dd>{new Date(selectedSubmission.submittedAt).toLocaleString()}</dd>
+                    </div>
+                  </dl>
+                </div>
+
+                {/* Grade overview */}
+                <div className={classNames(styles.card, styles.overview)}>
+                  <h3 className={styles.cardTitle}>Grade overview</h3>
+
+                  <div className={styles.overviewGrid}>
+                    <div className={styles.overviewBlock}>
+                      <h4 className={styles.blockTitle}>Score</h4>
+                      <p
+                        className={classNames(
+                          styles.bigScore,
+                          isUngraded(selectedSubmission)
+                            ? styles.scoreNeutral
+                            : selectedSubmission.score >= PASSING_THRESHOLD
+                              ? styles.scorePass
+                              : styles.scoreFail,
+                        )}
                       >
-                        <span style={{
-                          background: result.passed ? '#28a745' : '#dc3545',
-                          color: 'white', padding: '2px 8px', borderRadius: '4px',
-                          fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0
-                        }}>
-                          {result.passed ? '✓' : '✗'}
-                        </span>
+                        {isUngraded(selectedSubmission) ? 'Not graded' : `${selectedSubmission.score}%`}
+                      </p>
+                      <p className={styles.blockText}>
+                        {isUngraded(selectedSubmission)
+                          ? 'Enter a score below to grade it.'
+                          : scoreText(selectedSubmission)}
+                      </p>
+                      <p className={styles.blockText}>Passing threshold: {PASSING_THRESHOLD}%</p>
+                    </div>
+
+                    {selectedSubmission.milestoneType !== 'embedded' && (
+                      <div className={styles.overviewBlock}>
+                        <h4 className={styles.blockTitle}>Test cases</h4>
+                        {selectedSubmission.testResults && selectedSubmission.testResults.length > 0 ? (
+                          <ul className={styles.tests}>
+                            {selectedSubmission.testResults.map((result, index) => (
+                              <li
+                                key={index}
+                                className={classNames(styles.test, result.passed ? styles.testPass : styles.testFail)}
+                              >
+                                <span className={styles.testId}>{`T${index + 1}`}</span>
+                                <span>{result.passed ? 'Passed' : 'Failed'}</span>
+                                {result.isHidden && <span className={styles.testHidden}>Hidden</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className={styles.blockText}>No test case details were stored for this submission.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Interview */}
+                  {hasInterview(selectedSubmission) && (
+                    <div className={styles.overviewBlock}>
+                      <div className={styles.blockHeadRow}>
+                        <h4 className={styles.blockTitle}>Interview</h4>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() =>
+                            navigate(
+                              reviewPath(
+                                selectedSubmission.submissionId,
+                                interviewState.kind === 'ready' ? interviewState.interview.interviewId : undefined,
+                              ),
+                            )
+                          }
+                        >
+                          Open full interview review
+                        </Button>
+                      </div>
+                      <InterviewSummary state={interviewState} />
+                    </div>
+                  )}
+
+                  {/* Recordings */}
+                  <div className={styles.overviewBlock}>
+                    <h4 className={styles.blockTitle}>Recordings</h4>
+                    {loadingVideos ? (
+                      <p className={styles.blockText}>Loading recordings…</p>
+                    ) : (
+                      <div className={styles.videos}>
                         <div>
-                          <p style={{ margin: '0 0 4px 0', color: '#333', fontSize: '13px', fontWeight: 'bold' }}>
-                            {result.criterion}
-                          </p>
-                          <p style={{ margin: 0, color: '#555', fontSize: '13px' }}>
-                            {result.feedback}
-                          </p>
+                          <p className={styles.videoLabel}>Webcam</p>
+                          {webcamUrl ? (
+                            <video src={webcamUrl} controls className={styles.video} />
+                          ) : (
+                            <p className={styles.blockText}>No webcam recording</p>
+                          )}
+                        </div>
+                        <div>
+                          <p className={styles.videoLabel}>Screen</p>
+                          {screenUrl ? (
+                            <video src={screenUrl} controls className={styles.video} />
+                          ) : (
+                            <p className={styles.blockText}>No screen recording</p>
+                          )}
                         </div>
                       </div>
-                    ))}
+                    )}
+                  </div>
+                </div>
+
+                {/* Rubric breakdown, embedded submissions only */}
+                {selectedSubmission.milestoneType === 'embedded' && selectedSubmission.rubricResults && (
+                  <div className={styles.card}>
+                    <h3 className={styles.cardTitle}>AI grading breakdown</h3>
+                    <ul className={styles.rubric}>
+                      {selectedSubmission.rubricResults.map((result, index) => (
+                        <li key={index} className={classNames(styles.rubricItem, result.passed ? styles.rubricPass : styles.rubricFail)}>
+                          <Badge variant={result.passed ? 'success' : 'danger'}>{result.passed ? 'Pass' : 'Fail'}</Badge>
+                          <div>
+                            <p className={styles.rubricCriterion}>{result.criterion}</p>
+                            <p className={styles.rubricFeedback}>{result.feedback}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
 
-                {/* Criterion Overrides Section */}
+                {/* Criterion overrides, embedded submissions only */}
                 {selectedSubmission.milestoneType === 'embedded' && selectedSubmission.rubricResults && (
-                  <div style={{ marginBottom: '20px' }}>
-                    <h4 style={{ color: '#333', marginBottom: '12px', marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #dee2e6' }}>
-                      Criterion Overrides (Optional)
-                    </h4>
-                    <p style={{ fontSize: '13px', color: '#666', marginBottom: '15px' }}>
-                      Override individual criteria independently of the overall score.
-                    </p>
-
-                    {selectedSubmission.rubricResults && selectedSubmission.rubricResults.map((result, index) => (
-                      <div
-                        key={index}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '15px',
-                          padding: '12px',
-                          marginBottom: '10px',
-                          background: '#f8f9fa',
-                          borderRadius: '6px',
-                          border: '1px solid #e0e0e0'
-                        }}
-                      >
-                        {/* Current AI status */}
-                        <div style={{ flex: 1 }}>
-                          <strong style={{ color: '#333', fontSize: '13px' }}>
-                            {index + 1}. {result.criterion}
-                          </strong>
-                          <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#666' }}>
-                            AI: <span style={{ fontWeight: 'bold', color: result.passed ? '#28a745' : '#dc3545' }}>
-                              {result.passed ? '✓ PASS' : '✗ FAIL'}
-                            </span>
-                          </p>
-                        </div>
-
-                        {/* Override buttons */}
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button
-                            onClick={() => {
-                              const newMods = { ...criteriaModifications };
-                              newMods[index] = true;
-                              setCriteriaModifications(newMods);
-                            }}
-                            style={{
-                              padding: '6px 12px',
-                              background: criteriaModifications[index] === true ? '#28a745' : '#f0f0f0',
-                              color: criteriaModifications[index] === true ? 'white' : '#333',
-                              border: `1px solid ${criteriaModifications[index] === true ? '#28a745' : '#ccc'}`,
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '12px',
-                              fontWeight: 'bold',
-                              transition: 'all 0.2s'
-                            }}
-                          >
-                            ✓ PASS
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              const newMods = { ...criteriaModifications };
-                              newMods[index] = false;
-                              setCriteriaModifications(newMods);
-                            }}
-                            style={{
-                              padding: '6px 12px',
-                              background: criteriaModifications[index] === false ? '#dc3545' : '#f0f0f0',
-                              color: criteriaModifications[index] === false ? 'white' : '#333',
-                              border: `1px solid ${criteriaModifications[index] === false ? '#dc3545' : '#ccc'}`,
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '12px',
-                              fontWeight: 'bold',
-                              transition: 'all 0.2s'
-                            }}
-                          >
-                            ✗ FAIL
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              const newMods = { ...criteriaModifications };
-                              delete newMods[index];
-                              setCriteriaModifications(newMods);
-                            }}
-                            style={{
-                              padding: '6px 12px',
-                              background: (index in criteriaModifications) ? '#f0f0f0' : '#e7f3ff',
-                              color: (index in criteriaModifications) ? '#333' : '#0066cc',
-                              border: `1px solid ${(index in criteriaModifications) ? '#ccc' : '#0066cc'}`,
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '12px',
-                              fontWeight: 'bold',
-                              transition: 'all 0.2s'
-                            }}
-                          >
-                            AI Result
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-
-                    {/* Summary of modifications */}
+                  <div className={styles.card}>
+                    <h3 className={styles.cardTitle}>Criterion overrides (optional)</h3>
+                    <p className={styles.blockText}>Override individual criteria independently of the overall score.</p>
+                    <ul className={styles.rubric}>
+                      {selectedSubmission.rubricResults.map((result, index) => {
+                        const decision = criteriaModifications[index];
+                        return (
+                          <li key={index} className={styles.overrideRow}>
+                            <div className={styles.overrideText}>
+                              <strong>
+                                {index + 1}. {result.criterion}
+                              </strong>
+                              <span className={styles.blockText}>AI result: {result.passed ? 'Pass' : 'Fail'}</span>
+                            </div>
+                            <div className={styles.overrideButtons}>
+                              <Button
+                                size="sm"
+                                variant={decision === true ? 'primary' : 'secondary'}
+                                aria-pressed={decision === true}
+                                onClick={() => setCriteriaModifications({ ...criteriaModifications, [index]: true })}
+                              >
+                                Pass
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={decision === false ? 'danger' : 'secondary'}
+                                aria-pressed={decision === false}
+                                onClick={() => setCriteriaModifications({ ...criteriaModifications, [index]: false })}
+                              >
+                                Fail
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={!(index in criteriaModifications)}
+                                onClick={() => {
+                                  const next = { ...criteriaModifications };
+                                  delete next[index];
+                                  setCriteriaModifications(next);
+                                }}
+                              >
+                                Use AI result
+                              </Button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
                     {Object.keys(criteriaModifications).length > 0 && (
-                      <div style={{
-                        marginTop: '15px',
-                        padding: '10px',
-                        background: '#e7f3ff',
-                        borderRadius: '6px',
-                        border: '1px solid #b8daff',
-                        color: '#0066cc',
-                        fontSize: '13px'
-                      }}>
+                      <p className={styles.modified}>
                         <strong>Modified: </strong>
-                        {Object.entries(criteriaModifications).map(([idx, val]) => (
-                          <span key={idx} style={{ marginRight: '8px' }}>
-                            #{parseInt(idx) + 1} → {val ? '✓' : '✗'}
-                          </span>
-                        ))}
-                      </div>
+                        {Object.entries(criteriaModifications)
+                          .map(([idx, val]) => `#${parseInt(idx) + 1} ${val ? 'pass' : 'fail'}`)
+                          .join(', ')}
+                      </p>
                     )}
                   </div>
                 )}
 
-              {/* Submitted Code — embedded submissions only */}
-              {selectedSubmission.milestoneType === 'embedded' && selectedSubmission.code && (
-                <div style={{ marginBottom: '20px' }}>
-                  <h4 style={{ color: '#333', marginBottom: '12px' }}>Submitted Code</h4>
-                  <pre style={{
-                    backgroundColor: '#1e1e1e',
-                    color: '#d4d4d4',
-                    padding: '16px',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    lineHeight: '1.5',
-                    overflow: 'auto',
-                    maxHeight: '400px',
-                    border: '1px solid #333',
-                    fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word'
-                  }}>
-                    {selectedSubmission.code}
-                  </pre>
-                </div>
-              )}
-
-              {/* Proctoring Videos */}
-              <div style={{ marginBottom: '20px' }}>
-                <h4 style={{ color: '#333' }}>Proctoring Recordings</h4>
-                
-                {loadingVideos ? (
-                  <p>Loading videos...</p>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                    {/* Webcam */}
-                    <div>
-                      <p style={{ fontWeight: 'bold', marginBottom: '8px' }}>📹 Webcam</p>
-                      {webcamUrl ? (
-                        <video
-                          src={webcamUrl}
-                          controls
-                          style={{
-                            width: '100%',
-                            maxHeight: '300px',
-                            backgroundColor: '#000',
-                            borderRadius: '4px'
-                          }}
-                        />
-                      ) : (
-                        <p style={{ color: '#999' }}>No webcam recording</p>
-                      )}
-                    </div>
-
-                    {/* Screen */}
-                    <div>
-                      <p style={{ fontWeight: 'bold', marginBottom: '8px' }}>🖥️ Screen</p>
-                      {screenUrl ? (
-                        <video
-                          src={screenUrl}
-                          controls
-                          style={{
-                            width: '100%',
-                            maxHeight: '300px',
-                            backgroundColor: '#000',
-                            borderRadius: '4px'
-                          }}
-                        />
-                      ) : (
-                        <p style={{ color: '#999' }}>No screen recording</p>
-                      )}
-                    </div>
+                {/* Submitted code, embedded submissions only */}
+                {selectedSubmission.milestoneType === 'embedded' && selectedSubmission.code && (
+                  <div className={styles.card}>
+                    <h3 className={styles.cardTitle}>Submitted code</h3>
+                    <pre className={styles.code}>{selectedSubmission.code}</pre>
                   </div>
                 )}
-              </div>
 
-              {/* Score Override */}
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{
-                  display: 'block',
-                  fontWeight: 'bold',
-                  marginBottom: '8px',
-                  color: '#333'
-                }}>
-                  Override Score (optional):
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={adjustedScore}
-                    onChange={(e) => setAdjustedScore(e.target.value)}
-                    placeholder={`Current: ${selectedSubmission.score}%`}
-                    style={{
-                      padding: '10px',
-                      fontSize: '14px',
-                      border: '1px solid #ced4da',
-                      borderRadius: '4px',
-                      width: '150px'
-                    }}
-                  />
-                  <span style={{ color: '#666', fontSize: '13px' }}>
-                    AI score: {selectedSubmission.score}% — Leave blank to keep as-is
-                  </span>
+                {/* Decision */}
+                <div className={classNames(styles.card, styles.decision)}>
+                  <h3 className={styles.cardTitle}>Your decision</h3>
+
+                  <div className={styles.field}>
+                    <label htmlFor="override-score" className={styles.label}>
+                      Override score (optional)
+                    </label>
+                    <div className={styles.scoreRow}>
+                      <input
+                        id="override-score"
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={adjustedScore}
+                        onChange={(e) => setAdjustedScore(e.target.value)}
+                        placeholder={`Current: ${selectedSubmission.score}%`}
+                        className={styles.numberInput}
+                      />
+                      <span className={styles.blockText}>AI score: {selectedSubmission.score}%. Leave blank to keep it.</span>
+                    </div>
+                    {adjustedNumber !== null && !isNaN(adjustedNumber) && (
+                      <p className={classNames(styles.scoreNote, willIssue ? styles.scorePass : styles.scoreFail)}>
+                        {willIssue
+                          ? `Adjusted score (${adjustedScore}%) meets the passing threshold. A credential will be issued.`
+                          : `Adjusted score (${adjustedScore}%) is below the passing threshold. No credential.`}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className={styles.field}>
+                    <label htmlFor="review-notes" className={styles.label}>
+                      Review notes (optional, used for both approval and rejection)
+                    </label>
+                    <textarea
+                      id="review-notes"
+                      value={reviewNotes}
+                      onChange={(e) => setReviewNotes(e.target.value)}
+                      placeholder="Add any additional context about this review..."
+                      className={styles.textarea}
+                    />
+                  </div>
+
+                  <div className={styles.field}>
+                    <label htmlFor="rejection-reason" className={styles.label}>
+                      Rejection reason (if rejecting)
+                    </label>
+                    <textarea
+                      id="rejection-reason"
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      placeholder="e.g., Detected cheating, Multiple people visible, Tab switching..."
+                      className={styles.textarea}
+                    />
+                  </div>
+
+                  <div className={styles.actions}>
+                    <Button onClick={handleApprove} loading={processing} className={styles.action}>
+                      {willIssue ? 'Approve and issue credential' : 'Approve (no credential)'}
+                    </Button>
+                    <Button variant="danger" onClick={handleReject} loading={processing} className={styles.action}>
+                      Reject
+                    </Button>
+                  </div>
                 </div>
-                {adjustedScore.trim() !== '' && !isNaN(parseInt(adjustedScore)) && (
-                  <p style={{ 
-                    margin: '8px 0 0 0', fontSize: '13px', fontWeight: 'bold',
-                    color: parseInt(adjustedScore) >= PASSING_THRESHOLD ? '#28a745' : '#dc3545'
-                  }}>
-                    {parseInt(adjustedScore) >= PASSING_THRESHOLD 
-                      ? `✅ Adjusted score (${adjustedScore}%) meets passing threshold — credential will be issued`
-                      : `❌ Adjusted score (${adjustedScore}%) below passing threshold — no credential`
-                    }
-                  </p>
-                )}
               </div>
-
-              {/* Review Notes */}
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{
-                  display: 'block',
-                  fontWeight: 'bold',
-                  marginBottom: '8px',
-                  color: '#333'
-                }}>
-                  Review Notes (optional — used for both approval and rejection):
-                </label>
-                <textarea
-                  value={reviewNotes}
-                  onChange={(e) => setReviewNotes(e.target.value)}
-                  placeholder="Add any additional context about this review..."
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    fontSize: '14px',
-                    border: '1px solid #ced4da',
-                    borderRadius: '4px',
-                    minHeight: '80px',
-                    fontFamily: 'inherit',
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-
-              {/* Rejection Reason */}
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{
-                  display: 'block',
-                  fontWeight: 'bold',
-                  marginBottom: '8px',
-                  color: '#333'
-                }}>
-                  Rejection Reason (if rejecting):
-                </label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder="e.g., Detected cheating, Multiple people visible, Tab switching..."
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    fontSize: '14px',
-                    border: '1px solid #ced4da',
-                    borderRadius: '4px',
-                    minHeight: '80px',
-                    fontFamily: 'inherit',
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  onClick={handleApprove}
-                  disabled={processing}
-                  style={{
-                    flex: 1,
-                    padding: '12px 20px',
-                    backgroundColor: processing ? '#6c757d' : '#28a745',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: processing ? 'not-allowed' : 'pointer',
-                    fontSize: '16px',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  {(() => {
-                    const scoreOverride = adjustedScore.trim() !== '' ? parseInt(adjustedScore) : null;
-                    const effectiveScore = scoreOverride !== null ? scoreOverride : (selectedSubmission?.score ?? 0);
-                    const willIssue = effectiveScore >= PASSING_THRESHOLD;
-                    return willIssue ? '✅ Approve & Issue Credential' : '✅ Approve (No Credential)';
-                  })()}
-                </button>
-
-                <button
-                  onClick={handleReject}
-                  disabled={processing}
-                  style={{
-                    flex: 1,
-                    padding: '12px 20px',
-                    backgroundColor: processing ? '#6c757d' : '#dc3545',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: processing ? 'not-allowed' : 'pointer',
-                    fontSize: '16px',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  ❌ Reject
-                </button>
-              </div>
-            </div>
+            </section>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The interview per main question, using the instructor's decisions when there are any, and the instructor's grade and note. */
+function InterviewSummary({ state }: { state: InterviewState }) {
+  if (state.kind === 'idle' || state.kind === 'loading') {
+    return (
+      <p className={styles.blockText} role="status">
+        Loading the interview…
+      </p>
+    );
+  }
+  if (state.kind === 'none') return <p className={styles.blockText}>The student has not started the interview.</p>;
+  if (state.kind === 'error') return <p className={styles.blockText}>{state.message}</p>;
+
+  const { interview } = state;
+  const review = interview.review;
+  const decided = Boolean(review && (review.grade !== null || review.note || Object.keys(review.overrides).length > 0));
+
+  return (
+    <div className={styles.interview}>
+      {interview.mainQuestions.length === 0 ? (
+        <p className={styles.blockText}>Nothing was asked in this interview.</p>
+      ) : (
+        <ul className={styles.summaryList}>
+          {interview.mainQuestions.map((question) => {
+            const changed = question.rubricSummary.some((item) => item.changed);
+            return (
+              <li key={question.index} className={styles.summaryRow}>
+                <span>{summarizeQuestion(question)}</span>
+                {changed && <Badge variant="changed">Changed by instructor</Badge>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p className={styles.blockText}>
+        {decided && review
+          ? `Instructor review: ${review.grade !== null ? `grade ${review.grade} of 100` : 'no grade'}${review.reviewedAt ? `, saved ${formatDateTime(review.reviewedAt)}` : ''}.`
+          : 'The instructor has not reviewed this interview yet. The summary shows the agent’s checks.'}
+      </p>
+      {review?.note && <p className={styles.noteText}>{review.note}</p>}
     </div>
   );
 }

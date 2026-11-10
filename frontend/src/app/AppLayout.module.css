@@ -34,7 +34,8 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.menuButton {
+/* Two classes: the Button component's own display rule would otherwise win and show this button on wide screens, where it does nothing. */
+.header .menuButton {
   display: none;
 }
 
@@ -154,7 +155,7 @@
 
 /* ---- Narrow screens: sidebar behind the menu button ---- */
 @media (max-width: 900px) {
-  .menuButton {
+  .header .menuButton {
     display: inline-flex;
   }
 

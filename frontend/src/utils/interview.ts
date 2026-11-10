@@ -1,4 +1,4 @@
-import type { AdminInterview, ChatInterview, InterviewStatus, StudentInterview } from '../types/interview';
+import type { AdminInterview, AdminMainQuestion, ChatInterview, InterviewStatus, RubricSummaryItem, StudentInterview } from '../types/interview';
 
 /** Student view -> what the chat shows. */
 export function chatFromStudentView(view: StudentInterview): ChatInterview {
@@ -144,4 +144,46 @@ export function reviewPath(submissionId: string, interviewId?: string) {
 /** The practice interview screen. */
 export function practicePath(submissionId: string, interviewId: string) {
   return `${reviewPath(submissionId)}/practice/${encodeURIComponent(interviewId)}`;
+}
+
+/** A rubric item with the instructor's draft decision applied on top of the agent's finding. */
+export interface ReviewedItem extends RubricSummaryItem {
+  /** What counts now: the draft decision when there is one, otherwise the agent's finding. */
+  current: boolean | null;
+  /** The draft decision differs from the agent's finding. */
+  isChanged: boolean;
+  /** The instructor has decided this item (even if the decision agrees with the agent). */
+  decided: boolean;
+}
+
+/** The items of one main question with the instructor's draft decisions for it (item id -> shown). */
+export function reviewedItems(question: AdminMainQuestion, draft: Record<string, boolean> | undefined): ReviewedItem[] {
+  return question.rubricSummary.map((item) => {
+    const decision = draft && typeof draft[item.id] === 'boolean' ? draft[item.id] : null;
+    const current = decision !== null ? decision : item.agentShown;
+    return { ...item, current, decided: decision !== null, isChanged: decision !== null && decision !== item.agentShown };
+  });
+}
+
+/** "Q1: r1 shown, r2 not shown, follow-up asked" or "Q2: all shown", from each item's final value (overrides applied). */
+export function summarizeQuestion(question: AdminMainQuestion): string {
+  const items = question.rubricSummary;
+  const followUp = question.followUps.length > 0;
+  const parts: string[] = [];
+  if (items.length > 0 && items.every((item) => item.shown === true)) {
+    parts.push('all shown');
+  } else if (items.length === 0 || items.every((item) => item.shown === null)) {
+    parts.push('not checked');
+  } else {
+    items.forEach((item) => parts.push(`${item.id} ${item.shown === null ? 'not checked' : item.shown ? 'shown' : 'not shown'}`));
+  }
+  if (followUp) parts.push('follow-up asked');
+  return `Q${question.index}: ${parts.join(', ')}`;
+}
+
+/** "Walk me through the readings and ..." cut to a short single line. */
+export function shortText(text: string, max = 80): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  if (flat.length <= max) return flat;
+  return `${flat.slice(0, max - 1).trimEnd()}…`;
 }

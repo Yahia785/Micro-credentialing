@@ -121,3 +121,34 @@
     display: none;
   }
 }
+
+/* Syntax colors (tokens): read-only code only. */
+.plain {
+  color: var(--color-text-primary);
+}
+
+.keyword {
+  color: var(--color-code-keyword);
+  font-weight: var(--font-weight-semibold);
+}
+
+.type {
+  color: var(--color-code-type);
+}
+
+.string {
+  color: var(--color-code-string);
+}
+
+.number {
+  color: var(--color-code-number);
+}
+
+.comment {
+  color: var(--color-code-comment);
+  font-style: italic;
+}
+
+.preproc {
+  color: var(--color-code-preproc);
+}

@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
 import type { AdminAnswer, AdminFollowUp, AdminMainQuestion, AgentCheck, RubricItem } from '../../types/interview';
-import { formatTime, highlightQuotes } from '../../utils/interview';
-import { Badge, Card } from '../ui';
+import { classNames } from '../../utils/classNames';
+import { formatTime, highlightQuotes, reviewedItems, shortText } from '../../utils/interview';
+import type { ReviewedItem } from '../../utils/interview';
+import { Badge } from '../ui';
+import { Disclosure } from './Disclosure';
 import styles from './QuestionReviewCard.module.css';
 
 /** Rubric items are written with Markdown ticks for the agent; the instructor sees plain text. */
@@ -119,44 +122,6 @@ function checkNote(check: AgentCheck): string {
   return 'This interview used a prompt version that does not record a rubric check for each answer.';
 }
 
-/** The agent's check of one answer: each rubric item marked Shown with the student's own words, or Not shown. */
-function AgentCheckView({ check }: { check: AgentCheck | null }) {
-  if (!check) {
-    return <p className={styles.note}>No agent check was recorded for this answer.</p>;
-  }
-  const checked = check.items.some((item) => item.shown !== null);
-  if (!checked) {
-    return <p className={styles.note}>{checkNote(check)}</p>;
-  }
-
-  return (
-    <div className={styles.check}>
-      <h5 className={styles.checkTitle}>Agent&apos;s check</h5>
-      <ul className={styles.items}>
-        {check.items.map((item) => {
-          const shown = item.shown === true;
-          const quote = shown && item.evidence && item.evidence !== NOT_SHOWN ? item.evidence : null;
-          return (
-            <li key={item.id} className={styles.item}>
-              <div className={styles.itemHead}>
-                <Badge variant={shown ? 'success' : 'warning'}>{shown ? 'Shown' : 'Not shown'}</Badge>
-                <span className={styles.itemText}>
-                  <span className={styles.itemId}>{item.id}</span> {plain(item.text)}
-                </span>
-              </div>
-              {quote && (
-                <blockquote className={styles.quote}>
-                  <mark className={styles.mark}>{quote}</mark>
-                </blockquote>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
 function AnswerReview({ answer, label }: { answer: AdminAnswer; label: string }) {
   const quotes = (answer.check?.items ?? [])
     .filter((item) => item.shown === true && item.evidence && item.evidence !== NOT_SHOWN)
@@ -164,17 +129,24 @@ function AnswerReview({ answer, label }: { answer: AdminAnswer; label: string })
   const segments = highlightQuotes(answer.text, quotes);
   const pastes = answer.clientTiming?.pasteCount ?? 0;
   const focusLosses = answer.clientTiming?.focusLossCount ?? 0;
+  const unchecked = answer.check !== null && answer.check.items.every((item) => item.shown === null);
 
   return (
-    <div className={styles.answer}>
-      <div className={styles.blockHeader}>
-        <h4 className={styles.blockTitle}>{label}</h4>
-        <time className={styles.time} dateTime={answer.answeredAt}>
-          {formatTime(answer.answeredAt)}
-        </time>
-        {pastes > 0 && <Badge variant="neutral">{`Pasted ${plural(pastes, 'time', 'times')}`}</Badge>}
-        {focusLosses > 0 && <Badge variant="neutral">{`Left the window ${plural(focusLosses, 'time', 'times')}`}</Badge>}
-      </div>
+    <Disclosure
+      defaultOpen
+      headingLevel={5}
+      className={styles.answer}
+      title={
+        <>
+          <span className={styles.blockTitle}>{label}</span>
+          <time className={styles.time} dateTime={answer.answeredAt}>
+            {formatTime(answer.answeredAt)}
+          </time>
+          {pastes > 0 && <Badge variant="neutral">{`Pasted ${plural(pastes, 'time', 'times')}`}</Badge>}
+          {focusLosses > 0 && <Badge variant="neutral">{`Left the window ${plural(focusLosses, 'time', 'times')}`}</Badge>}
+        </>
+      }
+    >
       <p className={styles.answerText}>
         {segments.map((segment, index) =>
           segment.highlighted ? (
@@ -186,23 +158,30 @@ function AnswerReview({ answer, label }: { answer: AdminAnswer; label: string })
           ),
         )}
       </p>
-      <AgentCheckView check={answer.check} />
+      {answer.check === null && <p className={styles.note}>No agent check was recorded for this answer.</p>}
+      {unchecked && answer.check && <p className={styles.note}>{checkNote(answer.check)}</p>}
       <TechnicalDetails answer={answer} />
-    </div>
+    </Disclosure>
   );
 }
 
 function FollowUpReview({ followUp, rubric }: { followUp: AdminFollowUp; rubric: RubricItem[] }) {
   const target = followUp.target ? rubric.find((item) => item.id === followUp.target) : undefined;
   return (
-    <div className={styles.followUp}>
-      <div className={styles.blockHeader}>
-        <h4 className={styles.blockTitle}>Follow-up question</h4>
-        <time className={styles.time} dateTime={followUp.askedAt}>
-          {formatTime(followUp.askedAt)}
-        </time>
-        {followUp.isHint && <Badge variant="info">Hint</Badge>}
-      </div>
+    <Disclosure
+      defaultOpen
+      headingLevel={5}
+      className={styles.followUp}
+      title={
+        <>
+          <span className={styles.blockTitle}>Follow-up question</span>
+          <time className={styles.time} dateTime={followUp.askedAt}>
+            {formatTime(followUp.askedAt)}
+          </time>
+          {followUp.isHint && <Badge variant="info">Hint</Badge>}
+        </>
+      }
+    >
       <p className={styles.followUpText}>{followUp.question}</p>
       {followUp.target && (
         <p className={styles.target}>
@@ -210,34 +189,181 @@ function FollowUpReview({ followUp, rubric }: { followUp: AdminFollowUp; rubric:
           {target ? `: ${plain(target.text)}` : ''}
         </p>
       )}
-    </div>
+    </Disclosure>
   );
 }
 
-/** One main question: the question, then each answer with the agent's check and the follow-up that came after it, in time order. */
-export function QuestionReviewCard({ question }: { question: AdminMainQuestion }) {
+function verdictLabel(value: boolean | null) {
+  if (value === null) return 'Not checked';
+  return value ? 'Shown' : 'Not shown';
+}
+
+function verdictVariant(value: boolean | null): 'success' | 'warning' | 'neutral' {
+  if (value === null) return 'neutral';
+  return value ? 'success' : 'warning';
+}
+
+/**
+ * One rubric item: the agent's check, and the instructor's decision as a separate control. The quote is behind the row's own
+ * disclosure. A decision that differs from the agent's is marked "Changed by instructor".
+ */
+function RubricItemRow({
+  questionIndex,
+  item,
+  disabled,
+  onDecide,
+}: {
+  questionIndex: number;
+  item: ReviewedItem;
+  disabled: boolean;
+  onDecide: (value: boolean | null) => void;
+}) {
+  // Choosing the value the agent already found removes the decision, so nothing is stored that changes nothing.
+  const choose = (value: boolean) => onDecide(value === item.agentShown ? null : value);
+  const labelId = `decision-q${questionIndex}-${item.id}`;
+
   return (
-    <Card
+    <Disclosure
+      headingLevel={5}
+      tone={item.isChanged ? 'changed' : 'default'}
+      title={
+        <>
+          <span className={styles.itemId}>{item.id}</span>
+          <span className={styles.itemText}>{plain(item.text)}</span>
+        </>
+      }
+      aside={
+        <>
+          <span className={styles.verdict}>
+            <span className={styles.verdictLabel}>Agent&apos;s check</span>
+            <Badge variant={verdictVariant(item.agentShown)}>{verdictLabel(item.agentShown)}</Badge>
+          </span>
+          <span className={styles.verdict}>
+            <span className={styles.verdictLabel} id={labelId}>
+              Instructor&apos;s decision
+            </span>
+            <span className={styles.segmented} role="group" aria-labelledby={labelId}>
+              <button
+                type="button"
+                disabled={disabled}
+                aria-pressed={item.current === true}
+                className={classNames(styles.segment, item.current === true && styles.segmentShown)}
+                onClick={() => choose(true)}
+              >
+                Shown
+              </button>
+              <button
+                type="button"
+                disabled={disabled}
+                aria-pressed={item.current === false}
+                className={classNames(styles.segment, item.current === false && styles.segmentNotShown)}
+                onClick={() => choose(false)}
+              >
+                Not shown
+              </button>
+            </span>
+          </span>
+          {item.isChanged && <Badge variant="changed">Changed by instructor</Badge>}
+        </>
+      }
+    >
+      {item.agentShown === true && item.evidence ? (
+        <blockquote className={styles.quote}>
+          <mark className={styles.mark}>{item.evidence}</mark>
+        </blockquote>
+      ) : (
+        <p className={styles.note}>
+          {item.agentShown === false
+            ? 'The agent found no words in the student’s answers that show this item.'
+            : item.agentShown === null
+              ? 'The agent made no check of this item.'
+              : 'The agent found this item shown, but kept no quote.'}
+        </p>
+      )}
+    </Disclosure>
+  );
+}
+
+interface QuestionReviewCardProps {
+  question: AdminMainQuestion;
+  /** The instructor's draft decisions for this question (item id -> shown). */
+  draft: Record<string, boolean> | undefined;
+  disabled?: boolean;
+  onDecide: (questionIndex: number, itemId: string, value: boolean | null) => void;
+}
+
+/** One main question as a collapsible section: a header for the overview, the question, its rubric, and the conversation. */
+export function QuestionReviewCard({ question, draft, disabled = false, onDecide }: QuestionReviewCardProps) {
+  const items = reviewedItems(question, draft);
+  const total = items.length;
+  const shownCount = items.filter((item) => item.current === true).length;
+  const unchecked = items.length > 0 && items.every((item) => item.current === null);
+  const changedCount = items.filter((item) => item.isChanged).length;
+  const hinted = question.followUps.some((followUp) => followUp.isHint);
+  const plainFollowUps = question.followUps.some((followUp) => !followUp.isHint);
+
+  return (
+    <Disclosure
+      variant="section"
       headingLevel={3}
-      title={`Question ${question.index}${question.themeTitle ? `: ${question.themeTitle}` : ''}`}
-      actions={<span className={styles.time}>Asked {formatTime(question.askedAt)}</span>}
+      tone={changedCount > 0 ? 'changed' : 'default'}
+      title={
+        <>
+          <span className={styles.qNumber}>{`Q${question.index}`}</span>
+          <span className={styles.qShort}>{shortText(question.question)}</span>
+          {unchecked ? (
+            <Badge variant="neutral">Not checked</Badge>
+          ) : (
+            total > 0 && <Badge variant={shownCount === total ? 'success' : 'warning'}>{`${shownCount} of ${total} shown`}</Badge>
+          )}
+          {plainFollowUps && <Badge variant="info">Follow-up</Badge>}
+          {hinted && <Badge variant="info">Hint</Badge>}
+          {changedCount > 0 && <Badge variant="changed">{`${changedCount} changed`}</Badge>}
+        </>
+      }
     >
       <div className={styles.timeline}>
-        <p className={styles.question}>{question.question}</p>
+        <Disclosure defaultOpen headingLevel={4} title={<span className={styles.sectionTitle}>Question</span>}>
+          <p className={styles.question}>{question.question}</p>
+          <p className={styles.time}>
+            {question.themeTitle ? `${question.themeTitle}. ` : ''}Asked {formatTime(question.askedAt)}
+          </p>
+        </Disclosure>
 
-        {question.answers.length === 0 && <p className={styles.note}>The student has not answered this question yet.</p>}
-
-        {question.answers.map((answer, index) => (
-          <div key={index} className={styles.step}>
-            <AnswerReview answer={answer} label={index === 0 ? 'Answer' : 'Follow-up answer'} />
-            {question.followUps
-              .filter((followUp) => followUp.afterAnswer === index + 1)
-              .map((followUp, followIndex) => (
-                <FollowUpReview key={followIndex} followUp={followUp} rubric={question.rubric} />
+        {items.length > 0 && (
+          <section className={styles.group} aria-label={`Rubric for question ${question.index}`}>
+            <h4 className={styles.groupTitle}>Rubric: agent&apos;s check and instructor&apos;s decision</h4>
+            <div className={styles.groupList}>
+              {items.map((item) => (
+                <RubricItemRow
+                  key={item.id}
+                  questionIndex={question.index}
+                  item={item}
+                  disabled={disabled}
+                  onDecide={(value) => onDecide(question.index, item.id, value)}
+                />
               ))}
+            </div>
+          </section>
+        )}
+
+        <section className={styles.group} aria-label={`Conversation for question ${question.index}`}>
+          <h4 className={styles.groupTitle}>Conversation</h4>
+          <div className={styles.groupList}>
+            {question.answers.length === 0 && <p className={styles.note}>The student has not answered this question yet.</p>}
+            {question.answers.map((answer, index) => (
+              <div key={index} className={styles.step}>
+                <AnswerReview answer={answer} label={index === 0 ? 'Answer' : 'Follow-up answer'} />
+                {question.followUps
+                  .filter((followUp) => followUp.afterAnswer === index + 1)
+                  .map((followUp, followIndex) => (
+                    <FollowUpReview key={followIndex} followUp={followUp} rubric={question.rubric} />
+                  ))}
+              </div>
+            ))}
           </div>
-        ))}
+        </section>
       </div>
-    </Card>
+    </Disclosure>
   );
 }

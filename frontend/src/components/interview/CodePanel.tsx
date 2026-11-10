@@ -1,6 +1,7 @@
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Alert, Button, Spinner } from '../ui';
 import { classNames } from '../../utils/classNames';
+import { highlightCode } from '../../utils/highlightCode';
 import styles from './CodePanel.module.css';
 
 interface CodePanelProps {
@@ -21,7 +22,7 @@ interface CodePanelProps {
 export function CodePanel({ title = 'Your submitted code', code, loading = false, error = null, collapsible = true, fill = false, className }: CodePanelProps) {
   const [expanded, setExpanded] = useState(false);
   const bodyId = useId();
-  const lines = code === null ? [] : code.replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n');
+  const lines = useMemo(() => (code === null ? [] : highlightCode(code)), [code]);
 
   return (
     <section className={classNames(styles.panel, fill && styles.fill, className)} aria-label={title}>
@@ -54,7 +55,11 @@ export function CodePanel({ title = 'Your submitted code', code, loading = false
               <code>
                 {lines.map((line, index) => (
                   <span key={index} className={styles.line}>
-                    {line === '' ? ' ' : line}
+                    {line.length === 0 ? ' ' : line.map((token, tokenIndex) => (
+                      <span key={tokenIndex} className={styles[token.type]}>
+                        {token.text}
+                      </span>
+                    ))}
                   </span>
                 ))}
               </code>

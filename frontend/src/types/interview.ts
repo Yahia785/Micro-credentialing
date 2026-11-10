@@ -103,6 +103,20 @@ export interface AdminFollowUp {
   target: string | null;
 }
 
+/**
+ * One rubric item of a main question, over all its answers: the agent's finding next to the instructor's decision.
+ * `agentShown` is null when the agent made no check; `instructorShown` is null until the instructor decides.
+ */
+export interface RubricSummaryItem extends RubricItem {
+  agentShown: boolean | null;
+  /** The student's quote from the agent's check, when the agent found the item shown. */
+  evidence: string | null;
+  instructorShown: boolean | null;
+  changed: boolean;
+  /** The final value: the instructor's decision when there is one, otherwise the agent's. */
+  shown: boolean | null;
+}
+
 export interface AdminMainQuestion {
   index: number;
   themeId: string | null;
@@ -110,8 +124,28 @@ export interface AdminMainQuestion {
   question: string;
   askedAt: string;
   rubric: RubricItem[];
+  rubricSummary: RubricSummaryItem[];
   answers: AdminAnswer[];
   followUps: AdminFollowUp[];
+}
+
+/** Instructor overrides: main question number -> rubric item id -> shown (true) or not shown (false). */
+export type ReviewOverrides = Record<string, Record<string, boolean>>;
+
+/** The instructor's saved review of an interview. */
+export interface InterviewReview {
+  overrides: ReviewOverrides;
+  grade: number | null;
+  note: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+}
+
+/** PUT /interviews/{id}/review */
+export interface InterviewReviewInput {
+  overrides: ReviewOverrides;
+  grade: number | null;
+  note: string;
 }
 
 export interface AdminRawTurn {
@@ -142,6 +176,8 @@ export interface AdminInterview {
   timeLeftMs: number;
   serverNow: string;
   code: string | null;
+  /** The instructor's saved review, or null before anything was saved. */
+  review: InterviewReview | null;
   mainQuestions: AdminMainQuestion[];
   turns: AdminRawTurn[];
 }

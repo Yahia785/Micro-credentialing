@@ -131,3 +131,23 @@
   --layout-header-height: 64px;
   --layout-content-max-width: 1200px;
 }
+
+/* ---- Interview review: "changed by instructor" (distinct from shown / not shown) ---- */
+:root {
+  --color-changed: #4338ca;               /* #fff on this = 8.3:1 */
+  --color-changed-subtle-bg: #eef2ff;
+  --color-changed-border: #a5b4fc;
+  --color-changed-text-on-subtle: #312e81; /* on subtle bg = 10.5:1 */
+
+  /* Section backgrounds for the review screens */
+  --color-bg-section: var(--color-gray-100);
+  --color-bg-header: var(--color-gray-800);
+
+  /* Syntax colors for read-only code (on --color-gray-50; all 4.5:1 or better) */
+  --color-code-keyword: #1d4ed8;
+  --color-code-type: #0f766e;
+  --color-code-string: #b91c1c;
+  --color-code-number: #9a3412;
+  --color-code-comment: #4b5563;
+  --color-code-preproc: #7e22ce;
+}

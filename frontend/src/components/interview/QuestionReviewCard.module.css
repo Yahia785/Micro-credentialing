@@ -4,9 +4,57 @@
   gap: var(--space-4);
 }
 
+/* ---- Section header (the overview line) ---- */
+.qNumber {
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-header);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.qShort {
+  flex: 1 1 14rem;
+  min-width: 0;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-normal);
+}
+
+.sectionTitle {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+.groupList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .question {
   max-width: 70ch;
-  margin: 0;
+  margin: 0 0 var(--space-2);
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-relaxed);
@@ -15,10 +63,11 @@
 .step {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 .time {
+  margin: 0;
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   font-weight: var(--font-weight-normal);
@@ -36,26 +85,15 @@
   font-size: var(--font-size-sm);
 }
 
-.blockHeader {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-
 .blockTitle {
-  margin: 0;
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
 }
 
+/* The student's answers sit on a white card; the agent's follow-ups on a blue one. */
 .answer {
-  padding: var(--space-3) var(--space-4);
-  background-color: var(--color-bg-card);
-  border: 1px solid var(--color-gray-300);
-  border-radius: var(--radius-md);
+  border-color: var(--color-gray-300);
 }
 
 .answerText {
@@ -73,61 +111,10 @@
   border-bottom: 2px solid var(--color-warning);
 }
 
-.check {
-  padding: var(--space-3);
-  background-color: var(--color-gray-50);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-
-.checkTitle {
-  margin: 0 0 var(--space-2);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-secondary);
-}
-
-.items {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.itemHead {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-}
-
-.itemText {
-  max-width: 70ch;
-  line-height: var(--line-height-normal);
-}
-
-.itemId {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
-.quote {
-  margin: var(--space-2) 0 0 var(--space-4);
-  padding-left: var(--space-3);
-  border-left: 2px solid var(--color-gray-300);
-  max-width: 70ch;
-  font-style: italic;
-  overflow-wrap: anywhere;
-}
-
 .followUp {
-  padding: var(--space-3) var(--space-4);
   background-color: var(--color-info-subtle-bg);
-  border: 1px solid var(--color-info);
+  border-color: var(--color-info);
   border-left-width: var(--space-1);
-  border-radius: var(--radius-md);
   color: var(--color-info-text-on-subtle);
 }
 
@@ -147,6 +134,91 @@
   font-size: var(--font-size-sm);
 }
 
+/* ---- Rubric items ---- */
+.itemId {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.itemText {
+  flex: 1 1 12rem;
+  min-width: 0;
+  line-height: var(--line-height-normal);
+}
+
+.verdict {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.verdictLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--color-gray-400);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.segment {
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  background-color: var(--color-bg-card);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.segment + .segment {
+  border-left: 1px solid var(--color-gray-400);
+}
+
+.segment:hover:not(:disabled) {
+  background-color: var(--color-gray-100);
+}
+
+.segment:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: -2px;
+}
+
+.segment:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.segmentShown,
+.segmentShown:hover:not(:disabled) {
+  background-color: var(--color-success);
+  color: var(--color-text-inverse);
+  font-weight: var(--font-weight-semibold);
+}
+
+.segmentNotShown,
+.segmentNotShown:hover:not(:disabled) {
+  background-color: var(--color-warning);
+  color: var(--color-text-inverse);
+  font-weight: var(--font-weight-semibold);
+}
+
+.quote {
+  margin: 0 0 0 var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-gray-300);
+  max-width: 70ch;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Technical details ---- */
 .details {
   margin-top: var(--space-3);
   font-size: var(--font-size-sm);

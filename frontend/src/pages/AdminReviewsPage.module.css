@@ -1,0 +1,16 @@
+/*
+ * The page is exactly as tall as the space under the app header (the main area has a space-8 gutter above and below),
+ * so the page itself never scrolls: the submission list and the open submission scroll inside it, separately.
+ */
+.page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--layout-header-height) - var(--space-8) - var(--space-8));
+  min-height: 28rem;
+}
+
+@media (max-width: 900px) {
+  .page {
+    height: calc(100dvh - var(--layout-header-height) - var(--space-6) - var(--space-6));
+  }
+}

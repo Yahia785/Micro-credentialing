@@ -3,6 +3,8 @@ import type {
   AdminInterview,
   AnswerResult,
   ClientTiming,
+  InterviewReview,
+  InterviewReviewInput,
   InterviewSummary,
   StartInterviewResult,
   StudentInterview,
@@ -22,7 +24,7 @@ export class InterviewApiError extends Error {
 const NETWORK_MESSAGE = 'Could not reach the server. Check your connection and try again.';
 const GENERIC_MESSAGE = 'Something went wrong. Please try again.';
 
-async function request<T>(path: string, init: { method: 'GET' | 'POST'; body?: unknown } = { method: 'GET' }): Promise<T> {
+async function request<T>(path: string, init: { method: 'GET' | 'POST' | 'PUT'; body?: unknown } = { method: 'GET' }): Promise<T> {
   const token = await getAuthToken();
 
   let response: Response;
@@ -91,4 +93,13 @@ export async function listSubmissionInterviews(submissionId: string) {
 /** Admins only: start a practice interview on an existing submission's code. */
 export function startPracticeInterview(submissionId: string) {
   return request<StartInterviewResult>('/interviews/practice', { method: 'POST', body: { submissionId } });
+}
+
+/** Admins only: save the instructor's overrides, grade and note. The agent's own checks are not changed. */
+export async function saveInterviewReview(interviewId: string, review: InterviewReviewInput) {
+  const data = await request<{ review: InterviewReview }>(`/interviews/${encodeURIComponent(interviewId)}/review`, {
+    method: 'PUT',
+    body: review,
+  });
+  return data.review;
 }

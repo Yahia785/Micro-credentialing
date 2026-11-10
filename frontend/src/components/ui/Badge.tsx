@@ -2,7 +2,7 @@ import type { ComponentPropsWithoutRef } from 'react';
 import { classNames } from '../../utils/classNames';
 import styles from './Badge.module.css';
 
-export type BadgeVariant = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+export type BadgeVariant = 'neutral' | 'info' | 'success' | 'warning' | 'danger' | 'changed';
 
 export interface BadgeProps extends ComponentPropsWithoutRef<'span'> {
   variant?: BadgeVariant;

@@ -3,14 +3,18 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   getAdminInterview,
   listSubmissionInterviews,
+  saveInterviewReview,
   startPracticeInterview,
 } from '../api/interviews';
 import { getMilestone } from '../api/milestones';
 import { getSubmission } from '../api/submissions';
 import { CodePanel } from '../components/interview/CodePanel';
+import { DisclosureSignalContext } from '../components/interview/disclosureSignal';
+import type { DisclosureSignal } from '../components/interview/disclosureSignal';
 import { QuestionReviewCard } from '../components/interview/QuestionReviewCard';
-import { Alert, Badge, Button, Card, EmptyState, FormField, PageHeader, Select, Spinner } from '../components/ui';
-import type { AdminInterview, InterviewSummary } from '../types/interview';
+import { Alert, Badge, Button, Card, EmptyState, FormField, Input, PageHeader, Spinner, Textarea } from '../components/ui';
+import { classNames } from '../utils/classNames';
+import type { AdminInterview, InterviewSummary, ReviewOverrides } from '../types/interview';
 import {
   STATUS_LABELS,
   STATUS_VARIANTS,
@@ -57,9 +61,15 @@ export function InterviewReviewPage() {
   const [interview, setInterview] = useState<AdminInterview | null>(null);
   const [interviewError, setInterviewError] = useState<string | null>(null);
   const [loadingInterview, setLoadingInterview] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [startingPractice, setStartingPractice] = useState(false);
   const [practiceError, setPracticeError] = useState<string | null>(null);
+  // The instructor's review as it is being edited. Saved only when Save is selected.
+  const [draft, setDraft] = useState<ReviewOverrides>({});
+  const [grade, setGrade] = useState('');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [signal, setSignal] = useState<DisclosureSignal>({ open: false, tick: 0 });
 
   const ordered = useMemo(() => orderInterviews(list ?? []), [list]);
   const requestedId = searchParams.get('interview');
@@ -75,8 +85,8 @@ export function InterviewReviewPage() {
     }
   }, [submissionId]);
 
-  const loadInterview = useCallback(async (interviewId: string, quiet = false) => {
-    if (!quiet) setLoadingInterview(true);
+  const loadInterview = useCallback(async (interviewId: string) => {
+    setLoadingInterview(true);
     try {
       setInterview(await getAdminInterview(interviewId));
       setInterviewError(null);
@@ -119,11 +129,51 @@ export function InterviewReviewPage() {
     void loadInterview(selectedId);
   }, [selectedId, loadInterview]);
 
-  const refresh = async () => {
-    setRefreshing(true);
-    await loadList();
-    if (selectedId) await loadInterview(selectedId, true);
-    setRefreshing(false);
+  // A freshly loaded interview starts the editable review from what was saved.
+  const loadedReviewKey = interview ? `${interview.interviewId}:${interview.review?.reviewedAt ?? ''}` : '';
+  useEffect(() => {
+    setDraft(interview?.review?.overrides ?? {});
+    setGrade(interview?.review?.grade === null || interview?.review?.grade === undefined ? '' : String(interview.review.grade));
+    setNote(interview?.review?.note ?? '');
+    setSaveError(null);
+    // Only when a different interview or a different saved version arrives, not on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedReviewKey]);
+
+  const decide = (questionIndex: number, itemId: string, value: boolean | null) => {
+    setDraft((current) => {
+      const key = String(questionIndex);
+      const forQuestion = { ...(current[key] ?? {}) };
+      if (value === null) delete forQuestion[itemId];
+      else forQuestion[itemId] = value;
+      const next = { ...current };
+      if (Object.keys(forQuestion).length > 0) next[key] = forQuestion;
+      else delete next[key];
+      return next;
+    });
+  };
+
+  const parsedGrade = grade.trim() === '' ? null : Number(grade);
+  const gradeInvalid = parsedGrade !== null && (!Number.isFinite(parsedGrade) || parsedGrade < 0 || parsedGrade > 100);
+  const saved = interview?.review ?? null;
+  const dirty =
+    JSON.stringify(draft) !== JSON.stringify(saved?.overrides ?? {}) ||
+    parsedGrade !== (saved?.grade ?? null) ||
+    note.trim() !== (saved?.note ?? '');
+  const changedCount = Object.values(draft).reduce((count, items) => count + Object.keys(items).length, 0);
+
+  const saveReview = async () => {
+    if (!interview || gradeInvalid) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const review = await saveInterviewReview(interview.interviewId, { overrides: draft, grade: parsedGrade, note: note.trim() });
+      setInterview((current) => (current ? { ...current, review } : current));
+    } catch (error) {
+      setSaveError(errorText(error, 'Could not save the review. Please try again.'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const startPractice = async () => {
@@ -153,9 +203,6 @@ export function InterviewReviewPage() {
           <>
             <Button variant="ghost" onClick={() => navigate('/admin/reviews')}>
               Back to reviews
-            </Button>
-            <Button variant="secondary" onClick={() => void refresh()} loading={refreshing} disabled={!list}>
-              {refreshing ? 'Refreshing…' : 'Refresh'}
             </Button>
             <Button onClick={() => void startPractice()} loading={startingPractice}>
               {startingPractice ? 'Starting…' : 'Start practice interview'}
@@ -204,16 +251,27 @@ export function InterviewReviewPage() {
           />
         )}
 
-        {ordered.length > 0 && (
-          <FormField label="Interview" className={styles.picker}>
-            <Select value={selectedId ?? ''} onChange={(event) => select(event.target.value)}>
-              {ordered.map((item) => (
-                <option key={item.interviewId} value={item.interviewId}>
-                  {optionLabel(item)} ({STATUS_LABELS[item.status]})
-                </option>
-              ))}
-            </Select>
-          </FormField>
+        {ordered.length > 1 && (
+          <nav aria-label="Interviews of this submission" className={styles.picker}>
+            <ul className={styles.pickerList}>
+              {ordered.map((item) => {
+                const current = item.interviewId === selectedId;
+                return (
+                  <li key={item.interviewId}>
+                    <button
+                      type="button"
+                      aria-current={current ? 'true' : undefined}
+                      className={classNames(styles.pickerItem, current && styles.pickerItemCurrent)}
+                      onClick={() => select(item.interviewId)}
+                    >
+                      <span className={styles.pickerName}>{optionLabel(item)}</span>
+                      <Badge variant={STATUS_VARIANTS[item.status]}>{STATUS_LABELS[item.status]}</Badge>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
         )}
 
         {selectedId && loadingInterview && !interview && (
@@ -254,7 +312,7 @@ export function InterviewReviewPage() {
 
               {interview.status === 'in_progress' && (
                 <Alert variant="info" className={styles.running}>
-                  This interview is still running. Select Refresh to see new answers.
+                  This interview is still running. Reload this page to see new answers.
                   {interview.isPractice && (
                     <>
                       {' '}
@@ -284,6 +342,49 @@ export function InterviewReviewPage() {
               </details>
             </Card>
 
+            <section className={styles.reviewPanel} aria-labelledby="instructor-review-title">
+              <div className={styles.reviewHead}>
+                <h2 id="instructor-review-title" className={styles.reviewTitle}>
+                  Instructor review
+                </h2>
+                <p className={styles.reviewHelp}>
+                  Your decisions are kept next to the agent&apos;s checks. The agent&apos;s original check is never changed.
+                </p>
+              </div>
+              <div className={styles.reviewBody}>
+                <FormField
+                  label="Interview grade (0 to 100)"
+                  className={styles.gradeField}
+                  error={gradeInvalid ? 'Enter a number from 0 to 100, or leave it empty.' : undefined}
+                >
+                  <Input type="number" min={0} max={100} step="any" inputMode="decimal" value={grade} onChange={(event) => setGrade(event.target.value)} />
+                </FormField>
+                <FormField label="Note" className={styles.noteField}>
+                  <Textarea rows={2} value={note} maxLength={4000} onChange={(event) => setNote(event.target.value)} />
+                </FormField>
+                <div className={styles.saveColumn}>
+                  <Button onClick={() => void saveReview()} loading={saving} disabled={!dirty || gradeInvalid}>
+                    {saving ? 'Saving…' : 'Save review'}
+                  </Button>
+                  <p className={styles.saveStatus} role="status">
+                    {dirty
+                      ? 'Unsaved changes'
+                      : saved?.reviewedAt
+                        ? `Saved ${formatDateTime(saved.reviewedAt)}`
+                        : 'Nothing saved yet'}
+                  </p>
+                  {changedCount > 0 && (
+                    <Badge variant="changed">{`${changedCount} ${changedCount === 1 ? 'item' : 'items'} changed by instructor`}</Badge>
+                  )}
+                </div>
+              </div>
+              {saveError && (
+                <Alert variant="danger" title="Could not save the review" onDismiss={() => setSaveError(null)}>
+                  {saveError}
+                </Alert>
+              )}
+            </section>
+
             <div className={styles.layout}>
               <CodePanel
                 title="Submitted code"
@@ -293,12 +394,31 @@ export function InterviewReviewPage() {
               />
 
               <div className={styles.questions}>
+                <div className={styles.toolbar}>
+                  <h2 className={styles.toolbarTitle}>Questions</h2>
+                  <div className={styles.toolbarActions}>
+                    <Button size="sm" variant="secondary" onClick={() => setSignal((s) => ({ open: true, tick: s.tick + 1 }))}>
+                      Expand all
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setSignal((s) => ({ open: false, tick: s.tick + 1 }))}>
+                      Collapse all
+                    </Button>
+                  </div>
+                </div>
                 {interview.mainQuestions.length === 0 && (
                   <EmptyState headingLevel={2} title="No questions yet" description="Nothing has been asked in this interview." />
                 )}
-                {interview.mainQuestions.map((question) => (
-                  <QuestionReviewCard key={question.index} question={question} />
-                ))}
+                <DisclosureSignalContext.Provider value={signal}>
+                  {interview.mainQuestions.map((question) => (
+                    <QuestionReviewCard
+                      key={question.index}
+                      question={question}
+                      draft={draft[String(question.index)]}
+                      disabled={saving}
+                      onDecide={decide}
+                    />
+                  ))}
+                </DisclosureSignalContext.Provider>
               </div>
             </div>
           </>
