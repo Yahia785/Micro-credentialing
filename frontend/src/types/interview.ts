@@ -70,6 +70,8 @@ export interface CheckItem extends RubricItem {
   contradiction?: { note: string; claim: string | null };
   /** What the student did say about an item that is not shown (the item counts as shown only when the quote states the whole item). */
   partialQuote?: string;
+  /** The quote is a claim that the program's output contradicts: the item counts as not shown. */
+  contradictedByProgram?: boolean;
   /** The evidence as a list of exact fragments of the answer, when it is in several places (the quote is them joined). */
   fragments?: string[];
   /** Shown by the answer to a follow-up question, and after a hint when the follow-up was one. */
@@ -118,6 +120,8 @@ export interface AgentCheck {
   /** host.v7: findings of the code analysis this answer contradicted (with the student's words) and findings it addressed. */
   contradicted?: Array<{ id: string; quote: string }>;
   addressed?: string[];
+  /** After a follow-up aimed at a contradiction: did the student explain what the program printed, or repeat the claim? */
+  followUpOutcome?: { target: string; kind: 'finding' | 'item'; result: 'explained' | 'still_contradicts' };
   guard: { fired?: boolean; original?: string; fixedByRetry?: boolean; retryFailed?: boolean } | null;
   repairs: AgentRepair[];
   rejected?: { code: string; reply: string };

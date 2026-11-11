@@ -96,10 +96,12 @@ export function QuestionRuns({ question }: { question: AdminMainQuestion }) {
 export function AnswerNotes({ check }: { check: AgentCheck | null }) {
   if (!check) return null;
   const contradictions = check.items.filter((item) => item.contradiction);
-  const partials = check.items.filter((item) => item.shown === false && item.partialQuote && !item.contradiction);
+  const partials = check.items.filter((item) => item.shown === false && item.partialQuote && !item.contradiction && !item.contradictedByProgram);
+  const byProgram = check.items.filter((item) => item.contradictedByProgram);
+  const outcome = check.followUpOutcome;
   const viaFollowUp = check.items.filter((item) => item.viaFollowUp);
   const contradicted = check.contradicted ?? [];
-  if (!check.manipulation && contradictions.length === 0 && partials.length === 0 && viaFollowUp.length === 0 && contradicted.length === 0) return null;
+  if (!check.manipulation && contradictions.length === 0 && partials.length === 0 && viaFollowUp.length === 0 && contradicted.length === 0 && byProgram.length === 0 && !outcome) return null;
 
   return (
     <div className={styles.notes}>
@@ -110,6 +112,18 @@ export function AnswerNotes({ check }: { check: AgentCheck | null }) {
           </p>
           <blockquote className={styles.quote}>{check.manipulation.quote}</blockquote>
         </Alert>
+      )}
+      {byProgram.map((item) => (
+        <p key={`program-${item.id}`} className={styles.contradiction}>
+          <strong>{`Item ${item.id} not shown: contradicted by the program's output. `}</strong>
+          {`The student said "${item.partialQuote ?? ''}", and the program printed something else, so the claim does not count as evidence.`}
+        </p>
+      ))}
+      {outcome && (
+        <p className={styles.note}>
+          <strong>{outcome.result === 'explained' ? 'The student explained what the program really printed.' : 'The student still contradicts the program’s output.'}</strong>
+          {` (the follow-up was about ${outcome.kind === 'finding' ? 'finding' : 'item'} ${outcome.target})`}
+        </p>
       )}
       {viaFollowUp.map((item) => (
         <p key={`via-${item.id}`} className={styles.note}>
