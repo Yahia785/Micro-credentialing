@@ -37,28 +37,10 @@
   color: var(--color-text-secondary);
 }
 
-.description {
-  max-width: 70ch;
-  margin: 0;
-  color: var(--color-text-primary);
-  line-height: var(--line-height-relaxed);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 .hint {
   margin: 0 0 var(--space-4);
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
-}
-
-.testCase {
-  margin: 0 0 var(--space-4);
-}
-
-.testCaseTitle {
-  margin: 0 0 var(--space-2);
-  font-size: var(--font-size-md);
 }
 
 .boxLabel {

@@ -19,6 +19,9 @@ import { proctoringLogger } from '../utils/proctoringLogger';
 import { useRunCode } from '../hooks/useRunCode';
 import { RunControls } from './run/RunControls';
 import { RunPanel } from './run/RunPanel';
+import { SampleTestBox } from './run/SampleTestBox';
+import { sampleStatusFor } from './run/sampleStatus';
+import { MarkdownText } from './markdown/MarkdownText';
 
 interface TestResult {
   testCaseId?: string;
@@ -890,7 +893,7 @@ const stopRecording = () => {
               They will become available after the instructor completes the review.
             </p>
           ) : (
-            <p className={styles.description}>{milestone.description}</p>
+            <MarkdownText>{milestone.description}</MarkdownText>
           )}
         </section>
 
@@ -905,13 +908,16 @@ const stopRecording = () => {
             <>
               <p className={styles.hint}>Use these examples to check your output before submitting.</p>
               {sampleTestCases.map((testCase, index) => (
-                <div key={testCase.testCaseId || index} className={styles.testCase}>
-                  <h3 className={styles.testCaseTitle}>Test case {index + 1}</h3>
+                <SampleTestBox
+                  key={testCase.testCaseId || index}
+                  title={`Test case ${index + 1}`}
+                  status={sampleStatusFor(run.state, index + 1)}
+                >
                   <p className={styles.boxLabel}>Input</p>
                   <pre className={styles.box}>{testCase.input}</pre>
                   <p className={styles.boxLabel}>Expected output</p>
                   <pre className={styles.box}>{testCase.expectedOutput}</pre>
-                </div>
+                </SampleTestBox>
               ))}
             </>
           ) : (
@@ -1159,14 +1165,11 @@ const stopRecording = () => {
               />
             )}
 
-            {/* Editor Footer with Instructions */}
-            <div className={`${styles.editorFooter} ${(isAlreadyCompleted || isViewMode) ? styles.editorFooterView : ''}`}>
-              <strong>{(isAlreadyCompleted || isViewMode) ? 'View mode' : 'Workflow'}:</strong> {
-                (isAlreadyCompleted || isViewMode)
-                  ? 'You are viewing your previous submission. Editor is read-only.'
-                  : 'Copy code → Test in OnlineGDB → Paste final solution here → Submit'
-              }
-            </div>
+            {(isAlreadyCompleted || isViewMode) && (
+              <div className={`${styles.editorFooter} ${styles.editorFooterView}`}>
+                <strong>View mode:</strong> You are viewing your previous submission. Editor is read-only.
+              </div>
+            )}
           </section>
         }
       />
