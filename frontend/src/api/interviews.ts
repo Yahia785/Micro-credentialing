@@ -63,9 +63,13 @@ export function startInterview(submissionId: string) {
   return request<StartInterviewResult>('/interviews', { method: 'POST', body: { submissionId } });
 }
 
-/** The student view of the caller's own interview. */
-export async function getStudentInterview(interviewId: string) {
-  const data = await request<{ interview: StudentInterview }>(`/interviews/${encodeURIComponent(interviewId)}`);
+/**
+ * The student view of the caller's own interview. Opening a running interview starts its clock (once); `peek` only asks whether the
+ * interview exists and leaves the clock alone (the waiting page uses it while the recording upload is still running).
+ */
+export async function getStudentInterview(interviewId: string, options: { peek?: boolean } = {}) {
+  const query = options.peek ? '?peek=1' : '';
+  const data = await request<{ interview: StudentInterview }>(`/interviews/${encodeURIComponent(interviewId)}${query}`);
   return data.interview;
 }
 

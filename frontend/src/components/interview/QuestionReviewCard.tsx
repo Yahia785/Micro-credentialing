@@ -5,6 +5,7 @@ import { formatTime, highlightQuotes, reviewedItems, shortText } from '../../uti
 import type { ReviewedItem } from '../../utils/interview';
 import { Badge } from '../ui';
 import { Disclosure } from './Disclosure';
+import { AnswerNotes, QuestionRuns, flagLabel } from './ObservedBehavior';
 import styles from './QuestionReviewCard.module.css';
 
 /** Rubric items are written with Markdown ticks for the agent; the instructor sees plain text. */
@@ -144,6 +145,7 @@ function AnswerReview({ answer, label }: { answer: AdminAnswer; label: string })
           </time>
           {pastes > 0 && <Badge variant="neutral">{`Pasted ${plural(pastes, 'time', 'times')}`}</Badge>}
           {focusLosses > 0 && <Badge variant="neutral">{`Left the window ${plural(focusLosses, 'time', 'times')}`}</Badge>}
+          {answer.check?.manipulation && <Badge variant="warning">{`Flagged: ${flagLabel(answer.check.manipulation)}`}</Badge>}
         </>
       }
     >
@@ -159,7 +161,8 @@ function AnswerReview({ answer, label }: { answer: AdminAnswer; label: string })
         )}
       </p>
       {answer.check === null && <p className={styles.note}>No agent check was recorded for this answer.</p>}
-      {unchecked && answer.check && <p className={styles.note}>{checkNote(answer.check)}</p>}
+      {unchecked && answer.check && !answer.check.manipulation && <p className={styles.note}>{checkNote(answer.check)}</p>}
+      <AnswerNotes check={answer.check} />
       <TechnicalDetails answer={answer} />
     </Disclosure>
   );
@@ -329,6 +332,8 @@ export function QuestionReviewCard({ question, draft, disabled = false, onDecide
             {question.themeTitle ? `${question.themeTitle}. ` : ''}Asked {formatTime(question.askedAt)}
           </p>
         </Disclosure>
+
+        <QuestionRuns question={question} />
 
         {items.length > 0 && (
           <section className={styles.group} aria-label={`Rubric for question ${question.index}`}>

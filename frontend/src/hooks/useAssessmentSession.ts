@@ -12,6 +12,8 @@ export interface InterviewTarget {
   submissionId: string;
   /** The code that was just submitted. Absent when the interview is opened later. */
   code?: string;
+  /** True while the recording upload of that submission is still running (the editor stays mounted, under the interview, until it ends). */
+  uploading?: boolean;
 }
 
 /**
@@ -109,28 +111,37 @@ export function useAssessmentSession(reload: () => Promise<void>) {
     await refreshProfile();
   };
 
-  /** A finished editor submission: for a C++ problem with an interview, the student continues with the interview. */
+  /** True when a saved submission of this assessment is followed by the interview (C++ problem with an interview, ended by the button). */
+  const leadsToInterview = (outcome?: SubmitOutcome): outcome is SubmitOutcome & { submissionId: string } =>
+    !!outcome?.ok &&
+    !!outcome.submissionId &&
+    outcome.endedBy === 'submit_button' &&
+    selectedAssessment?.kind === 'coding' &&
+    !!selectedAssessment.interviewEnabled &&
+    selectedAssessment.language === 'cpp';
+
+  /**
+   * The submission is saved but the recordings are still uploading: the student lands on the waiting page at once. The editor stays
+   * mounted under it (it owns the upload) and is removed when the upload has finished or failed (see handleSubmitSettled).
+   */
+  const handleSubmitted = (outcome?: SubmitOutcome) => {
+    if (!leadsToInterview(outcome) || selectedAssessment?.kind !== 'coding') return;
+    setInterviewTarget({ assessment: selectedAssessment, submissionId: outcome.submissionId, code: outcome.code, uploading: true });
+  };
+
+  /** A finished editor submission (upload done or failed): the interview no longer waits for it, and the editor goes away. */
   const handleSubmitSettled = (outcome?: SubmitOutcome) => {
     setSubmissionSettled(true);
     const assessment = selectedAssessment;
-    if (
-      !outcome?.ok ||
-      !outcome.submissionId ||
-      outcome.endedBy !== 'submit_button' ||
-      assessment?.kind !== 'coding' ||
-      !assessment.interviewEnabled ||
-      assessment.language !== 'cpp'
-    ) {
-      return;
-    }
-    // The recordings are already uploaded: stop the cameras and replace the editor with the interview.
+    if (!leadsToInterview(outcome) || assessment?.kind !== 'coding') return;
+    // The recordings are uploaded (or failed, which never blocks the interview): stop the cameras and remove the editor.
     webcamStream?.getTracks().forEach((track) => track.stop());
     screenStream?.getTracks().forEach((track) => track.stop());
     setWebcamStream(null);
     setScreenStream(null);
     setSelectedAssessment(null);
     setPendingAssessment(null);
-    setInterviewTarget({ assessment, submissionId: outcome.submissionId, code: outcome.code });
+    setInterviewTarget({ assessment, submissionId: outcome.submissionId, code: outcome.code, uploading: false });
     void refreshProfile();
   };
 
@@ -163,6 +174,7 @@ export function useAssessmentSession(reload: () => Promise<void>) {
     handleProctoringCancelled,
     handleCloseEditor,
     handleSubmitSuccess,
+    markSubmitted: handleSubmitted,
     markSubmissionSettled: handleSubmitSettled,
   };
 }

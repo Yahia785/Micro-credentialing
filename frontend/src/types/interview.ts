@@ -13,7 +13,10 @@ export interface ClientTiming {
 export interface StartInterviewResult {
   interviewId: string;
   question: string;
-  deadline: string;
+  /** Null for a real interview: its clock starts when the student's page first opens it. A practice interview has its deadline at once. */
+  deadline: string | null;
+  timeLimitMinutes?: number;
+  questionCount?: number;
   serverNow: string;
   isPractice?: boolean;
 }
@@ -53,6 +56,8 @@ export interface CheckItem extends RubricItem {
   shown: boolean | null;
   /** The student's own quoted words, "not shown", or null when there was no check. */
   evidence: string | null;
+  /** host.v6: the checker's note when the observed output of the student's code contradicted their claim (the claim is the quote). */
+  contradiction?: { note: string; claim: string | null };
 }
 
 export interface AgentRepair {
@@ -71,8 +76,19 @@ export interface AgentCall {
   latencyMs: number;
 }
 
+/** host.v6: an answer the engine or the checker took for an attempt to manipulate the interview. */
+export interface ManipulationFlag {
+  /** instruction, answer_request, rubric_request, authority, long_paste or model */
+  kind: string;
+  /** What the student wrote (the matching part, at most 300 characters). */
+  quote: string;
+  source: 'engine' | 'model';
+}
+
 export interface AgentCheck {
   reason: string | null;
+  /** host.v6: this answer was flagged and counted as no evidence. */
+  manipulation?: ManipulationFlag | null;
   modelReason?: string;
   engineDecision: boolean;
   fallback: string | null;
@@ -80,6 +96,8 @@ export interface AgentCheck {
   missing: string[] | null;
   target: string | null;
   isHint: boolean;
+  /** host.v6: the fixed sentence the engine put in front of the next question. */
+  notice?: string | null;
   guard: { fired?: boolean; original?: string; fixedByRetry?: boolean; retryFailed?: boolean } | null;
   repairs: AgentRepair[];
   rejected?: { code: string; reply: string };
@@ -117,8 +135,33 @@ export interface RubricSummaryItem extends RubricItem {
   shown: boolean | null;
 }
 
+/** host.v6: one run of the student's code on an input the instructor chose, as the agent saw it. */
+export interface ObservedRun {
+  label: string;
+  stdin: string;
+  /** What the program printed (at most 2,000 characters). */
+  stdout: string;
+  status: string;
+  timeMs: number;
+}
+
+/** host.v6: decided once when the interview started. */
+export interface CodeStatus {
+  compiles: boolean | null;
+  passed: number | null;
+  total: number | null;
+  stubs: string[];
+  unfinished: boolean;
+}
+
 export interface AdminMainQuestion {
   index: number;
+  /** host.v6: what the student's code printed on the inputs set for this question; empty when none were run. */
+  runs?: ObservedRun[];
+  /** host.v6: why nothing (or not everything) was run: limit_reached, runner_failed or compile_error. */
+  runsNote?: string | null;
+  /** host.v6: the engine's fixed sentence in front of this question. */
+  notice?: string | null;
   themeId: string | null;
   themeTitle: string | null;
   question: string;
@@ -176,6 +219,10 @@ export interface AdminInterview {
   timeLeftMs: number;
   serverNow: string;
   code: string | null;
+  /** host.v6: the status of the code when the interview started; null for other prompt versions. */
+  codeStatus?: CodeStatus | null;
+  /** host.v6: every flagged answer with the student's quote. */
+  manipulationFlags?: Array<ManipulationFlag & { question: number }>;
   /** The instructor's saved review, or null before anything was saved. */
   review: InterviewReview | null;
   mainQuestions: AdminMainQuestion[];

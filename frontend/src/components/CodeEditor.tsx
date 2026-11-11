@@ -70,6 +70,8 @@ interface CodeEditorProps {
   onClose: () => void;
   onSubmitSuccess?: () => void;
   isViewMode?: boolean;
+  /** Called as soon as the submission is saved (before the recordings are uploaded), so the page can show what comes next meanwhile. */
+  onSubmitted?: (outcome: SubmitOutcome) => void;
   /** Called when a submission attempt has fully finished (grading, uploads, metadata), success or not. */
   onSubmitSettled?: (outcome: SubmitOutcome) => void;
   ref?: Ref<CodeEditorHandle>;
@@ -88,6 +90,7 @@ export function CodeEditor({
   onClose,
   onSubmitSuccess,
   isViewMode = false,
+  onSubmitted,
   onSubmitSettled,
   ref
 }: CodeEditorProps) {
@@ -556,6 +559,7 @@ const stopRecording = () => {
         const { status, passedTests, totalTests, testResults: submissionResults, submissionId, gradingFailed, gradingMode } = result.submission;
         // Lets the page continue with the interview after a submit (see useAssessmentSession).
         outcome = { ok: true, submissionId, code, endedBy };
+        onSubmitted?.(outcome);
         // Never graded automatically: the instructor will review it, so don't show a score or a failure.
         const ungradedMessage = gradingFailed === true
           ? UNGRADED_GRADING_FAILED_MESSAGE

@@ -28,6 +28,8 @@ export interface CodingAssessment extends AssessmentBase {
   interviewEnabled?: boolean;
   /** Length of the interview in minutes, when enabled. */
   interviewTimeLimitMinutes?: number;
+  /** How many questions the interview has, when enabled (the questions themselves are never sent to students). */
+  interviewQuestionCount?: number;
 }
 
 /** An embedded systems assessment graded against a rubric. */

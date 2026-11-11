@@ -1,7 +1,13 @@
-import { useEffect } from 'react';
+import { useContext, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './WorkspaceShell.module.css';
+import { WorkspaceInactiveContext } from './WorkspaceInactiveContext';
+
+// More than one workspace can be open at once (the interview over the editor that is still uploading): the page behind stays locked until
+// the last one closes, and the scroll lock is put back to what it was before the first one opened.
+let openShells = 0;
+let savedOverflow = '';
 
 export interface WorkspaceShellProps {
   /** Accessible name of the workspace. */
@@ -28,18 +34,28 @@ export interface WorkspaceShellProps {
 export function WorkspaceShell({ label, exit, title, badges, status, actions, notice, children }: WorkspaceShellProps) {
   // The page behind is locked and out of reach of keyboard focus while the workspace is open.
   useEffect(() => {
-    const original = document.body.style.overflow;
+    if (openShells === 0) savedOverflow = document.body.style.overflow;
+    openShells += 1;
     document.body.style.overflow = 'hidden';
     const root = document.getElementById('root');
     root?.setAttribute('inert', '');
     return () => {
-      document.body.style.overflow = original;
+      openShells -= 1;
+      if (openShells > 0) return;
+      document.body.style.overflow = savedOverflow;
       root?.removeAttribute('inert');
     };
   }, []);
 
+  // Under another workspace: out of reach of the keyboard and of screen readers (it stays mounted, for example to finish an upload).
+  const inactive = useContext(WorkspaceInactiveContext);
+  const shellRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    shellRef.current?.toggleAttribute('inert', inactive);
+  }, [inactive]);
+
   return createPortal(
-    <div className={styles.shell} role="dialog" aria-modal="true" aria-label={label}>
+    <div ref={shellRef} className={styles.shell} role="dialog" aria-modal="true" aria-label={label} aria-hidden={inactive || undefined}>
       <header className={styles.topBar}>
         {exit && <div className={styles.exit}>{exit}</div>}
         <div className={styles.titleGroup}>

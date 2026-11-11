@@ -1,0 +1,97 @@
+/* The waiting page after submitting a problem with an interview. New file: the other interview stylesheets belong to the styling lane. */
+
+.card {
+  max-width: 44rem;
+  margin: 0 auto;
+}
+
+.saved {
+  margin-bottom: var(--space-4);
+}
+
+.text {
+  margin: 0 0 var(--space-2);
+}
+
+.progressBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+/* A plain bar counting the two steps. It only moves when a step finishes. */
+.progress {
+  width: 100%;
+  height: var(--space-2);
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius-full);
+  background-color: var(--color-gray-200);
+  overflow: hidden;
+}
+
+.progress::-webkit-progress-bar {
+  background-color: var(--color-gray-200);
+}
+
+.progress::-webkit-progress-value {
+  background-color: var(--color-brand);
+}
+
+.progress::-moz-progress-bar {
+  background-color: var(--color-brand);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step,
+.stepDone {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.stepDone {
+  color: var(--color-success-text-on-subtle);
+}
+
+.stepState {
+  font-weight: var(--font-weight-semibold);
+}
+
+.live {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.error {
+  margin-bottom: var(--space-4);
+}
+
+.instructions {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.instructionsTitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-md);
+}
+
+.list {
+  margin: 0;
+  padding-left: var(--space-5);
+  line-height: var(--line-height-relaxed);
+}
+
+.list li + li {
+  margin-top: var(--space-1);
+}

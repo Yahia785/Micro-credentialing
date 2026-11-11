@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   InterviewApiError,
   answerInterview,
@@ -9,40 +9,49 @@ import {
 import { useInterviewLeaveGuard } from '../../hooks/useInterviewLeaveGuard';
 import { useInterviewController } from '../../hooks/useInterviewController';
 import { chatFromStudentView, progressLabel } from '../../utils/interview';
-import { Alert, Badge, Button, Card, Spinner } from '../ui';
+import { Alert, Badge, Button, Spinner } from '../ui';
 import { WorkspaceShell } from '../workspace/WorkspaceShell';
 import { InterviewChat } from './InterviewChat';
 import { InterviewTimer } from './InterviewTimer';
+import { InterviewWaiting } from './InterviewWaiting';
 import styles from './StudentInterviewScreen.module.css';
 
 const DEFAULT_MINUTES = 10;
-const UNDER_REVIEW_MESSAGE =
-  'Your submission is under review. Your results, the test cases and your code will be visible after your instructor reviews it.';
 const CODE_HIDDEN_NOTE = 'Your code will be visible again after your instructor reviews your submission.';
 
 interface StudentInterviewScreenProps {
   /** The problem the code was submitted for. */
   title: string;
   submissionId: string;
-  /** From the problem's setup; the intro says how long the interview is. */
+  /** From the problem's interview setup: the waiting page says how long the interview is. */
   timeLimitMinutes?: number;
+  /** From the problem's interview setup: the waiting page says how many questions there are. */
+  questionCount?: number;
+  /** True while the recording upload of the submission is still running. The interview opens when it is over (done or failed). */
+  uploading?: boolean;
   /** The code just submitted, shown until the interview itself provides it. */
   initialCode?: string;
-  /** Called when the student closes the screen, finished or not. */
+  /** Called when the student closes the screen after the interview ended. */
   onClose: () => void;
 }
 
-type Phase = 'loading' | 'intro' | 'starting' | 'active' | 'failed';
+type Phase = 'loading' | 'preparing' | 'active' | 'failed';
+type CreateState = 'idle' | 'creating' | 'done' | 'error';
 
 /**
- * The student's interview as a full-window workspace after submitting: intro and Start, then the code next to the conversation
- * (countdown in the top bar), then the end screen. It finds an interview that already exists (reload, coming back later) and
- * continues where it was.
+ * The student's interview as a full-window workspace after submitting. There is no Start button: the student lands on a waiting page,
+ * the interview is created automatically (the code is classified and the code runs are done on the server) while the recording upload
+ * finishes, and the interview opens by itself when both are done. Its clock starts when the first question is shown. It also finds an
+ * interview that already exists (a reload, coming back later) and continues where it was, with the time that is left.
  */
-export function StudentInterviewScreen({ title, submissionId, timeLimitMinutes, initialCode, onClose }: StudentInterviewScreenProps) {
+export function StudentInterviewScreen({ title, submissionId, timeLimitMinutes, questionCount, uploading = false, initialCode, onClose }: StudentInterviewScreenProps) {
   const interviewId = interviewIdForSubmission(submissionId);
   const [phase, setPhase] = useState<Phase>('loading');
   const [message, setMessage] = useState<string | null>(null);
+  const [createState, setCreateState] = useState<CreateState>('idle');
+  const [createError, setCreateError] = useState<string | null>(null);
+  const uploadingRef = useRef(uploading);
+  uploadingRef.current = uploading;
 
   const { chat, loading, loadError, sending, sendError, reload, sendAnswer } = useInterviewController({
     load: async () => chatFromStudentView(await getStudentInterview(interviewId)),
@@ -50,51 +59,83 @@ export function StudentInterviewScreen({ title, submissionId, timeLimitMinutes, 
   });
 
   const inProgress = phase === 'active' && chat?.status === 'in_progress';
-  useInterviewLeaveGuard(inProgress);
+  // While the recordings are uploading, the proctoring guard of the page is still the one that watches navigation (leaving waits for the
+  // upload); this guard takes over when it is done. In the running interview leaving only asks for confirmation and ends nothing.
+  useInterviewLeaveGuard(inProgress || (phase === 'preparing' && !uploading));
+
+  /** Creates the interview. 409 means it exists already (another tab, an earlier try): that is fine. */
+  const create = useCallback(async () => {
+    setCreateState('creating');
+    setCreateError(null);
+    try {
+      await startInterview(submissionId);
+    } catch (error) {
+      if (!(error instanceof InterviewApiError && error.status === 409)) {
+        setCreateError(error instanceof InterviewApiError ? error.message : 'Something went wrong. Please try again.');
+        setCreateState('error');
+        return;
+      }
+    }
+    setCreateState('done');
+  }, [submissionId]);
 
   const findExisting = useCallback(async () => {
     setPhase('loading');
     setMessage(null);
+    if (uploadingRef.current) {
+      // Only ask whether it exists: opening it would start its clock while the upload is still running.
+      try {
+        await getStudentInterview(interviewId, { peek: true });
+        setCreateState('done');
+        setPhase('preparing');
+      } catch (error) {
+        if (error instanceof InterviewApiError && error.status === 404) {
+          setPhase('preparing');
+          void create();
+        } else {
+          setMessage(error instanceof InterviewApiError ? error.message : 'Something went wrong. Please try again.');
+          setPhase('failed');
+        }
+      }
+      return;
+    }
     const result = await reload();
     if ('chat' in result) {
       setPhase('active');
     } else if (result.error.status === 404) {
-      setPhase('intro');
+      setPhase('preparing');
+      void create();
     } else {
       setMessage(result.error.message);
       setPhase('failed');
     }
-  }, [reload]);
+  }, [create, interviewId, reload]);
 
   useEffect(() => {
     void findExisting();
   }, [findExisting]);
 
-  const start = async () => {
-    setPhase('starting');
-    setMessage(null);
-    try {
-      await startInterview(submissionId);
-    } catch (error) {
-      // 409: it was already started (for example in another tab). Carry on with that one.
-      if (!(error instanceof InterviewApiError && error.status === 409)) {
-        setMessage(error instanceof InterviewApiError ? error.message : 'Could not start the interview. Please try again.');
-        setPhase('intro');
-        return;
+  // The interview opens by itself when it is ready and the upload is over. Opening it is what starts its clock.
+  useEffect(() => {
+    if (phase !== 'preparing' || createState !== 'done' || uploading) return undefined;
+    let cancelled = false;
+    void (async () => {
+      const result = await reload();
+      if (cancelled) return;
+      if ('chat' in result) {
+        setPhase('active');
+      } else {
+        setMessage(result.error.message);
+        setPhase('failed');
       }
-    }
-    const result = await reload();
-    if ('chat' in result) {
-      setPhase('active');
-    } else {
-      setMessage(`The interview was started, but it could not be loaded. ${result.error.message}`);
-      setPhase('intro');
-    }
-  };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, createState, uploading, reload]);
 
   const minutes = timeLimitMinutes ?? DEFAULT_MINUTES;
   const ended = chat?.status === 'timed_out' ? 'timed_out' : 'completed';
-  const finished = phase === 'active' && chat !== null && chat.status !== 'in_progress';
   // The code is held for the instructor: the server gives it only while the interview runs, and it is not shown afterwards.
   const shownCode = chat?.status === 'in_progress' ? (chat.code ?? initialCode ?? null) : null;
   const codeNote = chat && chat.status !== 'in_progress' ? CODE_HIDDEN_NOTE : null;
@@ -103,15 +144,8 @@ export function StudentInterviewScreen({ title, submissionId, timeLimitMinutes, 
   return (
     <WorkspaceShell
       label={`Interview: ${title}`}
-      // While the interview is running there is no exit button: leaving goes through the leave guard (the browser's warning and
-      // the navigation confirm), which never ends or submits anything.
-      exit={
-        finished || inProgress ? undefined : (
-          <Button size="sm" variant="secondary" onClick={onClose} disabled={phase === 'starting'}>
-            Not now
-          </Button>
-        )
-      }
+      // No exit button before the end: leaving goes through the guards (the browser's warning and the navigation confirm).
+      exit={undefined}
       title={`Interview: ${title}`}
       badges={progress ? <Badge variant="info">{progress}</Badge> : undefined}
       status={phase === 'active' ? <InterviewTimer chat={chat} frozen={sending} /> : undefined}
@@ -160,32 +194,16 @@ export function StudentInterviewScreen({ title, submissionId, timeLimitMinutes, 
             </Alert>
           )}
 
-          {(phase === 'intro' || phase === 'starting') && (
-            <Card title="Before you start" headingLevel={2} className={styles.intro}>
-              <Alert variant="info" title="Your submission is saved" className={styles.introAlert}>
-                <p className={styles.alertText}>{UNDER_REVIEW_MESSAGE}</p>
-              </Alert>
-              <p>
-                This is a short interview about the code you just submitted. An interviewer asks you questions one at a time,
-                and you answer by typing.
-              </p>
-              <ul className={styles.facts}>
-                <li>It takes up to {minutes} minutes. The timer starts when you press Start interview.</li>
-                <li>You see your submitted code next to the conversation.</li>
-                <li>Press Enter to send an answer, or Shift+Enter for a new line.</li>
-                <li>Your instructor reviews your answers afterwards. You do not get a score here.</li>
-              </ul>
-              {message && (
-                <Alert variant="danger">
-                  <p className={styles.alertText}>{message}</p>
-                </Alert>
-              )}
-              <div>
-                <Button onClick={() => void start()} loading={phase === 'starting'}>
-                  {phase === 'starting' ? 'Starting…' : message ? 'Try again' : 'Start interview'}
-                </Button>
-              </div>
-            </Card>
+          {phase === 'preparing' && (
+            <InterviewWaiting
+              minutes={minutes}
+              questionCount={questionCount}
+              uploadDone={!uploading}
+              prepared={createState === 'done'}
+              error={createState === 'error' ? createError : null}
+              retrying={createState === 'creating' && createError !== null}
+              onRetry={() => void create()}
+            />
           )}
         </div>
       )}

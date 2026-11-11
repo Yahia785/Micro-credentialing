@@ -12,6 +12,7 @@ import { CodePanel } from '../components/interview/CodePanel';
 import { DisclosureSignalContext } from '../components/interview/disclosureSignal';
 import type { DisclosureSignal } from '../components/interview/disclosureSignal';
 import { QuestionReviewCard } from '../components/interview/QuestionReviewCard';
+import { CodeStatusBanner } from '../components/interview/ObservedBehavior';
 import { Alert, Badge, Button, Card, EmptyState, FormField, Input, PageHeader, Spinner, Textarea } from '../components/ui';
 import { classNames } from '../utils/classNames';
 import type { AdminInterview, InterviewSummary, ReviewOverrides } from '../types/interview';
@@ -341,6 +342,8 @@ export function InterviewReviewPage() {
                 </dl>
               </details>
             </Card>
+
+            <CodeStatusBanner status={interview.codeStatus} />
 
             <section className={styles.reviewPanel} aria-labelledby="instructor-review-title">
               <div className={styles.reviewHead}>
