@@ -225,6 +225,77 @@ async function startInterviewClock(interviewId, { startedAt, deadline, now = Dat
   }
 }
 
+/**
+ * The prepare step is done: store what it found on the META and on the first question's turn, in one transaction. It only applies while the
+ * interview is still in progress and still waiting for it (prepareStatus "preparing"): if the student already opened the interview without
+ * waiting ("skipped"), or left, nothing changes. Returns false then.
+ * @param {{ metaUpdates: object, firstTurnUpdates?: object }} p  firstTurnUpdates may be empty (a failed step changes only the META)
+ */
+async function finishPrepare(interviewId, { metaUpdates, firstTurnUpdates = {}, now = Date.now() }) {
+  const names = { '#status': 'status', '#prep': 'prepareStatus' };
+  const values = { ':inProgress': 'in_progress', ':preparing': 'preparing', ':updatedAt': new Date(now).toISOString() };
+  const sets = ['updatedAt = :updatedAt'];
+  Object.entries(metaUpdates).forEach(([key, value], i) => {
+    names[`#m${i}`] = key;
+    values[`:m${i}`] = value;
+    sets.push(`#m${i} = :m${i}`);
+  });
+  const items = [{
+    Update: {
+      TableName: table(),
+      Key: { interviewId, sk: META_SK },
+      UpdateExpression: `SET ${sets.join(', ')}`,
+      ConditionExpression: '#status = :inProgress AND #prep = :preparing',
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+    },
+  }];
+  const turnEntries = Object.entries(firstTurnUpdates);
+  if (turnEntries.length > 0) {
+    const turnNames = {};
+    const turnValues = {};
+    const turnSets = turnEntries.map(([key, value], i) => {
+      turnNames[`#t${i}`] = key;
+      turnValues[`:t${i}`] = value;
+      return `#t${i} = :t${i}`;
+    });
+    items.push({
+      Update: {
+        TableName: table(),
+        Key: { interviewId, sk: turnSk(1) },
+        UpdateExpression: `SET ${turnSets.join(', ')}`,
+        ConditionExpression: 'attribute_exists(sk)',
+        ExpressionAttributeNames: turnNames,
+        ExpressionAttributeValues: turnValues,
+      },
+    });
+  }
+  try {
+    await dynamodb.send(new TransactWriteCommand({ TransactItems: items }));
+    return true;
+  } catch (error) {
+    if (isConditionFailure(error)) return false;
+    throw error;
+  }
+}
+
+/** The student opened the interview before the prepare step finished: mark it "skipped" so the step cannot change it any more. False when it is no longer "preparing". */
+async function skipPrepare(interviewId, { now = Date.now() } = {}) {
+  try {
+    await dynamodb.send(new UpdateCommand({
+      TableName: table(),
+      Key: { interviewId, sk: META_SK },
+      UpdateExpression: 'SET prepareStatus = :skipped, updatedAt = :updatedAt',
+      ConditionExpression: 'prepareStatus = :preparing',
+      ExpressionAttributeValues: { ':skipped': 'skipped', ':preparing': 'preparing', ':updatedAt': new Date(now).toISOString() },
+    }));
+    return true;
+  } catch (error) {
+    if (isConditionFailure(error)) return false;
+    throw error;
+  }
+}
+
 /** Replace the instructor's review stored on the interview. The agent's recorded checks are never touched. */
 async function saveInterviewReview(interviewId, review) {
   try {
@@ -246,6 +317,8 @@ async function saveInterviewReview(interviewId, review) {
 module.exports = {
   saveInterviewReview,
   startInterviewClock,
+  finishPrepare,
+  skipPrepare,
   interviewIdFor,
   practiceInterviewId,
   listInterviewsBySubmission,

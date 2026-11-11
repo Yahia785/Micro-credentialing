@@ -1,5 +1,5 @@
-// host.v6 in the interview service: ALL the runs of the student's code in one batch at create, the code status, the notices, the clock
-// that starts when the interview is first opened, and the two views.
+// host.v6 in the interview service: create saves the interview and starts the prepare step, which does ALL the runs of the student's code in
+// one batch and classifies the code; the notices, the clock that starts when the interview is first opened, and the two views.
 jest.mock('../db/interviews', () => ({
   interviewIdFor: (id) => `int_${id}`,
   practiceInterviewId: () => 'intp_fixed',
@@ -11,6 +11,8 @@ jest.mock('../db/interviews', () => ({
   appendTurns: jest.fn(),
   endInterview: jest.fn(),
   startInterviewClock: jest.fn(),
+  finishPrepare: jest.fn(),
+  skipPrepare: jest.fn(),
 }));
 jest.mock('../db/submissions');
 jest.mock('../db/milestones');
@@ -23,7 +25,8 @@ const log = require('../utils/logger');
 const { RateLimitError } = require('../utils/errors');
 const { MANIPULATION_SENTENCE } = require('../agent/manipulation');
 const { NOT_FINISHED_SENTENCE } = require('../agent/code-status');
-const { startInterview, startPracticeInterview, submitAnswer, getInterview } = require('../services/interview-service');
+const crypto = require('crypto');
+const { startInterview, startPracticeInterview, prepareInterview, submitAnswer, getInterview, abandonInterview } = require('../services/interview-service');
 
 const rubricA = [{ id: 'r1', text: 'Says the state stays FILLING between the levels.' }, { id: 'r2', text: 'Says the pump starts twice.' }];
 const config = (promptVersion = 'host.v6') => ({
@@ -57,14 +60,79 @@ beforeEach(() => {
 
 // three inputs in all: two for the first question, one for the second
 const three = () => [ok('a'), ok('b'), ok('c')];
-const start = (over = {}) => startInterview({ userId: 'u1', submissionId: 'sub1', now: NOW, runBatch: runner(three()), countRun: counter(), ...over });
+const start = (over = {}) => startInterview({ userId: 'u1', submissionId: 'sub1', now: NOW, invokePrepare: jest.fn(), ...over });
 const created = () => ({ meta: interviews.createInterview.mock.calls[0][0], turn: interviews.createInterview.mock.calls[0][1] });
 
 describe('create', () => {
+  it('saves the interview as "preparing" with a session key, starts the prepare step, and does no work itself', async () => {
+    const invokePrepare = jest.fn();
+    const result = await start({ invokePrepare });
+    expect(invokePrepare).toHaveBeenCalledWith({ interviewId: 'int_sub1' });
+    expect(result).toMatchObject({ interviewId: 'int_sub1', prepareStatus: 'preparing', deadline: null, timeLimitMinutes: 10, questionCount: 2 });
+    expect(result.sessionKey).toMatch(/^[0-9a-f]{48}$/);
+    const { meta, turn } = created();
+    expect(meta).toMatchObject({ prepareStatus: 'preparing', deadline: null, runLimits: { timeLimitMs: 3000, memoryLimitKb: 128000 } });
+    // only the hash of the key is stored
+    expect(meta.sessionKeyHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(meta)).not.toContain(result.sessionKey);
+    expect(meta.codeStatus).toBeUndefined();
+    expect(meta.observedRuns).toBeUndefined();
+    expect(turn).toMatchObject({ text: 'Main A1?', kind: 'main' });
+    expect(turn.runs).toBeUndefined();
+    expect(turn.notice).toBeUndefined();
+    expect(interviews.startInterviewClock).not.toHaveBeenCalled();
+  });
+
+  it('each create gets its own key', async () => {
+    const a = await start();
+    jest.clearAllMocks();
+    interviews.getInterviewBySubmission.mockResolvedValue(null);
+    const b = await start();
+    expect(a.sessionKey).not.toBe(b.sessionKey);
+  });
+
+  it('a failed start of the prepare step marks the interview failed; the student is not blocked and nothing is lost', async () => {
+    const result = await start({ invokePrepare: jest.fn().mockRejectedValue(new Error('AccessDenied arn:secret')) });
+    expect(result.interviewId).toBe('int_sub1');
+    expect(interviews.finishPrepare).toHaveBeenCalledWith('int_sub1', expect.objectContaining({ metaUpdates: { prepareStatus: 'failed' } }));
+    expect(JSON.stringify(log.error.mock.calls)).not.toContain('arn:secret');
+  });
+
+  it('host.v5 has nothing to prepare: it is ready at once and the prepare step is not started', async () => {
+    getMilestone.mockResolvedValue(milestone({ interview: config('host.v5') }));
+    const invokePrepare = jest.fn();
+    const result = await start({ invokePrepare });
+    expect(invokePrepare).not.toHaveBeenCalled();
+    expect(result.prepareStatus).toBe('ready');
+    expect(created().meta.codeStatus).toBeUndefined();
+  });
+
+  it('a practice interview has no session key; it is prepared too, and its clock starts when it is ready', async () => {
+    const invokePrepare = jest.fn();
+    const result = await startPracticeInterview({ userId: 'admin', submissionId: 'sub1', now: NOW, invokePrepare });
+    expect(invokePrepare).toHaveBeenCalledWith({ interviewId: 'intp_fixed' });
+    expect(result.sessionKey).toBeUndefined();
+    expect(created().meta.sessionKeyHash).toBeUndefined();
+    expect(created().meta.deadline).toBeNull();
+    expect(result).toMatchObject({ isPractice: true, prepareStatus: 'preparing' });
+  });
+});
+
+describe('the prepare step', () => {
+  const preparing = (over = {}) => meta({ prepareStatus: 'preparing', deadline: null, observedRuns: undefined, codeStatus: undefined, ...over });
+  const prepare = (over = {}) => prepareInterview({ interviewId: 'int_sub1', runBatch: runner(three()), countRun: counter(), now: NOW, ...over });
+  const stored = () => interviews.finishPrepare.mock.calls[0][1];
+
+  beforeEach(() => {
+    interviews.getInterviewMeta.mockResolvedValue(preparing());
+    interviews.finishPrepare.mockResolvedValue(true);
+  });
+
   it('runs ALL the inputs of ALL the questions once, in ONE batch, like the grader (problem limits, student as tenant), and stores them', async () => {
     const runBatch = runner([ok('50 -> IDLE\n18 -> FILLING\n'), ok('10 -> FILLING\n80 -> FULL\n'), ok('10 -> FILLING\n-5 -> ALARM\n')]);
     const countRun = counter();
-    const result = await start({ runBatch, countRun });
+    const out = await prepare({ runBatch, countRun });
+    expect(out).toEqual({ prepared: true, prepareStatus: 'ready' });
     expect(runBatch).toHaveBeenCalledTimes(1);
     expect(runBatch.mock.calls[0][0]).toEqual([
       { source: GOOD_CODE, stdin: '20 80 100 50 18', timeLimitMs: 3000, memoryLimitKb: 128000 },
@@ -74,109 +142,104 @@ describe('create', () => {
     expect(runBatch.mock.calls[0][1]).toMatchObject({ userId: 'u1' });
     expect(countRun).toHaveBeenCalledTimes(3); // one agent run per input
     expect(countRun).toHaveBeenCalledWith({ userId: 'u1', interviewId: 'int_sub1' });
-    const { turn, meta } = created();
-    expect(turn.runs).toEqual([
+    const { metaUpdates, firstTurnUpdates } = stored();
+    expect(firstTurnUpdates.runs).toEqual([
       { label: 'example', stdin: '20 80 100 50 18', stdout: '50 -> IDLE\n18 -> FILLING\n', status: 'accepted', timeMs: 4 },
       { label: 'high', stdin: '20 80 100 10 80', stdout: '10 -> FILLING\n80 -> FULL\n', status: 'accepted', timeMs: 4 },
     ]);
     // the second question's run is stored on the interview, ready to be copied when that question is asked
-    expect(meta.observedRuns).toHaveLength(2);
-    expect(meta.observedRuns[1]).toEqual({ runs: [{ label: 'invalid', stdin: '20 80 100 10 -5 50', stdout: '10 -> FILLING\n-5 -> ALARM\n', status: 'accepted', timeMs: 4 }], note: null });
-    expect(meta.codeStatus).toMatchObject({ compiles: true, passed: 7, total: 7, stubs: [], unfinished: false });
-    expect(turn.notice).toBeUndefined();
-    expect(result.question).toBe('Main A1?');
+    expect(metaUpdates.observedRuns).toHaveLength(2);
+    expect(metaUpdates.observedRuns[1]).toEqual({ runs: [{ label: 'invalid', stdin: '20 80 100 10 -5 50', stdout: '10 -> FILLING\n-5 -> ALARM\n', status: 'accepted', timeMs: 4 }], note: null });
+    expect(metaUpdates).toMatchObject({ prepareStatus: 'ready', codeStatus: { compiles: true, passed: 7, total: 7, stubs: [], unfinished: false } });
+    expect(firstTurnUpdates.notice).toBeUndefined();
+    expect(metaUpdates.deadline).toBeUndefined(); // a real interview's clock starts when the page opens it
   });
 
-  it('does not start the student clock: no deadline yet, and the result says the time limit and the number of questions', async () => {
-    const result = await start();
-    expect(result).toMatchObject({ deadline: null, timeLimitMinutes: 10, questionCount: 2 });
-    expect(created().meta.deadline).toBeNull();
-    expect(created().meta.extraTimeMs).toBeUndefined();
-    expect(interviews.startInterviewClock).not.toHaveBeenCalled();
-  });
-
-  it('a practice interview keeps its immediate deadline, plus the time the runs took, and runs the same batch', async () => {
-    const runBatch = runner(three());
-    const ticks = [1000, 3500];
-    const result = await startPracticeInterview({ userId: 'admin', submissionId: 'sub1', now: NOW, runBatch, countRun: counter(), clock: () => ticks.shift() });
-    expect(runBatch).toHaveBeenCalledTimes(1);
-    expect(runBatch.mock.calls[0][1]).toMatchObject({ userId: 'admin' });
-    expect(Date.parse(result.deadline)).toBe(NOW + 10 * 60000 + 2500);
-    expect(created().meta.deadline).toBe(result.deadline);
-    expect(created().turn.runs).toHaveLength(2);
+  it('a practice interview gets its clock when it is ready', async () => {
+    interviews.getInterviewMeta.mockResolvedValue(preparing({ isPractice: true, interviewId: 'intp_fixed' }));
+    await prepare({ interviewId: 'intp_fixed' });
+    expect(Date.parse(stored().metaUpdates.deadline)).toBe(NOW + 10 * 60000);
+    expect(stored().metaUpdates.startedAt).toBe(new Date(NOW).toISOString());
   });
 
   it('trims what the program printed to 2,000 characters', async () => {
-    await start({ runBatch: runner([ok('x'.repeat(5000)), ok('y'), ok('z')]) });
-    expect(created().turn.runs[0].stdout).toHaveLength(2000);
+    await prepare({ runBatch: runner([ok('x'.repeat(5000)), ok('y'), ok('z')]) });
+    expect(stored().firstTurnUpdates.runs[0].stdout).toHaveLength(2000);
   });
 
-  it('stops at the agent run limit, runs what was allowed, notes why on every question that lost inputs, and creates the interview anyway', async () => {
+  it('stops at the agent run limit, runs what was allowed, notes why on every question that lost inputs', async () => {
     const countRun = jest.fn()
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new RateLimitError("You've reached the agent run limit for this interview", 'agent'));
     const runBatch = runner([ok('first')]);
-    const result = await start({ runBatch, countRun });
+    await prepare({ runBatch, countRun });
     expect(runBatch.mock.calls[0][0]).toHaveLength(1);
-    expect(created().turn.runs).toHaveLength(1);
-    expect(created().turn.runsNote).toBe('limit_reached');
-    expect(created().meta.observedRuns[1]).toEqual({ runs: [], note: 'limit_reached' });
-    expect(result.question).toBe('Main A1?');
+    expect(stored().firstTurnUpdates.runs).toHaveLength(1);
+    expect(stored().firstTurnUpdates.runsNote).toBe('limit_reached');
+    expect(stored().metaUpdates.observedRuns[1]).toEqual({ runs: [], note: 'limit_reached' });
   });
 
-  it('a limit reached before the first run: no batch at all, noted, interview created', async () => {
+  it('a limit reached before the first run: no batch at all, noted', async () => {
     const runBatch = runner([]);
-    await start({ runBatch, countRun: jest.fn().mockRejectedValue(new RateLimitError('x', 'agent')) });
+    await prepare({ runBatch, countRun: jest.fn().mockRejectedValue(new RateLimitError('x', 'agent')) });
     expect(runBatch).not.toHaveBeenCalled();
-    expect(created().turn.runs).toBeUndefined();
-    expect(created().turn.runsNote).toBe('limit_reached');
+    expect(stored().firstTurnUpdates.runs).toBeUndefined();
+    expect(stored().firstTurnUpdates.runsNote).toBe('limit_reached');
   });
 
   it('a runner failure (internal_error, or a throw) never blocks the interview and never stores the provider message', async () => {
     const bad = { status: 'internal_error', message: 'arn:aws:lambda:secret-detail' };
-    await start({ runBatch: runner([bad, bad, bad]) });
-    expect(created().turn.runs).toBeUndefined();
-    expect(created().turn.runsNote).toBe('runner_failed');
-    expect(created().meta.observedRuns.every((entry) => entry.note === 'runner_failed' && entry.runs.length === 0)).toBe(true);
-    expect(JSON.stringify(interviews.createInterview.mock.calls)).not.toContain('secret-detail');
+    await prepare({ runBatch: runner([bad, bad, bad]) });
+    expect(stored().firstTurnUpdates.runs).toBeUndefined();
+    expect(stored().firstTurnUpdates.runsNote).toBe('runner_failed');
+    expect(stored().metaUpdates.observedRuns.every((entry) => entry.note === 'runner_failed' && entry.runs.length === 0)).toBe(true);
+    expect(JSON.stringify(interviews.finishPrepare.mock.calls)).not.toContain('secret-detail');
     jest.clearAllMocks();
-    interviews.getInterviewBySubmission.mockResolvedValue(null);
-    await start({ runBatch: jest.fn().mockRejectedValue(new Error('boom')) });
-    expect(created().turn.runsNote).toBe('runner_failed');
+    interviews.getInterviewMeta.mockResolvedValue(preparing());
+    interviews.finishPrepare.mockResolvedValue(true);
+    await prepare({ runBatch: jest.fn().mockRejectedValue(new Error('boom')) });
+    expect(stored().firstTurnUpdates.runsNote).toBe('runner_failed');
   });
 
-  it('code that does not compile: the runs say so, the status is unfinished, the student gets the fixed sentence', async () => {
+  it('code that does not compile: the runs say so, the status is unfinished, the first question gets the fixed sentence', async () => {
     const compile = ok('', { status: 'compile_error' });
-    const result = await start({ runBatch: runner([compile, compile, compile]) });
-    const { turn, meta } = created();
-    expect(turn.runsNote).toBe('compile_error');
-    expect(meta.codeStatus).toMatchObject({ compiles: false, unfinished: true });
-    expect(turn.text).toBe('Main A1?'); // the question is stored word for word
-    expect(turn.notice).toBe(NOT_FINISHED_SENTENCE);
-    expect(result.question).toBe(`${NOT_FINISHED_SENTENCE}\n\nMain A1?`);
+    await prepare({ runBatch: runner([compile, compile, compile]) });
+    expect(stored().firstTurnUpdates.runsNote).toBe('compile_error');
+    expect(stored().metaUpdates.codeStatus).toMatchObject({ compiles: false, unfinished: true });
+    expect(stored().firstTurnUpdates.notice).toBe(NOT_FINISHED_SENTENCE);
   });
 
   it('a stub function makes the code unfinished, with the fixed sentence before the first question', async () => {
     getSubmission.mockResolvedValue(submission({ code: 'int step(int a) {\n}\nint main() { return 0; }\n' }));
-    const result = await start();
-    expect(created().meta.codeStatus).toMatchObject({ stubs: ['step'], unfinished: true });
-    expect(result.question.startsWith(NOT_FINISHED_SENTENCE)).toBe(true);
+    await prepare();
+    expect(stored().metaUpdates.codeStatus).toMatchObject({ stubs: ['step'], unfinished: true });
+    expect(stored().firstTurnUpdates.notice).toBe(NOT_FINISHED_SENTENCE);
   });
 
-  it('host.v5 is unchanged: nothing is run, no code status, no notice', async () => {
-    getMilestone.mockResolvedValue(milestone({ interview: config('host.v5') }));
-    getSubmission.mockResolvedValue(submission({ code: 'int step(int a) {\n}\n' }));
+  it('does nothing when the interview is not waiting for it (the student opened it, or left)', async () => {
     const runBatch = runner([]);
-    const result = await start({ runBatch });
+    for (const over of [{ prepareStatus: 'skipped' }, { prepareStatus: 'ready' }, { status: 'abandoned' }]) {
+      interviews.getInterviewMeta.mockResolvedValue(preparing(over));
+      expect((await prepare({ runBatch })).prepared).toBe(false);
+    }
     expect(runBatch).not.toHaveBeenCalled();
-    expect(created().meta.codeStatus).toBeUndefined();
-    expect(created().meta.observedRuns).toBeUndefined();
-    expect(created().turn.notice).toBeUndefined();
-    expect(result.question).toBe('Main A1?');
+    expect(interviews.finishPrepare).not.toHaveBeenCalled();
+  });
+
+  it('when the student opened the interview just before it finished, nothing is changed under them', async () => {
+    interviews.finishPrepare.mockResolvedValue(false);
+    expect(await prepare()).toEqual({ prepared: false, prepareStatus: 'skipped' });
+  });
+
+  it('a failure of the step itself marks it failed; the interview goes on without it', async () => {
+    getSubmission.mockRejectedValue(new Error('db down'));
+    const out = await prepare();
+    expect(out).toEqual({ prepared: false, prepareStatus: 'failed' });
+    expect(interviews.finishPrepare).toHaveBeenCalledWith('int_sub1', expect.objectContaining({ metaUpdates: expect.objectContaining({ prepareStatus: 'failed' }) }));
   });
 
   it('never logs the program output or the inputs', async () => {
-    await start({ runBatch: runner([ok('SECRET-OUTPUT'), ok('b'), ok('c')]) });
+    await prepare({ runBatch: runner([ok('SECRET-OUTPUT'), ok('b'), ok('c')]) });
     expect(JSON.stringify([...log.info.mock.calls, ...log.error.mock.calls, ...log.warn.mock.calls])).not.toMatch(/SECRET-OUTPUT|20 80 100/);
   });
 });
@@ -396,5 +459,201 @@ describe('what the student and the instructor see', () => {
     expect(interview.mainQuestions[0].runs).toEqual([]);
     const item = interview.mainQuestions[0].answers[0].check.items[0];
     expect(item.contradiction).toEqual({ note: 'claims FILLING, observed output is IDLE', claim: 'it stays FILLING' });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------
+
+describe('one chance: only the page that created the interview can take it', () => {
+  const KEY = 'a'.repeat(48);
+  const hashed = crypto.createHash('sha256').update(KEY).digest('hex');
+  const keyed = (over = {}) => meta({ sessionKeyHash: hashed, prepareStatus: 'ready', deadline: null, ...over });
+  const open = (over = {}) => getInterview({ userId: 'u1', interviewId: 'int_sub1', isAdmin: false, now: NOW, ...over });
+  const abandonedMeta = (over = {}) => keyed({ status: 'abandoned', endReason: 'left_page', endedAt: new Date(NOW).toISOString(), ...over });
+
+  beforeEach(() => {
+    interviews.getInterviewMeta.mockResolvedValue(keyed());
+    interviews.getInterviewTurns.mockResolvedValue([hostMain]);
+    interviews.endInterview.mockResolvedValue(true);
+  });
+
+  it('opening with the key it was created with starts the clock and shows the interview', async () => {
+    const { interview } = await open({ sessionKey: KEY });
+    expect(interviews.endInterview).not.toHaveBeenCalled();
+    expect(interviews.startInterviewClock).toHaveBeenCalledTimes(1);
+    expect(interview.status).toBe('in_progress');
+    expect(interview.currentQuestion).toBe('Main A1?');
+  });
+
+  it.each([[undefined], [''], ['b'.repeat(48)], [42]])('opening with no key or a wrong key (%p) ends it: abandoned, left_page, no retake', async (sessionKey) => {
+    interviews.getInterviewMeta.mockResolvedValueOnce(keyed()).mockResolvedValueOnce(abandonedMeta());
+    const { interview } = await open({ sessionKey });
+    expect(interviews.endInterview).toHaveBeenCalledWith('int_sub1', { status: 'abandoned', endReason: 'left_page', now: NOW });
+    expect(interviews.startInterviewClock).not.toHaveBeenCalled();
+    expect(interview).toMatchObject({ status: 'abandoned', endReason: 'left_page', code: null, currentQuestion: null });
+  });
+
+  it('once abandoned it stays abandoned, even for a page that has the key', async () => {
+    interviews.getInterviewMeta.mockResolvedValue(abandonedMeta());
+    const { interview } = await open({ sessionKey: KEY });
+    expect(interview.status).toBe('abandoned');
+    expect(interviews.startInterviewClock).not.toHaveBeenCalled();
+    await expect(answer('x', { sessionKey: KEY })).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('a peek (the waiting page asking whether it is ready) never abandons it, with or without the key', async () => {
+    const { interview } = await open({ peek: true });
+    expect(interviews.endInterview).not.toHaveBeenCalled();
+    expect(interview.prepareStatus).toBe('ready');
+  });
+
+  it('an instructor looking at it never abandons or starts anything', async () => {
+    await getInterview({ userId: 'admin', interviewId: 'int_sub1', isAdmin: true, now: NOW });
+    expect(interviews.endInterview).not.toHaveBeenCalled();
+    expect(interviews.startInterviewClock).not.toHaveBeenCalled();
+  });
+
+  it('an answer must carry the key too: without it the interview ends and the answer is not stored', async () => {
+    const out = await answer('stays FILLING', { sessionKey: undefined, converseFn: modelFor({ shown: ['r1', 'r2'] }) });
+    expect(out).toEqual({ ended: true, status: 'abandoned' });
+    expect(interviews.endInterview).toHaveBeenCalledWith('int_sub1', expect.objectContaining({ status: 'abandoned', endReason: 'left_page' }));
+    expect(interviews.appendTurns).not.toHaveBeenCalled();
+    const good = await answer('stays FILLING and the pump starts twice', { sessionKey: KEY, converseFn: modelFor({ shown: ['r1', 'r2'] }) });
+    expect(good.question).toBe('Main B1?');
+  });
+
+  it('a practice interview and an interview from before the key existed need no key', async () => {
+    interviews.getInterviewMeta.mockResolvedValue(keyed({ sessionKeyHash: undefined, isPractice: true }));
+    expect((await getInterview({ userId: 'u1', interviewId: 'int_sub1', isAdmin: false, now: NOW })).interview.status).toBe('in_progress');
+    interviews.getInterviewMeta.mockResolvedValue(keyed({ sessionKeyHash: undefined }));
+    expect((await open()).interview.status).toBe('in_progress');
+    expect(interviews.endInterview).not.toHaveBeenCalled();
+  });
+
+  it('the student view never has the key or its hash', async () => {
+    const json = JSON.stringify(await open({ sessionKey: KEY }));
+    expect(json).not.toContain(KEY);
+    expect(json).not.toContain(hashed);
+  });
+
+  describe('leaving on purpose (the abandon endpoint)', () => {
+    it('ends an interview in progress as abandoned, by the owner only', async () => {
+      interviews.getInterviewMeta.mockResolvedValueOnce(keyed()).mockResolvedValueOnce(abandonedMeta());
+      expect(await abandonInterview({ userId: 'u1', interviewId: 'int_sub1', now: NOW })).toEqual({ status: 'abandoned' });
+      expect(interviews.endInterview).toHaveBeenCalledWith('int_sub1', { status: 'abandoned', endReason: 'left_page', now: NOW });
+      await expect(abandonInterview({ userId: 'someone-else', interviewId: 'int_sub1' })).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('an interview that already ended is left as it is', async () => {
+      interviews.getInterviewMeta.mockResolvedValue(keyed({ status: 'completed' }));
+      expect(await abandonInterview({ userId: 'u1', interviewId: 'int_sub1' })).toEqual({ status: 'completed' });
+      expect(interviews.endInterview).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the page that does not wait for the prepare step', () => {
+    it('opening while it still prepares marks it skipped, so the step cannot change the interview any more', async () => {
+      interviews.getInterviewMeta.mockResolvedValue(keyed({ prepareStatus: 'preparing' }));
+      interviews.skipPrepare.mockResolvedValue(true);
+      const { interview } = await open({ sessionKey: KEY });
+      expect(interviews.skipPrepare).toHaveBeenCalledWith('int_sub1', { now: NOW });
+      expect(interview.prepareStatus).toBe('skipped');
+      expect(interview.status).toBe('in_progress');
+    });
+
+    it('if the step finished a moment before, its result is used', async () => {
+      interviews.getInterviewMeta.mockResolvedValueOnce(keyed({ prepareStatus: 'preparing' })).mockResolvedValue(keyed({ prepareStatus: 'ready' }));
+      interviews.skipPrepare.mockResolvedValue(false);
+      expect((await open({ sessionKey: KEY })).interview.prepareStatus).toBe('ready');
+    });
+
+    it('a peek reports the status and starts nothing', async () => {
+      interviews.getInterviewMeta.mockResolvedValue(keyed({ prepareStatus: 'preparing' }));
+      expect((await open({ peek: true })).interview.prepareStatus).toBe('preparing');
+      expect(interviews.skipPrepare).not.toHaveBeenCalled();
+    });
+  });
+
+  it('the instructor sees "abandoned" with the time, every answer given before leaving, and never the key hash', async () => {
+    interviews.getInterviewMeta.mockResolvedValue(abandonedMeta({ turnCount: 3 }));
+    interviews.getInterviewTurns.mockResolvedValue([hostMain, { role: 'student', text: 'it stays FILLING', createdAt: 'a', clientTiming: {} }, { role: 'host', text: 'Why?', kind: 'follow_up', createdAt: 'b' }]);
+    const { interview } = await getInterview({ userId: 'admin', interviewId: 'int_sub1', isAdmin: true, now: NOW + 1000 });
+    expect(interview.status).toBe('abandoned');
+    expect(interview.abandoned).toEqual({ at: new Date(NOW).toISOString(), reason: 'left_page' });
+    expect(interview.mainQuestions[0].answers[0].text).toBe('it stays FILLING');
+    expect(JSON.stringify(interview)).not.toContain(hashed);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------
+
+describe('host.v7 through the service', () => {
+  const isPlan = (req) => /^You plan test runs/.test(req.system);
+  const isAnalysis = (req) => /^You analyze a student's C\+\+ program/.test(req.system);
+  const FINDING = { kind: 'bug', concept: 'ALARM does not stay', lines: '1', relatedQuestion: 1, evidence: { stdin: '20 80 100 10 -5 50', output: '50 -> IDLE' } };
+  const analysisModel = (inner = modelFor()) => {
+    const fn = async (req) => {
+      if (isPlan(req)) return { text: JSON.stringify({ runs: [{ stdin: '1 2 3', reason: 'a small input' }] }), inputTokens: 700, outputTokens: 50, latencyMs: 300 };
+      if (isAnalysis(req)) return { text: JSON.stringify({ findings: [FINDING] }), inputTokens: 900, outputTokens: 80, latencyMs: 400 };
+      return inner(req);
+    };
+    fn.calls = inner.calls;
+    return fn;
+  };
+  const v7Meta = (over = {}) => meta({ promptVersion: 'host.v7', prepareStatus: 'preparing', deadline: null, configSnapshot: config('host.v7'), observedRuns: undefined, codeStatus: undefined, ...over });
+
+  it('a host.v7 interview waits for the prepare step; the step stores the analysis next to the runs', async () => {
+    getMilestone.mockResolvedValue(milestone({ interview: config('host.v7'), description: 'Write a tank controller.' }));
+    const result = await start();
+    expect(result.prepareStatus).toBe('preparing');
+    expect(created().meta.promptVersion).toBe('host.v7');
+    interviews.getInterviewMeta.mockResolvedValue(v7Meta());
+    interviews.finishPrepare.mockResolvedValue(true);
+    const runBatch = runner((list) => list.map((r) => ok(r.stdin === '20 80 100 10 -5 50' ? '10 -> FILLING\n-5 -> ALARM\n50 -> IDLE\n' : 'x')));
+    await prepareInterview({ interviewId: 'int_sub1', converseFn: analysisModel(), runBatch, countRun: counter(), now: NOW });
+    const { metaUpdates } = interviews.finishPrepare.mock.calls[0][1];
+    expect(metaUpdates.analysis.status).toBe('ok');
+    expect(metaUpdates.analysis.findings).toEqual([{ id: 'f1', ...FINDING }]);
+    expect(metaUpdates.analysis.runs[0]).toMatchObject({ stdin: '1 2 3', chosenBy: 'agent', reason: 'a small input' });
+    expect(metaUpdates.analysis.calls.map((c) => [c.step, c.inputTokens, c.latencyMs])).toEqual([['plan', 700, 300], ['analysis', 900, 400]]);
+    expect(typeof metaUpdates.prepareMs).toBe('number');
+    // the instructor's three runs and the agent's one: four agent runs in all
+    expect(runBatch).toHaveBeenCalledTimes(2);
+  });
+
+  it('if the analysis fails inside the step the interview is still ready, with the runs and no findings', async () => {
+    interviews.getInterviewMeta.mockResolvedValue(v7Meta());
+    interviews.finishPrepare.mockResolvedValue(true);
+    const down = async () => { throw Object.assign(new Error('x'), { name: 'ModelUnavailableError', reason: 'ThrottlingException' }); };
+    const out = await prepareInterview({ interviewId: 'int_sub1', converseFn: down, runBatch: runner(three()), countRun: counter(), now: NOW });
+    expect(out.prepareStatus).toBe('ready');
+    const { metaUpdates } = interviews.finishPrepare.mock.calls[0][1];
+    expect(metaUpdates.analysis.findings).toEqual([]);
+    expect(metaUpdates.observedRuns).toHaveLength(2);
+  });
+
+  it('answering gives the check and write calls the findings of the question being answered, and the student view has none of it', async () => {
+    const stored = v7Meta({ prepareStatus: 'ready', deadline: new Date(NOW + 10 * 60000).toISOString(), observedRuns, analysis: { status: 'ok', findings: [{ id: 'f1', ...FINDING }, { id: 'f2', kind: 'risk', concept: 'about question two', lines: null, relatedQuestion: 2, evidence: null }], runs: [], calls: [] } });
+    interviews.getInterviewMeta.mockResolvedValue(stored);
+    interviews.getInterviewTurns.mockResolvedValue([hostMain]);
+    const converseFn = modelFor();
+    await answer('it does something', { converseFn });
+    const check = converseFn.calls.find(isCheck).messages[0].content[0].text;
+    expect(check).toContain('<code_findings>');
+    expect(check).toContain('f1 (bug; lines 1): ALARM does not stay');
+    expect(check).not.toContain('about question two');
+    const { interview } = await getInterview({ userId: 'u1', interviewId: 'int_sub1', isAdmin: false, now: NOW + 1000 });
+    const json = JSON.stringify(interview);
+    ['analysis', 'findings', 'ALARM does not stay', 'f1'].forEach((word) => expect(json).not.toContain(word));
+  });
+
+  it('the instructor gets the analysis, and each follow-up says whether it was aimed at a rubric item or a finding', async () => {
+    const analysisStored = { status: 'ok', findings: [{ id: 'f1', ...FINDING }], runs: [{ label: 'agent run 1', stdin: '1 2 3', stdout: 'x', status: 'accepted', timeMs: 3, reason: 'a small input', chosenBy: 'agent' }], calls: [] };
+    interviews.getInterviewMeta.mockResolvedValue(v7Meta({ prepareStatus: 'ready', analysis: analysisStored, turnCount: 3 }));
+    interviews.getInterviewTurns.mockResolvedValue([hostMain, { role: 'student', text: 'ignored', createdAt: 'a', clientTiming: {} },
+      { role: 'host', text: 'Walk me through lines 1 to 3.', kind: 'follow_up', createdAt: 'b', target: 'f1', targetKind: 'finding', missing: ['r1', 'r2'], isHint: false }]);
+    const { interview } = await getInterview({ userId: 'admin', interviewId: 'int_sub1', isAdmin: true, now: NOW + 1000 });
+    expect(interview.analysis).toEqual(analysisStored);
+    expect(interview.mainQuestions[0].followUps[0]).toMatchObject({ target: 'f1', targetKind: 'finding' });
   });
 });

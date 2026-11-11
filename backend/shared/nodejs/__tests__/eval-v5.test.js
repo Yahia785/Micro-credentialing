@@ -173,7 +173,7 @@ describe('host.v5 in the eval', () => {
       log: (l) => lines.push(l), confirm: async () => false, out: path.join(tmp, 'plan'), checkerModel: 'deepseek.v3.2', writerModel: 'deepseek.v3.2',
     }));
     const text = lines.join('\n');
-    expect(text).toMatch(/rough cost, host\.v5 \(host\.v5\): ~\d+ check calls \(checker deepseek\.v3\.2\) and ~\d+ write calls \(writer deepseek\.v3\.2/);
+    expect(text).toMatch(/rough cost, host\.v5 \/ v6 \/ v7 \(host\.v5\): ~\d+ calls in all \(checker deepseek\.v3\.2, writer deepseek\.v3\.2/);
     expect(text).toMatch(/rough cost, single-model arms \(host\.v4\.1@0\)/);
     expect(text).toMatch(/Host cost in total: \$\d/);
     expect(text).toContain('Cancelled. Nothing was run.');

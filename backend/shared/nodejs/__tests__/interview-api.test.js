@@ -110,7 +110,7 @@ const event = (userId, extra = {}) => ({
 const body = (res) => JSON.parse(res.body);
 
 describe('student view (GET /interviews/{id} as the owner)', () => {
-  const STUDENT_KEYS = ['interviewId', 'status', 'startedAt', 'endedAt', 'deadline', 'timeLeftMs', 'serverNow', 'currentQuestion', 'progress', 'turns', 'code'];
+  const STUDENT_KEYS = ['interviewId', 'status', 'startedAt', 'endedAt', 'deadline', 'timeLeftMs', 'serverNow', 'currentQuestion', 'progress', 'turns', 'code', 'prepareStatus', 'endReason'];
 
   it('has only the allowed fields: status, time left, the questions asked so far and their own answers', async () => {
     const res = await getHandler(event('u1', { pathParameters: { interviewId: 'int_sub1' } }), {});
@@ -222,7 +222,7 @@ describe('admin view (GET /interviews/{id} as an admin)', () => {
   it('lists each follow-up with isHint, its target and a timestamp', async () => {
     const q1 = (await get()).mainQuestions[0];
     expect(q1.followUps).toEqual([
-      { question: 'What does the pump do at the reading 15?', askedAt: iso(61000), afterAnswer: 1, isHint: true, target: 'r2' },
+      { question: 'What does the pump do at the reading 15?', askedAt: iso(61000), afterAnswer: 1, isHint: true, target: 'r2', targetKind: 'rubric' },
     ]);
   });
 
@@ -274,7 +274,7 @@ describe('POST /interviews (start after a submission)', () => {
   it('starts a real interview for a normal submission of this problem, with the problem\'s prompt version and models', async () => {
     const res = await post('u1');
     expect(res.statusCode).toBe(201);
-    expect(body(res)).toEqual({ interviewId: 'int_sub1', question: 'Walk me through the readings.', deadline: null, timeLimitMinutes: 10, questionCount: expect.any(Number), serverNow: expect.any(String) });
+    expect(body(res)).toEqual({ interviewId: 'int_sub1', question: 'Walk me through the readings.', deadline: null, timeLimitMinutes: 10, questionCount: expect.any(Number), serverNow: expect.any(String), prepareStatus: 'ready', sessionKey: expect.any(String) });
     const stored = interviews.createInterview.mock.calls[0][0];
     expect(stored).toMatchObject({ isPractice: false, promptVersion: 'host.v5', userId: 'u1', submissionId: 'sub1' });
     expect(stored.checkerModelId).toBeTruthy();

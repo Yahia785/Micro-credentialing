@@ -62,4 +62,32 @@ function leaksCriterion(question, criteria) {
   });
 }
 
-module.exports = { isYesNo, isMultiPart, firstQuestionOnly, leaksCriterion };
+/**
+ * The content words of a rubric item that carry its claim: numbers ("-5", "80"), ALL-CAPS names ("ALARM") and code identifiers
+ * (snake_case, camelCase, name()). They are what a follow-up must not state.
+ */
+function claimTokens(text) {
+  const found = String(text).match(/-?\b\d+(?:\.\d+)?\b|\b[A-Z][A-Z0-9_]{2,}\b|\b[A-Za-z]+_[A-Za-z0-9_]+\b|\b[a-z]+[A-Z][A-Za-z0-9]*\b|\b[A-Za-z_]\w*(?=\(\))/g) || [];
+  return [...new Set(found.map((t) => t.toLowerCase()))];
+}
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** True when `token` (lower case) stands in the text as a word of its own ("-5" is not found inside "-50"). */
+const hasToken = (text, token) => new RegExp(`(^|[^\\w.-])${escapeRegExp(token)}(?![\\w])`, 'i').test(String(text));
+
+/**
+ * host.v6 rule: a follow-up must never state the content of a rubric item the student has not shown. True when the question holds two or
+ * more of the claim tokens of one such item ("When the controller goes to ALARM for -5, ..." holds "-5" and "ALARM" of "-5 is invalid, so
+ * the controller moves to ALARM") and at least one of them is not already in the main question the student was asked. Returns the id of
+ * the item, or null.
+ */
+function givesAwayItem(question, items, mainQuestion = '') {
+  for (const item of items) {
+    const tokens = claimTokens(item.text);
+    const inQuestion = tokens.filter((token) => hasToken(question, token));
+    if (inQuestion.length >= 2 && inQuestion.some((token) => !hasToken(mainQuestion, token))) return item.id;
+  }
+  return null;
+}
+
+module.exports = { isYesNo, isMultiPart, firstQuestionOnly, leaksCriterion, givesAwayItem, claimTokens };

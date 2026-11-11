@@ -42,6 +42,10 @@ function toStudentInterview(meta, turns, { now = Date.now(), code = null } = {})
     startedAt: meta.startedAt,
     endedAt: meta.endedAt || null,
     deadline: meta.deadline,
+    // "preparing" while the prepare step runs (the waiting page polls for it), then "ready" (or "failed" / "skipped": the interview goes on
+    // without what was not ready). Interviews from before the step existed are ready.
+    prepareStatus: meta.prepareStatus || 'ready',
+    endReason: meta.endReason || null,
     timeLeftMs: timeLeftMs(meta, now),
     serverNow: new Date(now).toISOString(),
     // The question the student is answering now (already in `turns`); null when nothing is waiting for an answer.
@@ -88,10 +92,21 @@ function toCheck(source, rubric) {
       else if (shown === true && entry && typeof entry.quote === 'string' && entry.quote.trim()) quote = entry.quote;
       // host.v6: the checker's note when the observed output contradicted the student's claim (the claim is the quote)
       const contradiction = shown === false && entry && typeof entry.note === 'string' && entry.note ? { note: entry.note, claim: entry.quote || null } : null;
-      return { id: item.id, text: item.text, shown, evidence: quote, ...(contradiction && { contradiction }) };
+      // An item counts as shown only when the quote states the whole item: what the student did say about a not-shown item is kept as evidence.
+      const partialQuote = shown === false && entry && typeof entry.quote === 'string' && entry.quote.trim() ? entry.quote : null;
+      return {
+        id: item.id, text: item.text, shown, evidence: quote,
+        ...(partialQuote && { partialQuote }),
+        // shown by an answer to a follow-up question (and after a hint when the follow-up was one)
+        ...(shown === true && entry && entry.viaFollowUp && { viaFollowUp: true, ...(entry.afterHint && { afterHint: true }) }),
+        ...(contradiction && { contradiction }),
+      };
     }),
     // host.v6: the answer was flagged (an attempt to instruct the agent, a request for the answer, ...): { kind, quote, source }
     manipulation: source.manipulation || null,
+    // host.v7: the findings of the code analysis this answer contradicted (with the student's words) and the ones it addressed
+    ...(Array.isArray(source.contradicted) && source.contradicted.length && { contradicted: source.contradicted }),
+    ...(Array.isArray(source.addressed) && source.addressed.length && { addressed: source.addressed }),
     // host.v6: the fixed sentence the engine added to the next question
     notice: source.notice || null,
     missing,
@@ -114,10 +129,14 @@ function toRubricSummary(group, overrides) {
   return group.rubric.map((item) => {
     let agentShown = null;
     let evidence = null;
+    let viaFollowUp = false;
+    let afterHint = false;
     checks.forEach((check) => {
       const found = check.items.find((i) => i.id === item.id);
       if (!found || found.shown === null) return;
       if (found.shown === true) {
+        // the first check that showed the item says where it was shown (later checks repeat it)
+        if (agentShown !== true) { viaFollowUp = found.viaFollowUp === true; afterHint = found.afterHint === true; }
         agentShown = true;
         if (found.evidence && found.evidence !== NOT_SHOWN) evidence = found.evidence;
       } else if (agentShown === null) {
@@ -130,6 +149,7 @@ function toRubricSummary(group, overrides) {
       text: item.text,
       agentShown,
       evidence,
+      ...(viaFollowUp && { viaFollowUp: true, ...(afterHint && { afterHint: true }) }),
       instructorShown: override,
       changed: override !== null && override !== agentShown,
       shown: override !== null ? override : agentShown,
@@ -180,6 +200,8 @@ function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
         afterAnswer: group.answers.length,
         isHint: turn.isHint === true,
         target: turn.target === undefined ? null : turn.target,
+        // host.v7: 'finding' when the follow-up was aimed at a finding of the code analysis (target is then its id)
+        targetKind: turn.targetKind === 'finding' ? 'finding' : 'rubric',
         ...(turn.notice && { notice: turn.notice }),
       });
     } else if (turn.role === 'student') {
@@ -200,9 +222,15 @@ function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
     group.rubricSummary = toRubricSummary(group, review && review.overrides ? review.overrides[String(group.index)] : null);
   });
 
-  const { sk, configSnapshot, ...fields } = meta;
+  // The session key's hash is never given out.
+  const { sk, configSnapshot, sessionKeyHash, ...fields } = meta;
   return {
     ...fields,
+    prepareStatus: meta.prepareStatus || 'ready',
+    // host.v7: what the analysis of the code found, the runs the agent chose (with its reasons) and what the calls cost; null for other versions
+    analysis: meta.analysis || null,
+    // The student left the page (or confirmed leaving): the interview ended there, with the answers given until then
+    abandoned: meta.status === 'abandoned' ? { at: meta.endedAt || null, reason: meta.endReason || null } : null,
     review,
     isPractice: meta.isPractice === true,
     promptVersion: meta.promptVersion || null,

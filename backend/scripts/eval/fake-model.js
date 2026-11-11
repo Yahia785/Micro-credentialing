@@ -74,6 +74,8 @@ function reply(action, question, reason, hash, extra) {
 // ---------------------------------------------------------------------------------------------
 
 const isCheckCall = (request) => /^You check one student's answer/.test(request.system || '');
+const isPlanCall = (request) => /^You plan test runs/.test(request.system || '');
+const isAnalysisCall = (request) => /^You analyze a student's C\+\+ program/.test(request.system || '');
 const isWriteCall = (request) => /^You write ONE follow-up/.test(request.system || '');
 const tokenReply = (obj, hash) => ({ text: JSON.stringify(obj), inputTokens: 600 + (hash % 300), outputTokens: 60 + (hash % 40), latencyMs: 150 + (hash % 200) });
 
@@ -104,7 +106,10 @@ function fakeCheck(request, { seed, chaos, attempts }) {
     evidence[item.id] = { quote: shown ? firstWords : '', shown };
     if (!shown) missing.push(item.id);
   });
-  const normal = tokenReply({ evidence, missing }, hash);
+  // host.v7: with findings in the message, a third of the answers (by hash) are taken to contradict the first bug finding
+  const bugFinding = /^- (f\d+) \(bug/m.exec(text);
+  const extra = bugFinding && firstWords && hash % 3 === 0 ? { contradicted: [{ id: bugFinding[1], quote: firstWords }], addressed: [] } : {};
+  const normal = tokenReply({ evidence, missing, ...extra }, hash);
   if (retry || (hash % 1000) / 1000 >= chaos) return normal;
   switch ((hash >>> 12) % 5) {
     case 0:
@@ -135,6 +140,55 @@ function fakeWrite(request, { seed, chaos }) {
   return tokenReply({ target, isHint: /don't know|not sure|no idea/i.test(last), question }, hash);
 }
 
+// ---------------------------------------------------------------------------------------------
+// host.v7: the plan call (which inputs to run) and the analysis call (findings). Deterministic stand-ins that read the same message the
+// real model gets: they plan the inputs of the visible tests that failed (and an edge case or two), and report a bug when a failed visible
+// test's input was run and printed what the test did not expect. Enough to exercise every path; they say nothing about a real model.
+// ---------------------------------------------------------------------------------------------
+
+function visibleTests(text) {
+  return [...String(text).matchAll(/^Test \d+ \((passed|failed)\): input "(.*?)"; expected "(.*?)"; the program printed "(.*?)"$/gm)]
+    .map((m) => ({ passed: m[1] === 'passed', input: m[2], expected: m[3], printed: m[4] }));
+}
+
+function fakePlan(request, { seed }) {
+  const text = request.messages[0].content[0].text;
+  const hash = hashOf(text, seed);
+  const ran = new Set([...text.matchAll(/^Run "[^"]*" \(stdin: (.*?)\):/gm)].map((m) => m[1].trim()));
+  const inputs = [];
+  visibleTests(text).filter((t) => !t.passed).forEach((t) => { if (!ran.has(t.input)) inputs.push({ stdin: t.input, reason: 'a visible test failed on this input' }); });
+  inputs.push({ stdin: '20 80 100 10 80', reason: 'a reading exactly at the high level' });
+  inputs.push({ stdin: '20 80 100 10 -5 50', reason: 'an invalid reading while filling' });
+  return tokenReply({ runs: inputs.filter((i) => !ran.has(i.stdin)).slice(0, 6) }, hash);
+}
+function fakeAnalysis(request, { seed }) {
+  const text = request.messages[0].content[0].text;
+  const hash = hashOf(text, seed);
+  // the <runs> block: `Run "label" (stdin: X): finished; it printed:` then the output lines
+  const block = (/<runs>\n([\s\S]*?)\n<\/runs>/.exec(text) || [, ''])[1].split('\n');
+  const runs = [];
+  block.forEach((line) => {
+    const head = /^Run "[^"]*" \(stdin: (.*?)\): finished; it printed:$/.exec(line);
+    if (head) runs.push({ stdin: head[1].trim(), lines: [] });
+    else if (runs.length && !/^Run "/.test(line)) runs[runs.length - 1].lines.push(line);
+  });
+  const findings = [];
+  if (/Code status: unfinished/.test(text)) {
+    findings.push({ kind: 'unfinished', concept: 'a function that the program needs is empty or the code does not compile', lines: null, relatedQuestion: 1, evidence: null });
+  }
+  visibleTests(text).filter((t) => !t.passed).forEach((t) => {
+    const run = runs.find((r) => r.stdin === t.input);
+    // the first line the program printed that the test did not expect
+    const odd = run ? run.lines.find((line) => line.trim() && !` ${t.expected} `.includes(` ${line.trim()} `)) : null;
+    if (run && odd && findings.filter((f) => f.kind === 'bug').length < 2) {
+      findings.push({ kind: 'bug', concept: `on this input the program prints "${odd.trim()}", which the problem does not allow`, lines: null, relatedQuestion: 1, evidence: { stdin: run.stdin, output: odd.trim() } });
+    }
+  });
+  return tokenReply({ findings }, hash);
+}
+
+
+
 /**
  * @param {{ seed?: number|string, chaos?: number }} options chaos is the share of calls (0 to 1)
  *   that misbehave. Default 0.26.
@@ -144,6 +198,8 @@ function createFakeModel({ seed = 1, chaos = 0.26 } = {}) {
   const attempts = new Map();
 
   return async function fakeConverse(request) {
+    if (isPlanCall(request)) return fakePlan(request, { seed });
+    if (isAnalysisCall(request)) return fakeAnalysis(request, { seed });
     if (isCheckCall(request)) return fakeCheck(request, { seed, chaos, attempts });
     if (isWriteCall(request)) return fakeWrite(request, { seed, chaos });
     const text = request.messages[0].content[0].text;

@@ -1567,10 +1567,8 @@ Resources:
       Timeout: 25
       Environment:
         Variables:
-          # host.v6 runs the student's code on the instructor's inputs (same pattern as RunCodeFunction)
-          CODE_RUNNER: !Ref CodeRunner
-          CODE_RUNNER_FUNCTION: !Ref RunnerFunctionName
-          CODE_RUNNER_TENANT_ISOLATION: "off"
+          # Create starts the prepare step (runs, code status, host.v7 analysis) as its own function, asynchronously
+          PREPARE_INTERVIEW_FUNCTION: !Ref PrepareInterviewFunction
       Events:
         CreateInterview:
           Type: Api
@@ -1595,14 +1593,85 @@ Resources:
             TableName: Submissions
         - DynamoDBReadPolicy:
             TableName: Milestones
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !GetAtt PrepareInterviewFunction.Arn
+
+  # ------------------------------------------
+  # LAMBDA: Prepare Interview (not an API route: Create invokes it asynchronously, so API Gateway's 29 s limit never applies)
+  # ------------------------------------------
+  PrepareInterviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/interviews/prepare/
+      Handler: index.handler
+      Description: Classifies the code, runs the instructor's inputs and (host.v7) analyzes the code before the first question
+      Timeout: 120
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+      Environment:
+        Variables:
+          CODE_RUNNER: !Ref CodeRunner
+          CODE_RUNNER_FUNCTION: !Ref RunnerFunctionName
+          CODE_RUNNER_TENANT_ISOLATION: "off"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref InterviewsTable
+        - DynamoDBReadPolicy:
+            TableName: Submissions
+        - DynamoDBReadPolicy:
+            TableName: Milestones
         - DynamoDBCrudPolicy:
             TableName: !Ref RunUsageTable
+        # The analysis of host.v7 uses the checker model (Converse needs bedrock:InvokeModel, in us-east-1 only).
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${AgentCheckerModelId}"
+                - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${AgentWriterModelId}"
         - Statement:
             - Effect: Allow
               Action:
                 - lambda:InvokeFunction
               Resource:
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerFunctionName}"
+
+  # ------------------------------------------
+  # LAMBDA: Leave (abandon) an interview
+  # ------------------------------------------
+  AbandonInterviewFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/interviews/abandon/
+      Handler: index.handler
+      Description: Ends the student's interview because they left the page (no retake)
+      Events:
+        AbandonInterview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews/{interviewId}/abandon
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsInterviewAbandon:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /interviews/{interviewId}/abandon
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref InterviewsTable
+        - DynamoDBReadPolicy:
+            TableName: Users
 
   # ------------------------------------------
   # LAMBDA: Answer Interview Question
@@ -1732,10 +1801,8 @@ Resources:
       Timeout: 25
       Environment:
         Variables:
-          # host.v6 runs the student's code on the instructor's inputs (same pattern as RunCodeFunction)
-          CODE_RUNNER: !Ref CodeRunner
-          CODE_RUNNER_FUNCTION: !Ref RunnerFunctionName
-          CODE_RUNNER_TENANT_ISOLATION: "off"
+          # Create starts the prepare step (runs, code status, host.v7 analysis) as its own function, asynchronously
+          PREPARE_INTERVIEW_FUNCTION: !Ref PrepareInterviewFunction
       Events:
         StartPracticeInterview:
           Type: Api
@@ -1762,14 +1829,12 @@ Resources:
             TableName: Milestones
         - DynamoDBReadPolicy:
             TableName: Users
-        - DynamoDBCrudPolicy:
-            TableName: !Ref RunUsageTable
         - Statement:
             - Effect: Allow
               Action:
                 - lambda:InvokeFunction
               Resource:
-                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerFunctionName}"
+                - !GetAtt PrepareInterviewFunction.Arn
 
   # ------------------------------------------
   # LAMBDA: Save the instructor's review of an interview (admin)
