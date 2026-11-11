@@ -27,10 +27,13 @@ const RUBRIC_PROMPTS = Object.freeze(['host.v4', 'host.v4.1']);
 const REPAIR_PROMPTS = Object.freeze(['host.v4.1']);
 // host.v5 is the split agent (split-agent.js): one call checks the answer against the rubric, a second writes the follow-up.
 // It works from the rubric too and runs at temperature 0, but it has no single prompt file and sends no host message.
-const SPLIT_PROMPTS = Object.freeze(['host.v5', 'host.v6']);
+const SPLIT_PROMPTS = Object.freeze(['host.v5', 'host.v6', 'host.v7']);
 // host.v6 is the split agent plus the observed behavior of the student's code, the code status and the manipulation handling
 // (split-agent-v6.js, check.v2 / write.v2). host.v5 itself is unchanged.
-const V6_PROMPTS = Object.freeze(['host.v6']);
+// host.v7 is host.v6 plus the analysis of the code before the interview (analysis.js): the check and write calls also get its findings
+// (check.v3 / write.v3). It is part of the v6 family: everything that holds for host.v6 holds for host.v7.
+const V6_PROMPTS = Object.freeze(['host.v6', 'host.v7']);
+const V7_PROMPTS = Object.freeze(['host.v7']);
 // A yes/no follow-up is rewritten once as an open question (then the engine falls back), for these versions.
 const OPEN_QUESTION_PROMPTS = Object.freeze(['host.v4', 'host.v4.1']);
 // The temperature an arm of these versions runs at when none is named (the other versions use the client's default).
@@ -82,6 +85,11 @@ function followUpBudget(config) {
 const promptCache = {};
 function loadPrompt(version = resolvePromptVersion()) {
   resolvePromptVersion(version);
+  if (V7_PROMPTS.includes(version)) return `${splitV6.CHECK_SYSTEM_V7}
+
+---
+
+${splitV6.WRITE_SYSTEM_V7}`;
   if (V6_PROMPTS.includes(version)) return `${splitV6.CHECK_SYSTEM}
 
 ---
@@ -104,6 +112,8 @@ const usesRubric = (version) => RUBRIC_PROMPTS.includes(version) || SPLIT_PROMPT
 const usesSplit = (version) => SPLIT_PROMPTS.includes(version);
 /** True for host.v6 (observed behavior, code status, manipulation). */
 const usesV6 = (version) => V6_PROMPTS.includes(version);
+/** True for host.v7 (the findings of the code analysis, on top of host.v6). */
+const usesV7 = (version) => V7_PROMPTS.includes(version);
 /** True for the prompt versions whose invalid replies are repaired where possible. */
 const repairsReplies = (version) => REPAIR_PROMPTS.includes(version);
 
@@ -347,7 +357,7 @@ async function guardTwoQuestions({ decision, firstReply, userMessage, system, mo
  *   engineDecision?: true, guard?: object, missing?: string[], target?: string|null, isHint?: boolean
  * }>}
  */
-async function decideNext({ config, state, code, turns, modelId, promptVersion, converseFn = bedrock.converse, checkerModelId, writerModelId, observed = [], codeStatus = null }) {
+async function decideNext({ config, state, code, turns, modelId, promptVersion, converseFn = bedrock.converse, checkerModelId, writerModelId, observed = [], codeStatus = null, findings = null }) {
   const followUpsRemaining = followUpBudget(config) - state.followUpCount;
   const nextMain = nextMainPosition(config, state);
   const theme = currentTheme(config, state);
@@ -364,15 +374,22 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
   let splitRecord = null; // host.v5: the evidence, the models and every call
   let rejected = null; // host.v4 and later: why the reply was not used (the check that failed) and the raw reply
   const repairs = []; // host.v4.1 and the yes/no guard: what the engine repaired in the reply
+  let findingNotes = null; // host.v7: the findings the answer contradicted or addressed ({ contradicted, addressed })
   let manipulation = null; // host.v6: the flag on the student's answer ({ kind, quote, source }) and the notice the engine adds
 
   // host.v6: the engine's own check of the student's latest answer (no model).
   const latestAnswer = [...turns].reverse().find((t) => t.role === 'student');
   const engineFlag = usesV6(version) && latestAnswer ? detectManipulation(latestAnswer.text) : null;
 
+  // host.v6: an answer to a follow-up (one was asked for this main question) is checked as well, so what it shows is recorded.
+  const answersFollowUp = usesV6(version) && state.followUpCount > 0;
+  const v7 = usesV7(version);
+  const mode = v7 ? 'v7' : 'v6';
+  const mainQuestionText = currentMainQuestion(config, state);
+
   if (allowed.length === 1) {
     if (engineFlag) manipulation = engineFlag;
-    // Nothing to choose: no follow-up is left for this main question. The model is not asked.
+    // Nothing to choose: no follow-up is left for this main question. The model is not asked what to do next.
     engineDecision = true;
     decision = {
       action: allowed[0],
@@ -381,12 +398,33 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
         ? 'engine: no follow-up left for this main question; asked the next main question'
         : 'engine: no follow-up left and no main question remains; ended',
     };
+    if (answersFollowUp && !engineFlag) {
+      // Check only (no write): the evidence of the follow-up answer. A failed check changes nothing else.
+      const models = splitV6.resolveSplitModels({ checkerModelId, writerModelId });
+      const checkedOnly = await splitV6.checkOnly({
+        converseFn, models, mainQuestion: mainQuestionText, rubric, turns, observed, codeStatus, findings: v7 ? (findings || []) : null, mode,
+      });
+      splitRecord = { models, calls: checkedOnly.calls };
+      usage = checkedOnly.usage;
+      repairs.push(...checkedOnly.repairs);
+      if (checkedOnly.evidence) {
+        splitRecord.evidence = checkedOnly.evidence;
+        decision.missing = checkedOnly.missing;
+        decision.target = null;
+        decision.isHint = false;
+      }
+      if (checkedOnly.manipulation) manipulation = checkedOnly.manipulation;
+      findingNotes = { contradicted: checkedOnly.contradicted, followUpOutcome: checkedOnly.followUpOutcome };
+    }
   } else if (usesV6(version)) {
     const models = splitV6.resolveSplitModels({ checkerModelId, writerModelId });
     splitRecord = { models, calls: [] };
+    const lastMainAt = turns.map((t) => t.role === 'host' && t.kind === 'main').lastIndexOf(true);
+    const askedFindings = turns.slice(lastMainAt + 1).filter((t) => t.role === 'host' && t.targetKind === 'finding').map((t) => t.target);
     const stepped = await splitV6.decide({
-      converseFn, models, code, turns, mainQuestion: currentMainQuestion(config, state), rubric, criteria: theme.criteria,
+      converseFn, models, code, turns, mainQuestion: mainQuestionText, rubric, criteria: theme.criteria,
       answer: latestAnswer ? latestAnswer.text : '', observed, codeStatus, flag: engineFlag, nextMain: !!nextMain,
+      findings: v7 ? (findings || []) : null, asked: askedFindings, mode,
     });
     splitRecord.calls.push(...stepped.calls);
     splitRecord.evidence = stepped.evidence || undefined;
@@ -394,6 +432,7 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
     repairs.push(...stepped.repairs);
     if (stepped.guard) guard = stepped.guard;
     manipulation = stepped.manipulation;
+    findingNotes = { contradicted: stepped.contradicted, addressed: stepped.addressed, followUpOutcome: stepped.followUpOutcome };
     fallback = stepped.fallback;
     rejected = stepped.rejected;
     decision = stepped.decision;
@@ -581,10 +620,15 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
       ...(splitRecord.evidence && { evidence: splitRecord.evidence }),
     }),
     ...(manipulation && { manipulation }),
+    ...(findingNotes && findingNotes.contradicted && { contradicted: findingNotes.contradicted }),
+    ...(findingNotes && findingNotes.addressed && { addressed: findingNotes.addressed }),
+    ...(findingNotes && findingNotes.followUpOutcome && { followUpOutcome: findingNotes.followUpOutcome }),
+    ...(asked && decision && decision.contradictionTarget && { contradictionTarget: decision.contradictionTarget }),
     ...(rejected && rubric && { rejected: { code: rejected.code, reply: String(rejected.reply || '').slice(0, 2000) } }),
     ...(decision && Array.isArray(decision.missing) && {
       missing: decision.missing,
       target: asked ? decision.target : null,
+      ...(asked && decision.targetKind && { targetKind: decision.targetKind }),
       isHint: asked ? decision.isHint : false,
     }),
   };
@@ -640,10 +684,15 @@ function recordFields(decision) {
   if (decision.evidence) out.evidence = decision.evidence;
   if (decision.rejected) out.rejected = decision.rejected;
   if (decision.manipulation) out.manipulation = decision.manipulation;
+  if (decision.contradicted) out.contradicted = decision.contradicted;
+  if (decision.addressed) out.addressed = decision.addressed;
+  if (decision.followUpOutcome) out.followUpOutcome = decision.followUpOutcome;
+  if (decision.contradictionTarget) out.contradictionTarget = decision.contradictionTarget;
   if (decision.notice) out.notice = decision.notice;
   if (Array.isArray(decision.missing)) {
     out.missing = decision.missing;
     out.target = decision.target;
+    if (decision.targetKind) out.targetKind = decision.targetKind;
     out.isHint = decision.isHint;
   }
   return out;
@@ -670,9 +719,11 @@ module.exports = {
   usesRubric,
   usesSplit,
   usesV6,
+  usesV7,
   runsAt,
   SPLIT_PROMPTS,
   V6_PROMPTS,
+  V7_PROMPTS,
   repairsReplies,
   rubricFor,
   followUpBudget,

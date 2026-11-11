@@ -70,6 +70,21 @@ const interviews = {
     return true;
   },
 
+  async finishPrepare(interviewId, { metaUpdates, firstTurnUpdates = {}, now = Date.now() }) {
+    const meta = state.metas.get(interviewId);
+    if (!meta || meta.status !== 'in_progress' || meta.prepareStatus !== 'preparing') return false;
+    Object.assign(meta, clone(metaUpdates), { updatedAt: new Date(now).toISOString() });
+    Object.assign(state.turns.get(interviewId)[0], clone(firstTurnUpdates));
+    return true;
+  },
+
+  async skipPrepare(interviewId) {
+    const meta = state.metas.get(interviewId);
+    if (!meta || meta.prepareStatus !== 'preparing') return false;
+    meta.prepareStatus = 'skipped';
+    return true;
+  },
+
   async endInterview(interviewId, { status, endReason, now = Date.now() }) {
     const meta = state.metas.get(interviewId);
     if (!meta || meta.status !== 'in_progress') return false;

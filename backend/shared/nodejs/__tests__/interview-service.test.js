@@ -79,6 +79,8 @@ describe('startInterview', () => {
       timeLimitMinutes: 10,
       questionCount: 2,
       serverNow: new Date(NOW).toISOString(),
+      prepareStatus: 'ready', // nothing to prepare for host.v3
+      sessionKey: expect.any(String),
     });
     const [createdMeta, turn] = interviews.createInterview.mock.calls[0];
     expect(createdMeta).toMatchObject({

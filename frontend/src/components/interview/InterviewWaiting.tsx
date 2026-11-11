@@ -68,7 +68,7 @@ export function InterviewWaiting({ minutes, questionCount, uploadDone, prepared,
           <li>{`You will answer ${questions} about your code by typing.`}</li>
           <li>{`You have ${minutes} minutes. The timer pauses while the interviewer is preparing a question.`}</li>
           <li>Answer in your own words. You cannot change your code now.</li>
-          <li>Do not leave this page. Leaving ends the interview.</li>
+          <li>Do not leave or refresh this page. Leaving ends the interview.</li>
         </ul>
       </section>
     </Card>

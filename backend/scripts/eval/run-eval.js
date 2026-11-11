@@ -111,18 +111,50 @@ function withRetry(base, { calls, sleep, delayMs, retryDelayMs }) {
 
 const callSummary = (call) => (call ? { ...call } : null);
 
-/** host.v6 runs the student's code through these two functions (the real runner with a cache, or the fake); other arms never call them. */
-const runArgs = (opts) => (opts.runSupport ? { runBatch: opts.runSupport.runBatch, countRun: opts.runSupport.countRun } : {});
+/**
+ * host.v6 and host.v7 have a prepare step (runs of the student's code, and for host.v7 the analysis). In the product create starts it as its
+ * own Lambda; here it runs synchronously right after create, with the arm's model and the runner of this run (the real runner with a cache,
+ * or the fake). The other arms have nothing to prepare, so the service never calls it.
+ */
+const prepareArgs = (service, opts, converseFn) => ({
+  invokePrepare: ({ interviewId }) => service.prepareInterview({
+    interviewId, converseFn, now: T0, ...(opts.runSupport && { runBatch: opts.runSupport.runBatch, countRun: opts.runSupport.countRun }),
+  }),
+});
+
+const VISIBLE_TESTS = 3; // the first three tests are the ones a student sees in full; the others are hidden (only pass or fail reaches the agent)
+const gradedCache = new Map();
+
+/**
+ * What the grader stored for the submission: the result of every official test of the problem (run once per case through the same runner as
+ * everything else, so it is cached on disk with the real runner). Cases 10 and 11 carry their own result; a case without tests has none.
+ */
+async function gradedSubmission(caseData, opts) {
+  if (caseData.submission && caseData.submission.testResults) return caseData.submission;
+  const tests = caseData.officialTests || [];
+  if (!opts.runSupport || tests.length === 0) return caseData.submission || {};
+  if (!gradedCache.has(caseData.id) || gradedCache.get(caseData.id).run !== opts.runSupport) {
+    const outputs = await opts.runSupport.runBatch(tests.map((test) => ({ source: caseData.code, stdin: test.input, timeLimitMs: 5000, memoryLimitKb: 256000 })));
+    const testResults = tests.map((test, i) => {
+      const actual = String((outputs[i] && outputs[i].stdout) || '');
+      const expected = test.expected.join('\n');
+      const passed = actual.trim() === expected.trim();
+      return { passed, status: passed ? 'Accepted' : 'Wrong Answer', input: test.input, expectedOutput: expected, actualOutput: actual, isHidden: i >= VISIBLE_TESTS };
+    });
+    gradedCache.set(caseData.id, { run: opts.runSupport, value: { passedTests: testResults.filter((r) => r.passed).length, totalTests: testResults.length, testResults } });
+  }
+  return { ...(caseData.submission || {}), ...gradedCache.get(caseData.id).value };
+}
 
 /** Register the code and interview config the service reads, and build the model function for an arm. */
-function setUpInterview({ caseData, submissionId, promptVersion, temperature, opts, ctx }) {
+function setUpInterview({ caseData, submissionId, promptVersion, temperature, opts, ctx, graded }) {
   const userId = 'eval-student';
   const milestoneId = `milestone_${caseData.id}`;
   stores.reset();
   stores.submissions.register({
     submissionId, userId, milestoneId, language: 'cpp', status: 'passed', endedBy: 'submit_button', code: caseData.code,
     // what the grader stored, for the cases where it matters (the unfinished-code cases 10 and 11)
-    ...(caseData.submission || {}),
+    ...(graded || caseData.submission || {}),
   });
   stores.milestones.register({ milestoneId, language: 'cpp', interview: caseData.config });
 
@@ -183,7 +215,7 @@ async function runInterview({ caseData, profileName, answers, promptVersion, arm
   const submissionId = `eval_${caseData.id}_${profileName}_${safeName(arm)}_r${repeat}`;
   const answerMs = opts.answerSeconds * 1000;
   const ctx = { mainOrdinal: 0 };
-  const { userId, calls, converseFn } = setUpInterview({ caseData, submissionId, promptVersion, temperature, opts, ctx });
+  const { userId, calls, converseFn } = setUpInterview({ caseData, submissionId, promptVersion, temperature, opts, ctx, graded: await gradedSubmission(caseData, opts) });
 
   const transcript = {
     schema: 2,
@@ -207,10 +239,10 @@ async function runInterview({ caseData, profileName, answers, promptVersion, arm
   const restoreEnv = useEnv(promptVersion, opts);
 
   try {
-    const started = await service.startInterview({ userId, submissionId, now: T0, ...runArgs(opts) });
+    const started = await service.startInterview({ userId, submissionId, now: T0, ...prepareArgs(service, opts, converseFn) });
     interviewId = started.interviewId;
-    // The student's page opens the interview once it is created: that is when the clock starts (the real flow).
-    await service.getInterview({ userId, interviewId, isAdmin: false, now: T0 });
+    // The student's page opens the interview once it is ready (and carries the session key): that is when the clock starts (the real flow).
+    await service.getInterview({ userId, interviewId, isAdmin: false, sessionKey: started.sessionKey, now: T0 });
 
     for (let k = 1; k <= MAX_ANSWERS; k += 1) {
       const turns = await stores.interviews.getInterviewTurns(interviewId);
@@ -224,7 +256,7 @@ async function runInterview({ caseData, profileName, answers, promptVersion, arm
 
       const callsBefore = calls.length;
       const result = await service.submitAnswer({
-        userId, interviewId, answer: answer.text, clientTiming: {}, now: T0 + k * answerMs, converseFn,
+        userId, interviewId, answer: answer.text, clientTiming: {}, sessionKey: started.sessionKey, now: T0 + k * answerMs, converseFn,
       });
       steps.push({
         scripted: {
@@ -270,7 +302,7 @@ async function runPairInterview({ caseData, mainOrdinal, pair, side, promptVersi
   const submissionId = `pair_${caseData.id}_q${mainOrdinal + 1}_${label}_${safeName(arm)}_r${repeat}`;
   const answerMs = opts.answerSeconds * 1000;
   const ctx = { mainOrdinal };
-  const { userId, calls, converseFn } = setUpInterview({ caseData, submissionId, promptVersion, temperature, opts, ctx });
+  const { userId, calls, converseFn } = setUpInterview({ caseData, submissionId, promptVersion, temperature, opts, ctx, graded: await gradedSubmission(caseData, opts) });
   const history = buildProfile(caseData.studentsRaw, 'strong', caseData.mains);
   const variant = pair[side];
 
@@ -299,18 +331,19 @@ async function runPairInterview({ caseData, mainOrdinal, pair, side, promptVersi
   const restoreEnv = useEnv(promptVersion, opts);
 
   try {
-    const started = await service.startInterview({ userId, submissionId, now: T0, ...runArgs(opts) });
+    const started = await service.startInterview({ userId, submissionId, now: T0, ...prepareArgs(service, opts, converseFn) });
     interviewId = started.interviewId;
-    await service.getInterview({ userId, interviewId, isAdmin: false, now: T0 });
+    await service.getInterview({ userId, interviewId, isAdmin: false, sessionKey: started.sessionKey, now: T0 });
+    calls.splice(0); // a pair is one decision: the prepare step's calls (host.v7) are not part of it
 
     for (let k = 0; k < mainOrdinal; k += 1) {
       await service.submitAnswer({
-        userId, interviewId, answer: history[k].main.text, clientTiming: {}, now: T0 + (k + 1) * answerMs, converseFn: seededConverse,
+        userId, interviewId, answer: history[k].main.text, clientTiming: {}, sessionKey: started.sessionKey, now: T0 + (k + 1) * answerMs, converseFn: seededConverse,
       });
       steps.push({ scripted: { profile: 'pair', source: 'strong', label: 'good', answerType: 'main', mainOrdinal: k, seeded: true }, call: null, status: null });
     }
     const result = await service.submitAnswer({
-      userId, interviewId, answer: variant.text, clientTiming: {}, now: T0 + (mainOrdinal + 1) * answerMs, converseFn,
+      userId, interviewId, answer: variant.text, clientTiming: {}, sessionKey: started.sessionKey, now: T0 + (mainOrdinal + 1) * answerMs, converseFn,
     });
     steps.push({
       scripted: {
@@ -364,6 +397,10 @@ async function assemble(transcript, interviewId, steps) {
   transcript.endReason = meta.endReason || null;
   transcript.fallbackCount = meta.fallbackCount;
   transcript.promptVersionStored = meta.promptVersion;
+  // host.v7: what the prepare step found (findings, the runs the agent chose, calls with tokens and latency) and how long the step took
+  if (meta.analysis) transcript.analysis = meta.analysis;
+  if (meta.prepareMs !== undefined) transcript.prepareMs = meta.prepareMs;
+  if (meta.codeStatus) transcript.codeStatus = meta.codeStatus;
 
   if (meta.status === 'completed' || meta.status === 'timed_out') {
     transcript.status = meta.status;
@@ -576,6 +613,14 @@ const WRITE_SHARE = 0.6; // a guess: the share of decisions where the checker fi
 const HOST_TOKENS = { input: 3500, output: 120 }; // typical size of one Host call (host.v1 to host.v3)
 const HOST_V4_TOKENS = { input: 4300, output: 190 }; // host.v4: a longer prompt, the rubric in the message, a longer reply
 const REWRITE_SHARE = 0.1; // a guess: the share of Host calls that get one more call from the two-question guard
+// host.v6 and host.v7 send more than host.v5 (a guess from the prompts: the code status and the program output; for host.v7 also the findings)
+const V6_EXTRA = { check: 500, write: 900 };
+const V7_EXTRA = { check: 500, write: 600 };
+// host.v7's prepare step: the plan call (problem, numbered code, tests, instructor runs, questions) and the analysis call (the same plus every output)
+const PLAN_TOKENS = { input: 4500, output: 250 };
+const ANALYSIS_TOKENS = { input: 6500, output: 600 };
+const ANALYSIS_RETRY_SHARE = 0.1; // a guess: the share of analyses that get one retry because a finding cited a run that did not happen
+const PREPARE_SECONDS_NOT_CACHED = 12; // a guess: the runs of the plan (one batch) and the two calls; programs already run in an earlier interview come from the cache
 
 /** A small seeded random generator (mulberry32), so the same seed gives the same sample. */
 function seededRandom(seed) {
@@ -764,13 +809,33 @@ async function runEval(rawOptions) {
     }
     if (splitSpecs.length) {
       // host.v5: a check on every decision, a write on the share of decisions that find something missing, and repairs on a guessed share of the writes.
-      const checks = splitSpecs.length * plan.decisionsPerArm;
-      const writes = checks * WRITE_SHARE;
-      const repairs = writes * REWRITE_SHARE;
-      const cost = metrics.estimateCost(checks * CHECK_TOKENS.input + (writes + repairs) * WRITE_TOKENS.input, checks * CHECK_TOKENS.output + (writes + repairs) * WRITE_TOKENS.output, opts.splitPrices);
+      // host.v6 and host.v7 also check the answer to every follow-up (no write), and send more: the code status and the program output (v6), the findings (v7).
+      // host.v7 adds the prepare step to every interview: a plan call and an analysis call (and, on a guessed share, a retry of the analysis).
+      const perArmInterviews = opts.profiles.length * opts.repeats * opts.cases.length;
+      let tokensIn = 0;
+      let tokensOut = 0;
+      let calls = 0;
+      splitSpecs.forEach((spec) => {
+        const v6 = engine.usesV6(spec.promptVersion);
+        const v7 = engine.usesV7(spec.promptVersion);
+        const check = { input: CHECK_TOKENS.input + (v6 ? V6_EXTRA.check : 0) + (v7 ? V7_EXTRA.check : 0), output: CHECK_TOKENS.output + (v6 ? 30 : 0) };
+        const write = { input: WRITE_TOKENS.input + (v6 ? V6_EXTRA.write : 0) + (v7 ? V7_EXTRA.write : 0), output: WRITE_TOKENS.output };
+        const checks = plan.decisionsPerArm * (v6 ? 1 + WRITE_SHARE : 1);
+        const writes = plan.decisionsPerArm * WRITE_SHARE * (1 + REWRITE_SHARE);
+        tokensIn += checks * check.input + writes * write.input;
+        tokensOut += checks * check.output + writes * write.output;
+        calls += checks + writes;
+        if (v7) {
+          tokensIn += perArmInterviews * (PLAN_TOKENS.input + ANALYSIS_TOKENS.input * (1 + ANALYSIS_RETRY_SHARE));
+          tokensOut += perArmInterviews * (PLAN_TOKENS.output + ANALYSIS_TOKENS.output * (1 + ANALYSIS_RETRY_SHARE));
+          calls += perArmInterviews * (2 + ANALYSIS_RETRY_SHARE);
+          seconds += perArmInterviews * PREPARE_SECONDS_NOT_CACHED;
+        }
+      });
+      const cost = metrics.estimateCost(tokensIn, tokensOut, opts.splitPrices);
       parts.push(cost);
-      seconds += (checks + writes + repairs) * (opts.delayMs / 1000 + 2.5);
-      log(`  rough cost, host.v5 (${splitSpecs.map((s) => s.arm).join(', ')}): ~${Math.round(checks)} check calls (checker ${opts.checkerModelId}) and ~${Math.round(writes + repairs)} write calls (writer ${opts.writerModelId}; a guess: ${WRITE_SHARE * 100}% of the decisions find something missing, ${REWRITE_SHARE * 100}% of the writes are repaired once) at ~${CHECK_TOKENS.input} / ~${CHECK_TOKENS.output} (check) and ~${WRITE_TOKENS.input} / ~${WRITE_TOKENS.output} (write) tokens: $${cost.toFixed(2)} (prices: $${opts.splitPrices.inputPerMillion}/$${opts.splitPrices.outputPerMillion} per million tokens, AWS Price List API for the default model, verify)`);
+      seconds += calls * (opts.delayMs / 1000 + 2.5);
+      log(`  rough cost, host.v5 / v6 / v7 (${splitSpecs.map((s) => s.arm).join(', ')}): ~${Math.round(calls)} calls in all (checker ${opts.checkerModelId}, writer ${opts.writerModelId}; guesses: ${WRITE_SHARE * 100}% of the decisions find something missing, ${REWRITE_SHARE * 100}% of the writes are repaired once; v6 and v7 also check follow-up answers; v7 adds a plan and an analysis call to every interview, the analysis retried ${ANALYSIS_RETRY_SHARE * 100}% of the time) about ${Math.round(tokensIn).toLocaleString('en-US')} input / ${Math.round(tokensOut).toLocaleString('en-US')} output tokens: $${cost.toFixed(2)} (prices: $${opts.splitPrices.inputPerMillion}/$${opts.splitPrices.outputPerMillion} per million tokens, AWS Price List API for the default model, verify)`);
     }
     log(`  Host cost in total: $${parts.reduce((a, b) => a + b, 0).toFixed(2)}`);
     log(`  the code and scripted answers are sent to Bedrock; ${opts.delayMs} ms pause before each call`);

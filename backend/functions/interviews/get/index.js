@@ -22,6 +22,8 @@ exports.handler = withHandler(async (ctx) => {
     isAdmin: await isAdminUser(ctx.userId),
     // ?peek=1: only ask whether the interview exists (the waiting page does, while the upload runs); it does not start the clock.
     peek: !!(ctx.queryParams && ctx.queryParams.peek === '1'),
+    // The session key create gave to the page. Opening a running interview without it ends the interview ("abandoned"). Never logged.
+    sessionKey: ctx.queryParams && ctx.queryParams.session,
   });
   return successResponse(200, result);
 });

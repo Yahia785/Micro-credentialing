@@ -47,6 +47,8 @@ export function AssessmentSession({ session }: { session: AssessmentSessionState
           submissionId={interviewTarget.submissionId}
           timeLimitMinutes={interviewTarget.assessment.interviewTimeLimitMinutes}
           questionCount={interviewTarget.assessment.interviewQuestionCount}
+          // Only the page session that just submitted can take the interview; "Open interview" later only shows what became of it.
+          fresh={interviewTarget.uploading !== undefined}
           uploading={interviewTarget.uploading === true}
           initialCode={interviewTarget.code}
           onClose={closeInterview}

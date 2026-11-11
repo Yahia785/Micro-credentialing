@@ -123,7 +123,7 @@ export function AssessmentCard({
               assessment.language === 'cpp' &&
               completed?.submissionId && (
                 <Button size="sm" variant="secondary" onClick={() => onOpenInterview(assessment, completed.submissionId)}>
-                  Open interview
+                  Interview status
                 </Button>
               )}
 

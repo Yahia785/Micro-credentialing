@@ -4,6 +4,7 @@
  * Only IDs, timings, token counts and error names are ever logged here. Never answers,
  * questions, code or criteria.
  */
+const crypto = require('crypto');
 const interviews = require('../db/interviews');
 const { getSubmission } = require('../db/submissions');
 const { getMilestone } = require('../db/milestones');
@@ -13,12 +14,18 @@ const split = require('../agent/split-agent');
 const splitV6 = require('../agent/split-agent-v6');
 const { classifyCode, NOT_FINISHED_SENTENCE } = require('../agent/code-status');
 const { runAllQuestions } = require('./interview-runs');
+const { analyzeCode, buildContext } = require('./interview-analysis');
+const { launchPrepare } = require('./prepare-launcher');
 const view = require('../utils/interview-view');
 const log = require('../utils/logger');
 const { END_REASONS } = require('../utils/submission-end-reason');
 const { AppError, ValidationError, NotFoundError, ForbiddenError } = require('../utils/errors');
 
 const MAX_ANSWER_LENGTH = 2000;
+/** How long the student's page waits for the prepare step before it opens the interview without the analysis (the frontend uses the same number). */
+const PREPARE_STATUS = Object.freeze({ PREPARING: 'preparing', READY: 'ready', FAILED: 'failed', SKIPPED: 'skipped' });
+const LEFT_PAGE = 'left_page';
+const LEFT_PAGE_MESSAGE = 'This interview has ended because you left the page.';
 const STATUS = Object.freeze({
   IN_PROGRESS: 'in_progress',
   COMPLETED: 'completed',
@@ -81,30 +88,34 @@ function ordinalOf(config, state) {
 }
 
 /**
- * host.v6 only, before the interview exists: classify the code once (compiles, tests passed, stubs) and run ALL the interview's run
- * inputs once, in one batch. The results are stored on the interview and copied to each main question when it is asked: answering never
- * calls the runner. Returns what newInterview stores, plus how long it took (a practice interview adds that to its deadline).
+ * host.v6 and host.v7, the prepare step: classify the code once (compiles, tests passed, stubs) and run ALL the interview's run inputs
+ * once, in one batch. The results are stored on the interview and copied to each main question when it is asked: answering never calls
+ * the runner. Returns what the prepare step stores.
  */
-async function prepareV6Start({ submission, config, userId, interviewId, runLimits, runBatch, countRun, clock }) {
-  const startedAt = clock();
+async function prepareV6Start({ submission, config, userId, interviewId, runLimits, runBatch, countRun, deadlineAt }) {
   const questions = view.mainPositions(config).map((position) => engine.runsAt(config, position));
   const observed = await runAllQuestions({
-    code: submission.code || '', questions, userId, interviewId, limits: runLimits, runBatch, countRun,
+    code: submission.code || '', questions, userId, interviewId, limits: runLimits, runBatch, countRun, deadlineAt,
   });
   const codeStatus = classifyCode({ code: submission.code || '', submission, runs: observed.flatMap((entry) => entry.runs) });
-  return { codeStatus, observed, firstRuns: observed[0] || { runs: [], note: null }, elapsedMs: Math.max(0, Math.round(clock() - startedAt)) };
+  return { codeStatus, observed, firstRuns: observed[0] || { runs: [], note: null } };
 }
 
-/** Build the META item, the first host turn and the API result of a new interview. */
-function newInterview({ interviewId, submission, config, userId, isPractice, now, runLimits, prepared }) {
+/** A random session key for the student's page, and the hash that is stored (the key itself is never stored or logged). */
+const hashKey = (key) => crypto.createHash('sha256').update(String(key)).digest('hex');
+const newSessionKey = () => crypto.randomBytes(24).toString('hex');
+
+/** Build the META item, the first host turn and the API result of a new interview. The prepare step fills in the rest. */
+function newInterview({ interviewId, submission, config, userId, isPractice, now, runLimits, sessionKey }) {
   const first = engine.firstQuestion(config);
   const startedAt = new Date(now).toISOString();
-  // A real interview's clock does not start here: it starts when the student's page first opens the interview (see startClock), so the
-  // waiting page, the recording upload and the runs never use up their time. A practice interview keeps its immediate deadline.
-  const deferClock = !isPractice;
-  const addedMs = !deferClock && prepared ? prepared.elapsedMs : 0;
-  const deadline = deferClock ? null : new Date(now + config.timeLimitMinutes * 60000 + addedMs).toISOString();
   const promptVersion = promptVersionFor(config);
+  // host.v6 and host.v7 have a prepare step (runs, code status, and for host.v7 the analysis). The other versions have nothing to prepare.
+  const prepareStatus = engine.usesV6(promptVersion) ? PREPARE_STATUS.PREPARING : PREPARE_STATUS.READY;
+  // A real interview's clock does not start here: it starts when the student's page first opens the interview (see startClock), so the
+  // waiting page, the recording upload and the prepare step never use up their time. A practice interview's clock starts when it is
+  // ready (at once when there is nothing to prepare).
+  const deadline = isPractice && prepareStatus === PREPARE_STATUS.READY ? new Date(now + config.timeLimitMinutes * 60000).toISOString() : null;
   const meta = {
     interviewId,
     submissionId: submission.submissionId,
@@ -116,25 +127,22 @@ function newInterview({ interviewId, submission, config, userId, isPractice, now
     endedAt: null,
     endReason: null,
     deadline,
-    ...(addedMs > 0 && { extraTimeMs: addedMs }),
+    prepareStatus,
+    ...(sessionKey && { sessionKeyHash: hashKey(sessionKey) }),
     ...modelFields(promptVersion),
     promptVersion,
-    ...(prepared && { codeStatus: prepared.codeStatus, runLimits, observedRuns: prepared.observed }),
+    ...(prepareStatus === PREPARE_STATUS.PREPARING && { runLimits }),
     ...stateFields(first.state),
     turnCount: 1,
     configSnapshot: config,
   };
-  const firstTurn = {
-    role: 'host', text: first.question, themeId: first.themeId, kind: first.kind, createdAt: startedAt, reason: 'first main question',
-    // Unfinished code: one fixed sentence the engine puts in front of the first question (no model).
-    ...(prepared && prepared.codeStatus.unfinished && { notice: NOT_FINISHED_SENTENCE }),
-    ...(prepared && prepared.firstRuns.runs.length > 0 && { runs: prepared.firstRuns.runs }),
-    ...(prepared && prepared.firstRuns.note && { runsNote: prepared.firstRuns.note }),
-  };
-  const question = firstTurn.notice ? `${firstTurn.notice}\n\n${first.question}` : first.question;
+  const firstTurn = { role: 'host', text: first.question, themeId: first.themeId, kind: first.kind, createdAt: startedAt, reason: 'first main question' };
   return {
     meta, firstTurn,
-    result: { interviewId, question, deadline, timeLimitMinutes: config.timeLimitMinutes, questionCount: view.mainPositions(config).length, serverNow: startedAt },
+    result: {
+      interviewId, question: first.question, deadline, timeLimitMinutes: config.timeLimitMinutes, questionCount: view.mainPositions(config).length,
+      serverNow: startedAt, prepareStatus, ...(sessionKey && { sessionKey }),
+    },
   };
 }
 
@@ -149,14 +157,15 @@ async function interviewConfigFor(submission) {
   if (milestone.type === 'embedded' || milestone.language !== 'cpp' || !config || !config.enabled) {
     throw new ValidationError('An interview is not enabled for this assessment');
   }
-  return { config, runLimits: { timeLimitMs: milestone.timeLimit || 5000, memoryLimitKb: milestone.memoryLimit || 256000 } };
+  return { config, milestone, runLimits: { timeLimitMs: milestone.timeLimit || 5000, memoryLimitKb: milestone.memoryLimit || 256000 } };
 }
 
 /**
- * Start the interview for a submission.
- * @returns {Promise<{ interviewId, question, deadline, serverNow }>}
+ * Start the interview for a submission: save it as "preparing" and start the prepare step (a separate function, asynchronously, so the
+ * API's 29 second limit never applies). The result carries the session key; only the page that gets it can take the interview.
+ * @returns {Promise<{ interviewId, question, deadline, serverNow, prepareStatus, sessionKey }>}
  */
-async function startInterview({ userId, submissionId, now = Date.now(), runBatch, countRun, clock = monotonicMs }) {
+async function startInterview({ userId, submissionId, now = Date.now(), invokePrepare }) {
   if (!submissionId || typeof submissionId !== 'string') {
     throw new ValidationError('submissionId is required');
   }
@@ -180,11 +189,9 @@ async function startInterview({ userId, submissionId, now = Date.now(), runBatch
     throw new AppError('An interview already exists for this submission', 409);
   }
 
-  const prepared = engine.usesV6(promptVersionFor(config))
-    ? await prepareV6Start({ submission, config, userId, interviewId, runLimits, runBatch, countRun, clock })
-    : null;
-  const { meta, firstTurn, result } = newInterview({ interviewId, submission, config, userId, isPractice: false, now, runLimits, prepared });
+  const { meta, firstTurn, result } = newInterview({ interviewId, submission, config, userId, isPractice: false, now, runLimits, sessionKey: newSessionKey() });
   await interviews.createInterview(meta, firstTurn);
+  if (meta.prepareStatus === PREPARE_STATUS.PREPARING) await launchPrepare({ interviewId, invokePrepare, prepare: prepareInterview });
 
   log.info('Interview started', { interviewId, submissionId, milestoneId: submission.milestoneId });
   return result;
@@ -193,10 +200,10 @@ async function startInterview({ userId, submissionId, now = Date.now(), runBatch
 /**
  * Admin only (the handler enforces it): start a practice interview on an existing submission's code. Same engine, timing and
  * prompt version as a real one, owned by the admin who started it, marked isPractice. It is not limited by the one interview
- * per submission rule, and getInterviewBySubmission never returns it.
- * @returns {Promise<{ interviewId, question, deadline, serverNow, isPractice: true }>}
+ * per submission rule, and getInterviewBySubmission never returns it. It has no session key (the admin may leave and come back).
+ * @returns {Promise<{ interviewId, question, deadline, serverNow, prepareStatus, isPractice: true }>}
  */
-async function startPracticeInterview({ userId, submissionId, now = Date.now(), runBatch, countRun, clock = monotonicMs }) {
+async function startPracticeInterview({ userId, submissionId, now = Date.now(), invokePrepare }) {
   if (!submissionId || typeof submissionId !== 'string') {
     throw new ValidationError('submissionId is required');
   }
@@ -205,14 +212,87 @@ async function startPracticeInterview({ userId, submissionId, now = Date.now(), 
   const { config, runLimits } = await interviewConfigFor(submission);
 
   const interviewId = interviews.practiceInterviewId();
-  const prepared = engine.usesV6(promptVersionFor(config))
-    ? await prepareV6Start({ submission, config, userId, interviewId, runLimits, runBatch, countRun, clock })
-    : null;
-  const { meta, firstTurn, result } = newInterview({ interviewId, submission, config, userId, isPractice: true, now, runLimits, prepared });
+  const { meta, firstTurn, result } = newInterview({ interviewId, submission, config, userId, isPractice: true, now, runLimits });
   await interviews.createInterview(meta, firstTurn);
+  if (meta.prepareStatus === PREPARE_STATUS.PREPARING) await launchPrepare({ interviewId, invokePrepare, prepare: prepareInterview });
 
   log.info('Practice interview started', { interviewId, submissionId, milestoneId: submission.milestoneId });
   return { ...result, isPractice: true };
+}
+
+/**
+ * The prepare step (its own Lambda, started by create; the eval and the tests call it directly). For host.v6 and host.v7 it classifies the
+ * code and runs every run input once; for host.v7 it also analyzes the code (a plan call, the runs it chose, an analysis call). It stores
+ * the results on the interview and marks it "ready", or "failed" when the step itself fails (the interview then goes on without them).
+ * Nothing happens when the interview is not waiting for it any more (the student opened it without waiting, or left).
+ * @returns {Promise<{ prepared: boolean, prepareStatus: string }>}
+ */
+async function prepareInterview({ interviewId, converseFn = bedrock.converse, runBatch, countRun, clock = monotonicMs, now = Date.now(), deadlineAt }) {
+  const meta = await interviews.getInterviewMeta(interviewId);
+  if (!meta || meta.prepareStatus !== PREPARE_STATUS.PREPARING || meta.status !== STATUS.IN_PROGRESS) {
+    return { prepared: false, prepareStatus: meta ? meta.prepareStatus || PREPARE_STATUS.READY : 'missing' };
+  }
+  const startedAt = clock();
+  const config = meta.configSnapshot;
+  const runLimits = meta.runLimits || { timeLimitMs: 5000, memoryLimitKb: 256000 };
+  // An absolute time (epoch ms) by which the runs must be done; the runs turn it into the time that is left.
+  const budget = deadlineAt || Date.now() + 100000;
+  try {
+    const submission = await getSubmission(meta.submissionId);
+    if (!submission) throw new NotFoundError('Submission');
+    const prepared = await prepareV6Start({
+      submission, config, userId: meta.userId, interviewId, runLimits, runBatch, countRun, deadlineAt: budget,
+    });
+
+    let analysis = null;
+    if (engine.usesV7(meta.promptVersion)) {
+      const milestone = await getMilestone(meta.milestoneId);
+      analysis = await analyzeCode({
+        converseFn,
+        models: { checker: splitV6.resolveSplitModels({ checkerModelId: meta.checkerModelId, writerModelId: meta.writerModelId }).checker },
+        context: buildContext({ submission, milestone, config, codeStatus: prepared.codeStatus }),
+        instructorRuns: prepared.observed.flatMap((entry) => entry.runs),
+        instructorRunsByQuestion: prepared.observed.map((entry) => entry.runs),
+        userId: meta.userId, interviewId, limits: runLimits, runBatch, countRun, deadlineAt: budget, clock,
+      });
+    }
+
+    const prepareMs = Math.max(0, Math.round(clock() - startedAt));
+    const clockFields = meta.isPractice
+      ? { startedAt: new Date(now).toISOString(), deadline: new Date(now + config.timeLimitMinutes * 60000).toISOString() }
+      : {};
+    const first = prepared.firstRuns;
+    const applied = await interviews.finishPrepare(interviewId, {
+      metaUpdates: {
+        prepareStatus: PREPARE_STATUS.READY,
+        prepareMs,
+        codeStatus: prepared.codeStatus,
+        observedRuns: prepared.observed,
+        ...(analysis && { analysis }),
+        ...clockFields,
+      },
+      // The first question is already stored; what the prepare step found about the code goes onto it.
+      firstTurnUpdates: {
+        ...(prepared.codeStatus.unfinished && { notice: NOT_FINISHED_SENTENCE }),
+        ...(first.runs.length > 0 && { runs: first.runs }),
+        ...(first.note && { runsNote: first.note }),
+      },
+      now,
+    });
+    log.info('Interview prepared', { interviewId, prepareMs, applied });
+    return { prepared: applied, prepareStatus: applied ? PREPARE_STATUS.READY : PREPARE_STATUS.SKIPPED };
+  } catch (error) {
+    log.error('Interview prepare failed', { interviewId, error: error.name });
+    try {
+      await interviews.finishPrepare(interviewId, {
+        metaUpdates: { prepareStatus: PREPARE_STATUS.FAILED, ...(meta.isPractice && { startedAt: new Date(now).toISOString(), deadline: new Date(now + config.timeLimitMinutes * 60000).toISOString() }) },
+        firstTurnUpdates: {}, now,
+      });
+    } catch (again) {
+      log.error('Could not mark the interview prepare step as failed', { interviewId, error: again.name });
+    }
+    return { prepared: false, prepareStatus: PREPARE_STATUS.FAILED };
+  }
 }
 
 /**
@@ -231,13 +311,48 @@ async function startClock(meta, now) {
   return (await interviews.getInterviewMeta(meta.interviewId)) || meta;
 }
 
+/** End an interview because its page was left: no retake. Returns the stored META after the change. */
+async function abandon(meta, now) {
+  await interviews.endInterview(meta.interviewId, { status: STATUS.ABANDONED, endReason: LEFT_PAGE, now });
+  log.info('Interview abandoned', { interviewId: meta.interviewId });
+  return (await interviews.getInterviewMeta(meta.interviewId)) || { ...meta, status: STATUS.ABANDONED, endReason: LEFT_PAGE, endedAt: new Date(now).toISOString() };
+}
+
+/**
+ * The student's page opens or answers a real interview: it must be the page that created it. An interview taken without its session key
+ * (a reload, a closed tab, another browser, a later visit) counts as abandoned. Interviews from before the key existed, and practice
+ * interviews, have no key to check. Opening it also ends the wait for the prepare step: what the step has not finished by then is dropped.
+ * @returns {Promise<{ meta: object, abandoned: boolean }>}
+ */
+async function openAsStudent(stored, sessionKey, now) {
+  if (stored.sessionKeyHash && !stored.isPractice && stored.status === STATUS.IN_PROGRESS) {
+    if (typeof sessionKey !== 'string' || !sessionKey || hashKey(sessionKey) !== stored.sessionKeyHash) {
+      return { meta: await abandon(stored, now), abandoned: true };
+    }
+  }
+  let meta = stored;
+  if (meta.prepareStatus === PREPARE_STATUS.PREPARING && meta.status === STATUS.IN_PROGRESS && !meta.isPractice) {
+    // The page did not wait any longer: the interview goes on without what is not ready, and the prepare step cannot change it any more.
+    if (await interviews.skipPrepare(meta.interviewId, { now })) meta = { ...meta, prepareStatus: PREPARE_STATUS.SKIPPED };
+    else meta = (await interviews.getInterviewMeta(meta.interviewId)) || meta; // it finished a moment ago: use that
+  }
+  return { meta, abandoned: false };
+}
+
+/** The code findings of one main question (host.v7), or null for the other versions. */
+function findingsAt(meta, config, state) {
+  if (!engine.usesV7(meta.promptVersion)) return null;
+  const number = ordinalOf(config, state) + 1;
+  return ((meta.analysis && meta.analysis.findings) || []).filter((finding) => finding.relatedQuestion === number);
+}
+
 /**
  * Store the student's answer and return the next question, or { ended: true }.
  */
 /** Milliseconds from a monotonic clock, for measuring how long the agent worked. */
 const monotonicMs = () => performance.now();
 
-async function submitAnswer({ userId, interviewId, answer, clientTiming, now = Date.now(), converseFn, clock = monotonicMs }) {
+async function submitAnswer({ userId, interviewId, answer, clientTiming, sessionKey, now = Date.now(), converseFn, clock = monotonicMs }) {
   if (typeof answer !== 'string' || !answer.trim()) throw new ValidationError('answer is required');
   if (answer.length > MAX_ANSWER_LENGTH) {
     throw new ValidationError(`answer must not exceed ${MAX_ANSWER_LENGTH} characters`);
@@ -247,8 +362,10 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, now = D
   if (!stored) throw new NotFoundError('Interview');
   if (stored.userId !== userId) throw new ForbiddenError('You can only answer your own interview');
   if (stored.status !== STATUS.IN_PROGRESS) throw new AppError('This interview has already ended', 409);
-  // An answer before the page ever opened the interview (not the normal flow) starts the clock too.
-  const meta = await startClock(stored, now);
+  // Only the page that created the interview may answer it. An answer before the page ever opened the interview starts the clock too.
+  const opened = await openAsStudent(stored, sessionKey, now);
+  if (opened.abandoned) return { ended: true, status: STATUS.ABANDONED };
+  const meta = await startClock(opened.meta, now);
 
   if (now > Date.parse(meta.deadline)) {
     await interviews.endInterview(interviewId, { status: STATUS.TIMED_OUT, endReason: 'deadline_passed', now });
@@ -294,6 +411,8 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, now = D
     // An interview keeps the prompt version it started with.
     promptVersion: meta.promptVersion,
     ...(isV6 && { observed: (currentMain && currentMain.runs) || [], codeStatus: meta.codeStatus || null }),
+    // host.v7: what the analysis found about the main question being answered
+    ...(engine.usesV7(meta.promptVersion) && { findings: findingsAt(meta, config, interviewState(meta)) }),
     ...(converseFn && { converseFn }),
   });
 
@@ -376,14 +495,19 @@ const toAdminInterview = view.toAdminInterview;
  * One interview. The owner gets the student view; an admin gets the instructor view (also for a practice interview). A student
  * can never read someone else's interview, and a practice interview is owned by the admin who started it.
  */
-async function getInterview({ userId, interviewId, isAdmin, peek = false, now = Date.now() }) {
+async function getInterview({ userId, interviewId, isAdmin, peek = false, sessionKey, now = Date.now() }) {
   const stored = await interviews.getInterviewMeta(interviewId);
   if (!stored) throw new NotFoundError('Interview');
   if (stored.userId !== userId && !isAdmin) throw new ForbiddenError('You can only view your own interview');
 
-  // The owner opening a running interview is "the first question is shown": that is when the clock starts. An instructor looking at it
-  // never starts it, and `peek` (is there an interview yet?) does not either.
-  const meta = !isAdmin && !peek && stored.status === STATUS.IN_PROGRESS ? await startClock(stored, now) : stored;
+  // The owner opening a running interview is "the first question is shown": that is when the clock starts, and it must be the page that
+  // created the interview (its session key): a later open without it ends the interview. An instructor looking at it never starts or
+  // ends anything, and `peek` (is it ready yet?) does not either.
+  let meta = stored;
+  if (!isAdmin && !peek && stored.status === STATUS.IN_PROGRESS) {
+    const opened = await openAsStudent(stored, sessionKey, now);
+    meta = opened.abandoned ? opened.meta : await startClock(opened.meta, now);
+  }
 
   let current = meta;
   if (meta.status === STATUS.IN_PROGRESS && meta.deadline && now > Date.parse(meta.deadline)) {
@@ -399,6 +523,19 @@ async function getInterview({ userId, interviewId, isAdmin, peek = false, now = 
   }
 
   return { interview: toAdminInterview(current, turns, { code: submission ? submission.code || '' : null, now }) };
+}
+
+/**
+ * The student leaves the interview on purpose (in-app navigation, confirmed): it ends now, "abandoned", and cannot be retaken. Owner only.
+ * @returns {Promise<{ status: string }>}
+ */
+async function abandonInterview({ userId, interviewId, now = Date.now() }) {
+  const stored = await interviews.getInterviewMeta(interviewId);
+  if (!stored) throw new NotFoundError('Interview');
+  if (stored.userId !== userId) throw new ForbiddenError('You can only leave your own interview');
+  if (stored.status !== STATUS.IN_PROGRESS) return { status: stored.status };
+  const meta = await abandon(stored, now);
+  return { status: meta.status };
 }
 
 /** Admin only (the handler enforces it): every interview of one submission, real and practice, oldest first. */
@@ -474,6 +611,8 @@ module.exports = {
   MAX_REVIEW_NOTE_LENGTH,
   startInterview,
   startPracticeInterview,
+  prepareInterview,
+  abandonInterview,
   listSubmissionInterviews,
   submitAnswer,
   getInterview,
@@ -481,5 +620,8 @@ module.exports = {
   toAdminInterview,
   sanitizeClientTiming,
   STATUS,
+  PREPARE_STATUS,
+  LEFT_PAGE,
+  LEFT_PAGE_MESSAGE,
   MAX_ANSWER_LENGTH,
 };

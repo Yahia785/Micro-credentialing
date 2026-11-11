@@ -1,6 +1,7 @@
 import type { AgentCheck, AdminMainQuestion, CodeStatus, ManipulationFlag } from '../../types/interview';
 import { Alert, Badge } from '../ui';
 import type { BadgeVariant } from '../ui';
+import { describeRunsNote } from '../../utils/runsNote';
 import styles from './ObservedBehavior.module.css';
 
 /**
@@ -24,12 +25,6 @@ const RUN_STATUS: Record<string, { label: string; variant: BadgeVariant }> = {
   runtime_error: { label: 'Runtime error', variant: 'danger' },
   time_limit: { label: 'Timed out', variant: 'warning' },
   memory_limit: { label: 'Out of memory', variant: 'warning' },
-};
-
-const RUNS_NOTES: Record<string, string> = {
-  limit_reached: 'Some runs were skipped because the run limit for this interview was reached. The agent worked without them.',
-  runner_failed: 'The code could not be run (the runner was not available). The agent worked without run results.',
-  compile_error: 'The code did not compile, so there is no output.',
 };
 
 export const flagLabel = (flag: Pick<ManipulationFlag, 'kind'>) => FLAG_LABELS[flag.kind] ?? 'Flagged';
@@ -63,7 +58,7 @@ export function CodeStatusBanner({ status }: { status: CodeStatus | null | undef
 /** What the student's code printed on the inputs set for one main question. Nothing is shown for a question without runs. */
 export function QuestionRuns({ question }: { question: AdminMainQuestion }) {
   const runs = question.runs ?? [];
-  const note = question.runsNote ? RUNS_NOTES[question.runsNote] : null;
+  const note = describeRunsNote(question.runsNote);
   if (runs.length === 0 && !note) return null;
 
   return (
@@ -101,7 +96,12 @@ export function QuestionRuns({ question }: { question: AdminMainQuestion }) {
 export function AnswerNotes({ check }: { check: AgentCheck | null }) {
   if (!check) return null;
   const contradictions = check.items.filter((item) => item.contradiction);
-  if (!check.manipulation && contradictions.length === 0) return null;
+  const partials = check.items.filter((item) => item.shown === false && item.partialQuote && !item.contradiction && !item.contradictedByProgram);
+  const byProgram = check.items.filter((item) => item.contradictedByProgram);
+  const outcome = check.followUpOutcome;
+  const viaFollowUp = check.items.filter((item) => item.viaFollowUp);
+  const contradicted = check.contradicted ?? [];
+  if (!check.manipulation && contradictions.length === 0 && partials.length === 0 && viaFollowUp.length === 0 && contradicted.length === 0 && byProgram.length === 0 && !outcome) return null;
 
   return (
     <div className={styles.notes}>
@@ -113,6 +113,35 @@ export function AnswerNotes({ check }: { check: AgentCheck | null }) {
           <blockquote className={styles.quote}>{check.manipulation.quote}</blockquote>
         </Alert>
       )}
+      {byProgram.map((item) => (
+        <p key={`program-${item.id}`} className={styles.contradiction}>
+          <strong>{`Item ${item.id} not shown: contradicted by the program's output. `}</strong>
+          {`The student said "${item.partialQuote ?? ''}", and the program printed something else, so the claim does not count as evidence.`}
+        </p>
+      ))}
+      {outcome && (
+        <p className={styles.note}>
+          <strong>{outcome.result === 'explained' ? 'The student explained what the program really printed.' : 'The student still contradicts the program’s output.'}</strong>
+          {` (the follow-up was about ${outcome.kind === 'finding' ? 'finding' : 'item'} ${outcome.target})`}
+        </p>
+      )}
+      {viaFollowUp.map((item) => (
+        <p key={`via-${item.id}`} className={styles.note}>
+          <strong>{`Item ${item.id} shown in follow-up${item.afterHint ? ' (after a hint)' : ''}.`}</strong>
+        </p>
+      ))}
+      {partials.map((item) => (
+        <p key={`partial-${item.id}`} className={styles.note}>
+          <strong>{`Item ${item.id} not shown: `}</strong>
+          {`the student said only part of it ("${item.partialQuote}").`}
+        </p>
+      ))}
+      {contradicted.map((entry) => (
+        <p key={`finding-${entry.id}`} className={styles.contradiction}>
+          <strong>{`Contradicts finding ${entry.id}: `}</strong>
+          {`the student said "${entry.quote}", and the program printed something else.`}
+        </p>
+      ))}
       {contradictions.map((item) => (
         <p key={item.id} className={styles.contradiction}>
           <strong>{`Item ${item.id} not shown: `}</strong>

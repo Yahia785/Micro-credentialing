@@ -5,7 +5,7 @@ export function chatFromStudentView(view: StudentInterview): ChatInterview {
   return {
     interviewId: view.interviewId,
     status: view.status,
-    deadline: view.deadline,
+    deadline: view.deadline ?? new Date(Date.parse(view.serverNow) + view.timeLeftMs).toISOString(),
     serverNow: view.serverNow,
     receivedAt: performance.now(),
     code: view.code ?? null,
@@ -26,7 +26,7 @@ export function chatFromAdminView(view: AdminInterview, questionCount: number | 
   return {
     interviewId: view.interviewId,
     status: view.status,
-    deadline: view.deadline,
+    deadline: view.deadline ?? new Date(Date.parse(view.serverNow) + view.timeLeftMs).toISOString(),
     serverNow: view.serverNow,
     receivedAt: performance.now(),
     code: view.code,

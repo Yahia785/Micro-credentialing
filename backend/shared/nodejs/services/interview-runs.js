@@ -15,6 +15,12 @@ const log = require('../utils/logger');
 const MAX_STDOUT_CHARS = 2000;
 const DEFAULT_LIMITS = Object.freeze({ timeLimitMs: 5000, memoryLimitKb: 256000 });
 
+/** The time left until an absolute deadline, as the duration the runner expects (never negative); null when there is no deadline. */
+const remainingMs = (deadlineAt, now = Date.now()) => (deadlineAt === null || deadlineAt === undefined ? null : Math.max(0, deadlineAt - now));
+
+/** Why a run failed, for the instructor: the error name and a short message (no code, no output). */
+const detailOf = (name, message) => `${name || 'Error'}${message ? `: ${String(message).replace(/\s+/g, ' ').trim().slice(0, 120)}` : ''}`;
+
 const NOTES = Object.freeze({
   LIMIT: 'limit_reached',
   RUNNER_FAILED: 'runner_failed',
@@ -29,9 +35,11 @@ const NOTES = Object.freeze({
  * runs than inputs (limit_reached, runner_failed) or that the code did not compile.
  *
  * @param {{ code: string, questions: Array<Array<{label:string, stdin:string}>>, userId: string, interviewId: string,
- *           limits?: {timeLimitMs:number, memoryLimitKb:number}, runBatch?: Function, countRun?: Function, deadlineMs?: number|null }} input
+ *           limits?: {timeLimitMs:number, memoryLimitKb:number}, runBatch?: Function, countRun?: Function, deadlineAt?: number|null }} input
+ *   deadlineAt is an ABSOLUTE time (epoch ms) by which the runs must be done. The runner wants the time that is LEFT (a duration), so it is
+ *   worked out here at the moment of the call: max(0, deadlineAt - now).
  */
-async function runAllQuestions({ code, questions, userId, interviewId, limits = DEFAULT_LIMITS, runBatch = codeRunner.runCppBatch, countRun = checkAndCountAgentRun, deadlineMs = null }) {
+async function runAllQuestions({ code, questions, userId, interviewId, limits = DEFAULT_LIMITS, runBatch = codeRunner.runCppBatch, countRun = checkAndCountAgentRun, deadlineAt = null }) {
   const out = questions.map(() => ({ runs: [], note: null }));
   const inputs = [];
   questions.forEach((list, q) => (Array.isArray(list) ? list : []).forEach((run) => inputs.push({ q, run })));
@@ -47,7 +55,7 @@ async function runAllQuestions({ code, questions, userId, interviewId, limits = 
       allowed.push(inputs[i]);
     } catch (error) {
       stoppedAt = i;
-      stopNote = error instanceof RateLimitError ? NOTES.LIMIT : NOTES.RUNNER_FAILED;
+      stopNote = error instanceof RateLimitError ? NOTES.LIMIT : `${NOTES.RUNNER_FAILED}: ${detailOf(error.name, error.message)}`;
       log.info('Interview run skipped', { interviewId, reason: stopNote });
       break;
     }
@@ -57,18 +65,22 @@ async function runAllQuestions({ code, questions, userId, interviewId, limits = 
   if (allowed.length === 0) return out;
 
   let results;
+  let failure = null;
   try {
     results = await runBatch(allowed.map(({ run }) => ({
       source: code, stdin: run.stdin, timeLimitMs: limits.timeLimitMs, memoryLimitKb: limits.memoryLimitKb,
-    })), { deadlineMs, userId });
+    })), { deadlineMs: remainingMs(deadlineAt), userId });
   } catch (error) {
     log.error('Interview run failed', { interviewId, error: error.name });
+    failure = detailOf(error.name, error.message);
     results = null;
   }
   if (!Array.isArray(results) || results.length !== allowed.length || results.some((r) => !r || r.status === 'internal_error')) {
-    // The provider's message may hold internals: only the fact is recorded.
+    // Only the error name goes to the log; the note says why, for the instructor.
     log.error('Interview run failed in the code runner', { interviewId });
-    allowed.forEach(({ q }) => { out[q].note = NOTES.RUNNER_FAILED; });
+    const bad = Array.isArray(results) ? results.find((r) => r && r.status === 'internal_error') : null;
+    if (!failure) failure = bad ? detailOf('internal_error', bad.message) : 'the runner returned no usable result';
+    allowed.forEach(({ q }) => { out[q].note = `${NOTES.RUNNER_FAILED}: ${failure}`; });
     return out;
   }
 
@@ -86,4 +98,4 @@ async function runAllQuestions({ code, questions, userId, interviewId, limits = 
   return out;
 }
 
-module.exports = { runAllQuestions, NOTES, MAX_STDOUT_CHARS };
+module.exports = { runAllQuestions, remainingMs, NOTES, MAX_STDOUT_CHARS };

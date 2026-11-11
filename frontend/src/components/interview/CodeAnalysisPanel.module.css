@@ -1,0 +1,79 @@
+/* The instructor's Code analysis panel (host.v7) and the abandoned banner. New file: the other review stylesheets belong to the styling lane. */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.help,
+.note {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finding,
+.run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-card);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.id {
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-semibold);
+}
+
+.meta {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.concept {
+  margin: 0;
+}
+
+.io {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-2);
+}
+
+.ioLabel {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.pre {
+  margin: 0;
+  padding: var(--space-2);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-subtle);
+  white-space: pre;
+}

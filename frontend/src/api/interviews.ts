@@ -67,8 +67,9 @@ export function startInterview(submissionId: string) {
  * The student view of the caller's own interview. Opening a running interview starts its clock (once); `peek` only asks whether the
  * interview exists and leaves the clock alone (the waiting page uses it while the recording upload is still running).
  */
-export async function getStudentInterview(interviewId: string, options: { peek?: boolean } = {}) {
-  const query = options.peek ? '?peek=1' : '';
+export async function getStudentInterview(interviewId: string, options: { peek?: boolean; sessionKey?: string } = {}) {
+  // The session key proves this is the page that created the interview. Opening it without the key ends it ("abandoned").
+  const query = options.peek ? '?peek=1' : options.sessionKey ? `?session=${encodeURIComponent(options.sessionKey)}` : '';
   const data = await request<{ interview: StudentInterview }>(`/interviews/${encodeURIComponent(interviewId)}${query}`);
   return data.interview;
 }
@@ -79,11 +80,16 @@ export async function getAdminInterview(interviewId: string) {
   return data.interview;
 }
 
-export function answerInterview(interviewId: string, answer: string, clientTiming: ClientTiming) {
+export function answerInterview(interviewId: string, answer: string, clientTiming: ClientTiming, sessionKey?: string) {
   return request<AnswerResult>(`/interviews/${encodeURIComponent(interviewId)}/answers`, {
     method: 'POST',
-    body: { answer, clientTiming },
+    body: { answer, clientTiming, ...(sessionKey && { sessionKey }) },
   });
+}
+
+/** The student confirmed leaving: the interview ends now and cannot be retaken. */
+export function abandonInterview(interviewId: string) {
+  return request<{ status: string }>(`/interviews/${encodeURIComponent(interviewId)}/abandon`, { method: 'POST', body: {} });
 }
 
 /** Admins only: every interview of one submission, real and practice. */

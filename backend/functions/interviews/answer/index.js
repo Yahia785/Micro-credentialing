@@ -19,6 +19,7 @@ exports.handler = withHandler(async (ctx) => {
     interviewId,
     answer: ctx.body.answer,
     clientTiming: ctx.body.clientTiming,
+    sessionKey: ctx.body.sessionKey,
   });
   return successResponse(200, result);
 });

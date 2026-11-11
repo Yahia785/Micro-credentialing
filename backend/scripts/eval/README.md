@@ -256,6 +256,30 @@ Options added to `run-eval.js`:
 Rows that need the judge (reveals, two-part, beyond scope) are n/a without `--judge`. The unfinished-code row is a text heuristic; read its examples. With two repeats the "observed output ignored" row has 6 answers per arm,
 which the report calls "too few to say": use `--repeats 3` if that row matters.
 
+## host.v7: the code analysis before the interview
+
+`host.v7` is host.v6 plus an analysis of the student's code (`services/interview-analysis.js`, prompts `plan.v1.md` and `analyze.v1.md`; `check.v3.md` and `write.v3.md` are check.v2 and write.v2 followed by the findings rules). In the product it runs in the prepare step, a separate Lambda that create starts asynchronously; in the evaluation `prepareInterview` runs synchronously right after create, with the arm's model and the run's runner (the real one uses the disk cache, so a program already run is not run again).
+The prepare step: a **plan call** (problem statement, numbered code, code status, the visible tests in full, hidden tests only as a pass count, the instructor's run outputs, the main questions with their rubric) returns up to 6 inputs to run, each with a reason; the engine runs them in one batch (one agent run each, the same limit of 30 as the instructor's runs); an **analysis call** then returns findings `{ id, kind: bug|risk|strength|unfinished, concept, lines, relatedQuestion, evidence: { stdin, output } }`. A finding that cites evidence must cite a run that happened (same input, output text in what it printed) and a bug must cite one; the engine rejects the others, asks once, and drops what is still invalid. Any failed call keeps what was found so far.
+During the interview the check and write calls get the findings of the current main question. The follow-up target order is (1) a finding the answer contradicts, (2) a missing rubric item, (3) a related bug or risk the answer did not address; a follow-up aimed at a finding stores its id as `target` (`targetKind: finding`).
+
+Also in host.v6 and host.v7 (fixes after a first review): the answer to a follow-up is checked again (check only; evidence merges, new items are marked "shown in follow-up", after a hint when the follow-up was one); an item counts as shown only when the quote states the whole item (a partial quote is kept as evidence); a follow-up never states the content of a not-shown item (engine check, then the existing rewrite).
+
+`run-eval.js` gives every arm the grader's result for the submission (the seven tank tests are run once per case through the runner: the first three are visible, the others hidden), so the code status says "N of 7 tests passed" for all arms.
+
+Two commands (see the report of the task for the estimates):
+
+```
+# (a) all three arms, the same cases, profiles and repeats as the host.v6 run
+node scripts/eval/run-eval.js --prompts host.v7,host.v6,host.v5 --cases case4,case5,case6,case7,case8,case9,case10,case11 --profiles strong,vague,wrong,idk,inject,manip,claims --repeats 2 --judge --runner real --no-pairs --delay-ms 300 --yes
+
+# (b) shorter: v7 and v6 at 2 repeats, v5 at 1 repeat (two runs, one report)
+node scripts/eval/run-eval.js --prompts host.v7,host.v6 --cases ... --profiles ... --repeats 2 --judge --runner real --no-pairs --delay-ms 300 --yes --out eval-results/v7-v6
+node scripts/eval/run-eval.js --prompts host.v5 --cases ... --profiles ... --repeats 1 --judge --runner real --no-pairs --delay-ms 300 --yes --out eval-results/v5
+node scripts/eval/v6-report.js eval-results/v7-v6 --also eval-results/v5 --arms host.v5,host.v6,host.v7
+```
+
+`v6-report.js` takes `--arms` (a column per arm; the Reading column compares the last arm with the one before it) and `--also <folder>` (the transcripts of a second run). host.v7 has its own rows (known bug not found, unfinished code not recognised, false findings on correct code, contradictions caught and missed on the claims profile, follow-ups aimed at a finding), a Code analysis table per case (found and located on the buggy line, risks, runs the agent chose), and the cost and latency of the prepare step. `demo-examples.md` shows the instructor's view with the Code analysis panel.
+
 ## host.v4 and the rubric check
 
 `host.v4` is the first prompt that works from the instructor's **rubric**: for each main question, a list of items r1, r2, r3 that a

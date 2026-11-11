@@ -160,6 +160,10 @@ function loadCase(id) {
     submission: entry.submission || {},
     // Input and expected output of the program's tests. Stored for later: nothing runs them yet.
     tests: entry.testsFile ? JSON.parse(fs.readFileSync(entry.testsFile, 'utf8')).tests : [],
+    // The tests the statement expects (the tank controller's seven tests), for the grader's result the interview is given (host.v7 reads it).
+    officialTests: /tank-controller\.json$/.test(entry.configFile)
+      ? JSON.parse(fs.readFileSync(path.join(__dirname, 'tank-controller.tests.json'), 'utf8')).tests
+      : [],
   };
 }
 
