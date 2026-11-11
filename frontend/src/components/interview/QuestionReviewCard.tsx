@@ -126,7 +126,7 @@ function checkNote(check: AgentCheck): string {
 function AnswerReview({ answer, label }: { answer: AdminAnswer; label: string }) {
   const quotes = (answer.check?.items ?? [])
     .filter((item) => item.shown === true && item.evidence && item.evidence !== NOT_SHOWN)
-    .map((item) => item.evidence as string);
+    .flatMap((item) => (item.fragments && item.fragments.length > 0 ? item.fragments : [item.evidence as string]));
   const segments = highlightQuotes(answer.text, quotes);
   const pastes = answer.clientTiming?.pasteCount ?? 0;
   const focusLosses = answer.clientTiming?.focusLossCount ?? 0;

@@ -1,6 +1,7 @@
 import type { AgentCheck, AdminMainQuestion, CodeStatus, ManipulationFlag } from '../../types/interview';
 import { Alert, Badge } from '../ui';
 import type { BadgeVariant } from '../ui';
+import { describeRunsNote } from '../../utils/runsNote';
 import styles from './ObservedBehavior.module.css';
 
 /**
@@ -24,12 +25,6 @@ const RUN_STATUS: Record<string, { label: string; variant: BadgeVariant }> = {
   runtime_error: { label: 'Runtime error', variant: 'danger' },
   time_limit: { label: 'Timed out', variant: 'warning' },
   memory_limit: { label: 'Out of memory', variant: 'warning' },
-};
-
-const RUNS_NOTES: Record<string, string> = {
-  limit_reached: 'Some runs were skipped because the run limit for this interview was reached. The agent worked without them.',
-  runner_failed: 'The code could not be run (the runner was not available). The agent worked without run results.',
-  compile_error: 'The code did not compile, so there is no output.',
 };
 
 export const flagLabel = (flag: Pick<ManipulationFlag, 'kind'>) => FLAG_LABELS[flag.kind] ?? 'Flagged';
@@ -63,7 +58,7 @@ export function CodeStatusBanner({ status }: { status: CodeStatus | null | undef
 /** What the student's code printed on the inputs set for one main question. Nothing is shown for a question without runs. */
 export function QuestionRuns({ question }: { question: AdminMainQuestion }) {
   const runs = question.runs ?? [];
-  const note = question.runsNote ? RUNS_NOTES[question.runsNote] : null;
+  const note = describeRunsNote(question.runsNote);
   if (runs.length === 0 && !note) return null;
 
   return (

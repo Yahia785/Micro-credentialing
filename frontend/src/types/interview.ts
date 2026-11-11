@@ -70,6 +70,8 @@ export interface CheckItem extends RubricItem {
   contradiction?: { note: string; claim: string | null };
   /** What the student did say about an item that is not shown (the item counts as shown only when the quote states the whole item). */
   partialQuote?: string;
+  /** The evidence as a list of exact fragments of the answer, when it is in several places (the quote is them joined). */
+  fragments?: string[];
   /** Shown by the answer to a follow-up question, and after a hint when the follow-up was one. */
   viaFollowUp?: boolean;
   afterHint?: boolean;

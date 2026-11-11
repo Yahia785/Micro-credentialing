@@ -2,6 +2,7 @@ import type { AdminInterview, CodeAnalysis, CodeFinding } from '../../types/inte
 import { formatDateTime } from '../../utils/interview';
 import { Alert, Badge } from '../ui';
 import type { BadgeVariant } from '../ui';
+import { describeRunsNote } from '../../utils/runsNote';
 import styles from './CodeAnalysisPanel.module.css';
 
 /**
@@ -20,12 +21,6 @@ const STATUS_NOTES: Record<string, string> = {
   partial: 'The analysis could only be done in part (a model call failed or its reply was not usable). The interview went on with what was found.',
   failed: 'The analysis could not be done. The interview went on without it.',
   skipped: 'The student opened the interview before the analysis was ready, so it was not used.',
-};
-
-const RUNS_NOTES: Record<string, string> = {
-  limit_reached: 'Some of the agent’s runs were skipped because the run limit for this interview was reached.',
-  runner_failed: 'The agent’s runs could not be done (the runner was not available).',
-  compile_error: 'The code did not compile, so there is no output.',
 };
 
 /** A banner when the student left the page: when, and that their answers until then are kept. */
@@ -94,7 +89,7 @@ export function CodeAnalysisPanel({ analysis }: { analysis: CodeAnalysis | null 
 
       <h3 className={styles.help}>Runs chosen by the agent</h3>
       {analysis.runs.length === 0 ? (
-        <p className={styles.note}>{analysis.runsNote ? RUNS_NOTES[analysis.runsNote] : 'The agent chose no extra runs.'}</p>
+        <p className={styles.note}>{describeRunsNote(analysis.runsNote) ?? 'The agent chose no extra runs.'}</p>
       ) : (
         <ul className={styles.list}>
           {analysis.runs.map((run) => (
@@ -108,7 +103,7 @@ export function CodeAnalysisPanel({ analysis }: { analysis: CodeAnalysis | null 
           ))}
         </ul>
       )}
-      {analysis.runs.length > 0 && analysis.runsNote && <p className={styles.note}>{RUNS_NOTES[analysis.runsNote]}</p>}
+      {analysis.runs.length > 0 && analysis.runsNote && <p className={styles.note}>{describeRunsNote(analysis.runsNote)}</p>}
 
       {calls.length > 0 && (
         <p className={styles.note}>{`The analysis used ${calls.length} model calls, ${tokens.toLocaleString()} tokens and ${((analysis.latencyMs ?? 0) / 1000).toFixed(1)} s of model time.`}</p>
