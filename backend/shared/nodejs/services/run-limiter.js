@@ -1,4 +1,4 @@
-const { incrementCounters } = require('../db/run-usage');
+const { incrementCounters, readCount } = require('../db/run-usage');
 const { RateLimitError, ValidationError } = require('../utils/errors');
 const log = require('../utils/logger');
 
@@ -64,6 +64,15 @@ async function checkAndCountRun({ userId, assessmentId, now = Date.now() }) {
     : new RateLimitError('Too many runs, please wait a minute', 'minute'));
 }
 
+/** Runs left in this assessment (informational): null if it cannot be read. Never throws. */
+async function getRunsLeft({ userId, assessmentId }) {
+  try {
+    return Math.max(0, limits().perAssessment - await readCount(`run#${userId}#${assessmentId}`));
+  } catch {
+    return null;
+  }
+}
+
 /** An agent run (AI interview): its own counter per interview. */
 async function checkAndCountAgentRun({ userId, interviewId }) {
   requireIds(userId, interviewId, 'interviewId');
@@ -72,4 +81,4 @@ async function checkAndCountAgentRun({ userId, interviewId }) {
   ], userId, () => new RateLimitError("You've reached the agent run limit for this interview", 'agent'));
 }
 
-module.exports = { checkAndCountRun, checkAndCountAgentRun, DEFAULTS };
+module.exports = { checkAndCountRun, getRunsLeft, checkAndCountAgentRun, DEFAULTS };

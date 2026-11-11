@@ -1,5 +1,5 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, TransactWriteCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, TransactWriteCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
 
 const client = new DynamoDBClient({});
 const dynamodb = DynamoDBDocumentClient.from(client);
@@ -40,4 +40,10 @@ async function incrementCounters(counters) {
   }
 }
 
-module.exports = { incrementCounters };
+/** Current value of one counter (0 if it does not exist yet). Strongly consistent. */
+async function readCount(key) {
+  const result = await dynamodb.send(new GetCommand({ TableName: process.env.RUN_USAGE_TABLE, Key: { pk: key }, ConsistentRead: true }));
+  return result.Item ? Number(result.Item.count) || 0 : 0;
+}
+
+module.exports = { incrementCounters, readCount };

@@ -1013,6 +1013,54 @@ Resources:
                 - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerFunctionName}"
 
   # ------------------------------------------
+  # LAMBDA: Run Code (the Run button: custom input or visible sample tests, nothing is saved)
+  # ------------------------------------------
+  RunCodeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/submissions/run/
+      Handler: index.handler
+      Description: Run the student's C++ code before submitting (limited per minute and per assessment)
+      Timeout: 60
+      Environment:
+        Variables:
+          CODE_RUNNER: !Ref CodeRunner
+          CODE_RUNNER_FUNCTION: !Ref RunnerFunctionName
+          CODE_RUNNER_TENANT_ISOLATION: "off"
+      Events:
+        RunCode:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /submissions/run
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        OptionsRun:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /submissions/run
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: TestCases
+        - DynamoDBReadPolicy:
+            TableName: Milestones
+        - DynamoDBReadPolicy:
+            TableName: Users
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RunUsageTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerFunctionName}"
+
+  # ------------------------------------------
   # LAMBDA: Get Submission
   # ------------------------------------------
   GetSubmissionFunction:
