@@ -16,6 +16,9 @@ import { WorkspaceShell } from './workspace/WorkspaceShell';
 import { WorkspaceTabs } from './workspace/WorkspaceTabs';
 import styles from './CodeEditor.module.css';
 import { proctoringLogger } from '../utils/proctoringLogger';
+import { useRunCode } from '../hooks/useRunCode';
+import { RunControls } from './run/RunControls';
+import { RunPanel } from './run/RunPanel';
 
 interface TestResult {
   testCaseId?: string;
@@ -127,6 +130,14 @@ export function CodeEditor({
   const completedMilestone = userProfile?.completedMilestones?.find(
     (m: any) => m.milestoneId === milestone.milestoneId
   );
+
+  // Run button (C++ problems only): the run state lives in the hook; running never touches recording, submit or the leave guard.
+  const runAvailable = defaultLanguage.toLowerCase() === 'cpp' && milestone.type !== 'embedded' && !isViewMode && !isAlreadyCompleted;
+  const run = useRunCode({
+    milestoneId: milestone.milestoneId,
+    getCode: () => code,
+    enabled: runAvailable && !hasSubmitted && !isSubmitting,
+  });
 
 // Reset code when milestone changes OR load submitted code in view mode
   useEffect(() => {
@@ -1096,6 +1107,15 @@ const stopRecording = () => {
             <div className={styles.editorHeader}>
               <span>Code editor: {defaultLanguage.toUpperCase()}</span>
               {(isAlreadyCompleted || isViewMode) && <span className={styles.editorMode}>Read only</span>}
+              {runAvailable && (
+                <RunControls
+                  onRun={run.run}
+                  onRunSamples={run.runSamples}
+                  running={run.running}
+                  disabled={hasSubmitted || isSubmitting}
+                  disabledReason="Running is closed because you have submitted"
+                />
+              )}
             </div>
 
             {/* Monaco Editor */}
@@ -1106,6 +1126,10 @@ const stopRecording = () => {
                 language={defaultLanguage}
                 value={code}
                 onChange={(value) => setCode(value || '')}
+                onMount={(editor, monaco) => {
+                  // Ctrl+Enter (Cmd+Enter on a Mac) runs the code; the hook ignores it when running is not allowed.
+                  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => { void run.run(); });
+                }}
                 theme="vs-dark"
                 options={{
                   minimap: { enabled: false },
@@ -1120,6 +1144,16 @@ const stopRecording = () => {
                 }}
               />
             </div>
+
+            {runAvailable && (
+              <RunPanel
+                state={run.state}
+                input={run.input}
+                onInputChange={run.setInput}
+                onRun={run.run}
+                disabled={hasSubmitted || isSubmitting}
+              />
+            )}
 
             {/* Editor Footer with Instructions */}
             <div className={`${styles.editorFooter} ${(isAlreadyCompleted || isViewMode) ? styles.editorFooterView : ''}`}>

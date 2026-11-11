@@ -1,17 +1,39 @@
 import { getAuthToken, API_BASE } from './config';
 import type { SubmissionEndedBy } from '../types/submission';
 
-/**
- * Run code with sample test cases (visible ones only)
- */
-export async function runCode(data: {
-  milestoneId: string;
-  code: string;
-  language: string;
-}) {
-  const token = await getAuthToken();
+export type RunStatus = 'accepted' | 'compile_error' | 'runtime_error' | 'time_limit' | 'memory_limit' | 'failed';
 
-  console.log('Running code for milestone:', data.milestoneId);
+export interface SampleRunResult {
+  index: number;
+  passed: boolean;
+  status: string;
+  input: string;
+  expectedOutput: string;
+  actualOutput: string;
+  stderr: string;
+  timeMs: number;
+}
+
+/** What POST /submissions/run returns: custom input, or the visible sample tests. */
+export type RunResponse =
+  | { mode: 'custom'; status: RunStatus; stdout: string; stderr: string; compileOutput: string; timeMs: number; runsLeft: number | null }
+  | {
+      mode: 'sample';
+      status: RunStatus;
+      compileOutput: string;
+      results: SampleRunResult[];
+      passed: number;
+      total: number;
+      timeMs: number;
+      runsLeft: number | null;
+    };
+
+/**
+ * Run the current code before submitting (C++ only): on the given input, or on the visible sample tests.
+ * Throws an Error with the server's plain-language message (for example when a run limit is reached).
+ */
+export async function runCode(data: { milestoneId: string; code: string; input?: string; sample?: boolean }): Promise<RunResponse> {
+  const token = await getAuthToken();
 
   const response = await fetch(`${API_BASE}/submissions/run`, {
     method: 'POST',
@@ -23,9 +45,13 @@ export async function runCode(data: {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Run code failed:', response.status, errorText);
-    throw new Error(`HTTP error! status: ${response.status}`);
+    let message = '';
+    try {
+      message = (await response.json()).error || '';
+    } catch {
+      // not JSON: use the generic message below
+    }
+    throw new Error(message || `The run failed (status ${response.status}). Please try again.`);
   }
 
   return response.json();
