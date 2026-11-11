@@ -160,18 +160,46 @@ function buildCheckMessage({ mainQuestion, rubric, answer, exchange, codeStatus,
  * were not given are dropped, not an error.
  */
 function validateCheckV6(text, rubric, answer, findings = []) {
-  const verdict = validateCheck(text, rubric, answer);
-  if (!verdict.ok) return verdict;
   const raw = String(text || '');
   let parsed = {};
-  try { parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)); } catch { /* already validated */ }
+  try { parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)); } catch { /* validateCheck says what is wrong */ }
+  // A quote is one exact fragment of the answer, or a LIST of exact fragments (the evidence can be in several places; each one must be in
+  // the answer). A string that joins parts with "..." is read as a list too. validateCheck (v1) sees the first fragment only.
+  const haystack = squash(answer);
+  const fragmentsOf = {};
+  let checkable = text;
+  if (parsed && parsed.evidence && typeof parsed.evidence === 'object' && !Array.isArray(parsed.evidence)) {
+    const copy = { ...parsed, evidence: {} };
+    for (const [id, entry] of Object.entries(parsed.evidence)) {
+      if (!entry || typeof entry !== 'object') { copy.evidence[id] = entry; continue; }
+      let parts = null;
+      if (Array.isArray(entry.quote)) parts = entry.quote;
+      else if (typeof entry.quote === 'string' && !haystack.includes(squash(entry.quote)) && /\.\.\.|…/.test(entry.quote)) parts = entry.quote.split(/\.{3,}|…/);
+      if (parts) {
+        if (parts.some((part) => typeof part !== 'string')) return { ok: false, error: `bad evidence for ${id}` };
+        const kept = parts.map((part) => part.trim()).filter((part) => squash(part));
+        const missing = kept.find((part) => !haystack.includes(squash(part)));
+        if (missing !== undefined) return { ok: false, error: `quote for ${id} is not in the answer` };
+        fragmentsOf[id] = kept;
+        copy.evidence[id] = { ...entry, quote: kept[0] || '' };
+      } else {
+        copy.evidence[id] = entry;
+      }
+    }
+    checkable = JSON.stringify(copy);
+  }
+  const verdict = validateCheck(checkable, rubric, answer);
+  if (!verdict.ok) return verdict;
   const evidence = {};
   Object.entries(verdict.evidence).forEach(([id, entry]) => {
     const note = typeof entry.note === 'string' ? entry.note.replace(/\s+/g, ' ').trim().slice(0, MAX_NOTE_LENGTH) : '';
-    evidence[id] = { quote: entry.quote, shown: entry.shown, ...(note && { note }) };
+    const fragments = fragmentsOf[id];
+    // quote stays one string (the fragments joined) for the record; fragments keeps the list
+    evidence[id] = {
+      quote: fragments ? fragments.join(' ... ') : entry.quote, shown: entry.shown, ...(fragments && fragments.length > 1 && { fragments }), ...(note && { note }),
+    };
   });
   const known = new Set((findings || []).map((f) => f.id));
-  const haystack = squash(answer);
   const contradicted = (Array.isArray(parsed.contradicted) ? parsed.contradicted : [])
     .filter((entry) => entry && known.has(entry.id) && typeof entry.quote === 'string' && squash(entry.quote) && haystack.includes(squash(entry.quote)))
     .map((entry) => ({ id: entry.id, quote: entry.quote.slice(0, 300) }));
@@ -227,7 +255,8 @@ function mergeEvidence({ rubric, previous, checked, followUpText, afterHint }) {
       return;
     }
     const now = checked.evidence[id];
-    const inFollowUp = now.shown && follow && squash(now.quote) && follow.includes(squash(now.quote));
+    const pieces = now.fragments || [now.quote];
+    const inFollowUp = now.shown && follow && pieces.some((piece) => squash(piece) && follow.includes(squash(piece)));
     evidence[id] = { ...now, ...(inFollowUp && { viaFollowUp: true, ...(afterHint && { afterHint: true }) }) };
   });
   return { evidence, missing: ids.filter((id) => !evidence[id].shown) };

@@ -97,6 +97,8 @@ function toCheck(source, rubric) {
       return {
         id: item.id, text: item.text, shown, evidence: quote,
         ...(partialQuote && { partialQuote }),
+        // the evidence as a list of exact fragments of the answer, when the evidence is in several places
+        ...(shown === true && entry && Array.isArray(entry.fragments) && { fragments: entry.fragments }),
         // shown by an answer to a follow-up question (and after a hint when the follow-up was one)
         ...(shown === true && entry && entry.viaFollowUp && { viaFollowUp: true, ...(entry.afterHint && { afterHint: true }) }),
         ...(contradiction && { contradiction }),

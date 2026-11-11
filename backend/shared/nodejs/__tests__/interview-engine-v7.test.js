@@ -444,3 +444,49 @@ describe('the analysis', () => {
     });
   });
 });
+
+describe('a quote can be a list of exact fragments', () => {
+  const R3 = [{ id: 'r3', text: 'The pump starts twice (at 18 and at 15), because a start is counted only when entering FILLING from another state.' }];
+  const ANSWER = '18 is below 20 so FILLING, that is the first pump start. ... Then 15 is below 20 so FILLING again, second start. So the pump starts 2 times.';
+  const reply = (quote) => JSON.stringify({ manipulation: false, evidence: { r3: { quote, shown: true } }, missing: [] });
+  const FRAGMENTS = ['18 is below 20 so FILLING, that is the first pump start.', 'Then 15 is below 20 so FILLING again, second start.', 'So the pump starts 2 times.'];
+
+  it('accepts a list when every fragment is in the answer, and keeps the list', () => {
+    const verdict = v6.validateCheckV6(reply(FRAGMENTS), R3, ANSWER);
+    expect(verdict.ok).toBe(true);
+    expect(verdict.missing).toEqual([]);
+    expect(verdict.evidence.r3.fragments).toEqual(FRAGMENTS);
+    expect(verdict.evidence.r3.quote).toBe(FRAGMENTS.join(' ... '));
+  });
+
+  it('rejects a list with a fragment that is not in the answer', () => {
+    const verdict = v6.validateCheckV6(reply([FRAGMENTS[0], 'the pump starts three times']), R3, ANSWER);
+    expect(verdict).toEqual({ ok: false, error: 'quote for r3 is not in the answer' });
+  });
+
+  it('a single string still works, and a string that joins parts with "..." is read as a list', () => {
+    expect(v6.validateCheckV6(reply('So the pump starts 2 times.'), R3, ANSWER).ok).toBe(true);
+    const joined = v6.validateCheckV6(reply(`${FRAGMENTS[0]} ... ${FRAGMENTS[2]}`), R3, ANSWER);
+    expect(joined.ok).toBe(true);
+    expect(joined.evidence.r3.fragments).toEqual([FRAGMENTS[0], FRAGMENTS[2]]);
+    expect(v6.validateCheckV6(reply(`${FRAGMENTS[0]} ... made up words`), R3, ANSWER).ok).toBe(false);
+  });
+
+  it('a shown item still needs at least one fragment', () => {
+    expect(v6.validateCheckV6(reply([]), R3, ANSWER).ok).toBe(false);
+    expect(v6.validateCheckV6(reply(['']), R3, ANSWER).ok).toBe(false);
+  });
+
+  it('through the engine: the item is shown, and the instructor view lists the fragments; the prompt asks for a list', async () => {
+    const cfg = { enabled: true, timeLimitMinutes: 10, maxFollowUpsPerMainQuestion: 1, themes: [{ id: 't', title: 'T', mainQuestions: ['How many pump starts?', 'Q2?'], criteria: ['c'], rubric: [R3, [{ id: 'r1', text: 'x' }]] }] };
+    const out = await engine.decideNext({
+      config: cfg, state: engine.initialState(), code: CODE, promptVersion: 'host.v6', turns: [{ role: 'host', text: 'How many pump starts?', kind: 'main' }, student(ANSWER)],
+      converseFn: model({ check: [reply(FRAGMENTS)] }),
+    });
+    expect(out.action).toBe('next_main');
+    expect(out.evidence.r3.fragments).toEqual(FRAGMENTS);
+    expect(toCheck({ missing: [], evidence: out.evidence }, R3).items[0].fragments).toEqual(FRAGMENTS);
+    expect(v6.CHECK_SYSTEM).toMatch(/LIST of exact fragments/);
+    expect(v6.CHECK_SYSTEM).toMatch(/Never join parts with "\.\.\."/);
+  });
+});

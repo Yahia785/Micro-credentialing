@@ -92,10 +92,10 @@ function ordinalOf(config, state) {
  * once, in one batch. The results are stored on the interview and copied to each main question when it is asked: answering never calls
  * the runner. Returns what the prepare step stores.
  */
-async function prepareV6Start({ submission, config, userId, interviewId, runLimits, runBatch, countRun, deadlineMs }) {
+async function prepareV6Start({ submission, config, userId, interviewId, runLimits, runBatch, countRun, deadlineAt }) {
   const questions = view.mainPositions(config).map((position) => engine.runsAt(config, position));
   const observed = await runAllQuestions({
-    code: submission.code || '', questions, userId, interviewId, limits: runLimits, runBatch, countRun, deadlineMs,
+    code: submission.code || '', questions, userId, interviewId, limits: runLimits, runBatch, countRun, deadlineAt,
   });
   const codeStatus = classifyCode({ code: submission.code || '', submission, runs: observed.flatMap((entry) => entry.runs) });
   return { codeStatus, observed, firstRuns: observed[0] || { runs: [], note: null } };
@@ -227,7 +227,7 @@ async function startPracticeInterview({ userId, submissionId, now = Date.now(), 
  * Nothing happens when the interview is not waiting for it any more (the student opened it without waiting, or left).
  * @returns {Promise<{ prepared: boolean, prepareStatus: string }>}
  */
-async function prepareInterview({ interviewId, converseFn = bedrock.converse, runBatch, countRun, clock = monotonicMs, now = Date.now(), deadlineMs }) {
+async function prepareInterview({ interviewId, converseFn = bedrock.converse, runBatch, countRun, clock = monotonicMs, now = Date.now(), deadlineAt }) {
   const meta = await interviews.getInterviewMeta(interviewId);
   if (!meta || meta.prepareStatus !== PREPARE_STATUS.PREPARING || meta.status !== STATUS.IN_PROGRESS) {
     return { prepared: false, prepareStatus: meta ? meta.prepareStatus || PREPARE_STATUS.READY : 'missing' };
@@ -235,12 +235,13 @@ async function prepareInterview({ interviewId, converseFn = bedrock.converse, ru
   const startedAt = clock();
   const config = meta.configSnapshot;
   const runLimits = meta.runLimits || { timeLimitMs: 5000, memoryLimitKb: 256000 };
-  const budget = deadlineMs || Date.now() + 100000;
+  // An absolute time (epoch ms) by which the runs must be done; the runs turn it into the time that is left.
+  const budget = deadlineAt || Date.now() + 100000;
   try {
     const submission = await getSubmission(meta.submissionId);
     if (!submission) throw new NotFoundError('Submission');
     const prepared = await prepareV6Start({
-      submission, config, userId: meta.userId, interviewId, runLimits, runBatch, countRun, deadlineMs: budget,
+      submission, config, userId: meta.userId, interviewId, runLimits, runBatch, countRun, deadlineAt: budget,
     });
 
     let analysis = null;
@@ -251,7 +252,7 @@ async function prepareInterview({ interviewId, converseFn = bedrock.converse, ru
         models: { checker: splitV6.resolveSplitModels({ checkerModelId: meta.checkerModelId, writerModelId: meta.writerModelId }).checker },
         context: buildContext({ submission, milestone, config, codeStatus: prepared.codeStatus }),
         instructorRuns: prepared.observed.flatMap((entry) => entry.runs),
-        userId: meta.userId, interviewId, limits: runLimits, runBatch, countRun, deadlineMs: budget, clock,
+        userId: meta.userId, interviewId, limits: runLimits, runBatch, countRun, deadlineAt: budget, clock,
       });
     }
 

@@ -209,7 +209,7 @@ const withIds = (findings) => findings.map((finding, i) => ({ id: `f${i + 1}`, .
  * @returns {Promise<{ status: 'ok'|'partial'|'failed'|'skipped', findings: object[], runs: object[], runsNote: string|null, plan: object[], calls: object[], latencyMs: number, rejected?: object[] }>}
  *   `runs` are the runs the agent chose (label, stdin, stdout, status, timeMs, reason, chosenBy: 'agent').
  */
-async function analyzeCode({ converseFn, models, context, instructorRuns, userId, interviewId, limits, runBatch, countRun, deadlineMs = null, clock = () => performance.now() }) {
+async function analyzeCode({ converseFn, models, context, instructorRuns, userId, interviewId, limits, runBatch, countRun, deadlineAt = null, clock = () => performance.now() }) {
   const startedAt = clock();
   const calls = [];
   const ask = recorder(models.checker, calls, converseFn);
@@ -238,7 +238,7 @@ async function analyzeCode({ converseFn, models, context, instructorRuns, userId
 
   // 2. the runs (one batch, the same limit as the instructor's runs)
   if (out.plan.length > 0) {
-    const [batch] = await runAllQuestions({ code: context.code, questions: [out.plan.map(({ label, stdin }) => ({ label, stdin }))], userId, interviewId, limits, runBatch, countRun, deadlineMs });
+    const [batch] = await runAllQuestions({ code: context.code, questions: [out.plan.map(({ label, stdin }) => ({ label, stdin }))], userId, interviewId, limits, runBatch, countRun, deadlineAt });
     out.runs = batch.runs.map((run) => ({ ...run, reason: (out.plan.find((p) => p.label === run.label) || {}).reason || '', chosenBy: 'agent' }));
     out.runsNote = batch.note;
   }

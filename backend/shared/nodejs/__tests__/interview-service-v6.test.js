@@ -191,14 +191,15 @@ describe('the prepare step', () => {
     const bad = { status: 'internal_error', message: 'arn:aws:lambda:secret-detail' };
     await prepare({ runBatch: runner([bad, bad, bad]) });
     expect(stored().firstTurnUpdates.runs).toBeUndefined();
-    expect(stored().firstTurnUpdates.runsNote).toBe('runner_failed');
-    expect(stored().metaUpdates.observedRuns.every((entry) => entry.note === 'runner_failed' && entry.runs.length === 0)).toBe(true);
-    expect(JSON.stringify(interviews.finishPrepare.mock.calls)).not.toContain('secret-detail');
+    // the note says why (the error and a short message); the log never has it
+    expect(stored().firstTurnUpdates.runsNote).toBe('runner_failed: internal_error: arn:aws:lambda:secret-detail');
+    expect(stored().metaUpdates.observedRuns.every((entry) => entry.note.startsWith('runner_failed: ') && entry.runs.length === 0)).toBe(true);
+    expect(JSON.stringify(log.error.mock.calls)).not.toContain('secret-detail');
     jest.clearAllMocks();
     interviews.getInterviewMeta.mockResolvedValue(preparing());
     interviews.finishPrepare.mockResolvedValue(true);
     await prepare({ runBatch: jest.fn().mockRejectedValue(new Error('boom')) });
-    expect(stored().firstTurnUpdates.runsNote).toBe('runner_failed');
+    expect(stored().firstTurnUpdates.runsNote).toBe('runner_failed: Error: boom');
   });
 
   it('code that does not compile: the runs say so, the status is unfinished, the first question gets the fixed sentence', async () => {
