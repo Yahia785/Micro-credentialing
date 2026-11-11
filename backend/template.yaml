@@ -783,6 +783,8 @@ Resources:
       Policies:
         - DynamoDBReadPolicy:
             TableName: Milestones
+        - DynamoDBReadPolicy:
+            TableName: Users
 
   # ------------------------------------------
   # LAMBDA: Update Embedded Assessment
