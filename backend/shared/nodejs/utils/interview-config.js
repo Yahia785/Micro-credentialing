@@ -7,7 +7,9 @@
  *   maxFollowUpsPerMainQuestion: 0-3 (default 1),
  *   promptVersion: optional, one of the known Host prompt versions (absent = the engine's default),
  *   themes: [{ id, title, mainQuestions: [string], criteria: [string],
- *              rubric?: [[{ id, text }]] }]   // rubric[i] belongs to mainQuestions[i]; ids like "r1"
+ *              rubric?: [[{ id, text }]],     // rubric[i] belongs to mainQuestions[i]; ids like "r1"
+ *              runs?: [[{ label, stdin }]] }] // runs[i] belongs to mainQuestions[i]: inputs the engine runs the student's code on
+ *                                             // when that question is asked (host.v6 shows the output to the agent, never to the student)
  * }
  *
  * Older configs may carry `maxFollowUpsPerTheme` (0-5) instead. It still validates and is kept
@@ -36,6 +38,9 @@ const LIMITS = Object.freeze({
   maxRubricItems: 8,
   maxRubricIdLength: 20,
   maxRubricTextLength: 500,
+  maxRunsPerQuestion: 3,
+  maxRunLabelLength: 60,
+  maxRunStdinLength: 2000,
 });
 
 const SUPPORTED_LANGUAGE = 'cpp';
@@ -117,6 +122,49 @@ function cleanRubric(raw, where, mainQuestionCount, errors) {
         seen.add(id.toLowerCase());
       }
       return { id, text: cleanString(item.text, `${at}[${i}].text`, LIMITS.maxRubricTextLength, errors) };
+    }).filter(Boolean);
+  });
+}
+
+/**
+ * theme.runs: one list per main question, same order and length as mainQuestions; each run is { label, stdin }
+ * (stdin may be empty). Returns undefined when the theme has none.
+ */
+function cleanRuns(raw, where, mainQuestionCount, errors) {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    errors.push(`${where}.runs must be an array`);
+    return undefined;
+  }
+  if (raw.length !== mainQuestionCount) {
+    errors.push(`${where}.runs must have one list per main question (${mainQuestionCount})`);
+    return undefined;
+  }
+  return raw.map((items, q) => {
+    const at = `${where}.runs[${q}]`;
+    if (!Array.isArray(items)) {
+      errors.push(`${at} must be an array`);
+      return [];
+    }
+    if (items.length > LIMITS.maxRunsPerQuestion) {
+      errors.push(`${at} must not have more than ${LIMITS.maxRunsPerQuestion} runs`);
+      return [];
+    }
+    return items.map((item, i) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        errors.push(`${at}[${i}] must be an object`);
+        return null;
+      }
+      const label = cleanString(item.label, `${at}[${i}].label`, LIMITS.maxRunLabelLength, errors);
+      if (typeof item.stdin !== 'string') {
+        errors.push(`${at}[${i}].stdin must be a string`);
+        return null;
+      }
+      if (item.stdin.length > LIMITS.maxRunStdinLength) {
+        errors.push(`${at}[${i}].stdin must not exceed ${LIMITS.maxRunStdinLength} characters`);
+        return null;
+      }
+      return { label, stdin: item.stdin };
     }).filter(Boolean);
   });
 }
@@ -211,6 +259,7 @@ function parseInterview(raw, assessment = {}) {
         const mainQuestions = cleanStringList(theme.mainQuestions, `${where}.mainQuestions`,
           LIMITS.maxMainQuestions, LIMITS.maxQuestionLength, errors, { required: true });
         const rubric = cleanRubric(theme.rubric, where, Array.isArray(theme.mainQuestions) ? theme.mainQuestions.length : 0, errors);
+        const runs = cleanRuns(theme.runs, where, Array.isArray(theme.mainQuestions) ? theme.mainQuestions.length : 0, errors);
         return {
           id,
           title: cleanString(theme.title, `${where}.title`, LIMITS.maxTitleLength, errors),
@@ -218,6 +267,7 @@ function parseInterview(raw, assessment = {}) {
           criteria: cleanStringList(theme.criteria, `${where}.criteria`,
             LIMITS.maxCriteria, LIMITS.maxCriterionLength, errors, { required: false }),
           ...(rubric && { rubric }),
+          ...(runs && { runs }),
         };
       }).filter(Boolean);
     }

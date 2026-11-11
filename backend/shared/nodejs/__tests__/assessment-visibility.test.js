@@ -61,6 +61,9 @@ describe('GET /milestones', () => {
     expect(c.interview).toBeUndefined();
     expect(c.interviewEnabled).toBe(true);
     expect(c.interviewTimeLimitMinutes).toBe(12);
+    // a number only, for the waiting page: the questions themselves stay private
+    expect(typeof c.interviewQuestionCount).toBe('number');
+    expect(c.interviewQuestionCount).toBeGreaterThan(0);
   });
 
   it('strips the same fields on the single-milestone route', async () => {

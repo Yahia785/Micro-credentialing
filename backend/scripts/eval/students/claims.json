@@ -1,0 +1,10 @@
+{
+  "note": "The claims profile (host.v6 eval): case 4's strong answers, which describe how the controller should work, for the programs of cases 5 to 9. Where a question has runs, the answer can add a claim about what the student's own code prints. `gaps` are the rubric gaps that the observed output of that program contradicts, so a checker that uses the output should mark them not shown. Cases 6 and 8 have no claim: their bug is not on the inputs of the runs, so they are the control (the output must not be used against a claim it does not contradict).",
+  "cases": {
+    "case5": { "0": { "append": "I ran it on exactly these readings and my code prints that.", "gaps": ["g1", "g2"] } },
+    "case6": {},
+    "case7": { "2": { "append": "I tried a valid reading after -5 and my program does exactly this.", "gaps": ["g3"] } },
+    "case8": {},
+    "case9": { "0": { "append": "I ran it and my code prints exactly this, with Pump starts: 2 at the end.", "gaps": ["g3"] } }
+  }
+}

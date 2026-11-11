@@ -11,6 +11,8 @@ const NOT_SHOWN = 'not shown';
 
 function timeLeftMs(meta, now) {
   if (meta.status !== 'in_progress') return 0;
+  // A real interview whose clock has not started yet has all its time.
+  if (!meta.deadline) return ((meta.configSnapshot && meta.configSnapshot.timeLimitMinutes) || 0) * 60000;
   return Math.max(0, Date.parse(meta.deadline) - now);
 }
 
@@ -18,11 +20,17 @@ function countMainQuestions(config) {
   return ((config && config.themes) || []).reduce((n, theme) => n + theme.mainQuestions.length, 0);
 }
 
+/**
+ * What the student reads for a host turn: the engine's fixed sentence (unfinished code, a flagged answer) in front of the question.
+ * `notice` is one of our own constants, never model text; nothing else the engine recorded on the turn is copied.
+ */
+const visibleText = (turn) => (turn.role === 'host' && typeof turn.notice === 'string' && turn.notice ? `${turn.notice}\n\n${turn.text}` : turn.text);
+
 /** Student view. Built field by field from an allow-list, so a new recorded field can never leak by accident. */
 function toStudentInterview(meta, turns, { now = Date.now(), code = null } = {}) {
   const shown = turns.map((t) => ({
     role: t.role,
-    text: t.text,
+    text: visibleText(t),
     createdAt: t.createdAt,
   }));
   const last = shown[shown.length - 1];
@@ -78,8 +86,14 @@ function toCheck(source, rubric) {
       let quote = null;
       if (shown === false) quote = NOT_SHOWN;
       else if (shown === true && entry && typeof entry.quote === 'string' && entry.quote.trim()) quote = entry.quote;
-      return { id: item.id, text: item.text, shown, evidence: quote };
+      // host.v6: the checker's note when the observed output contradicted the student's claim (the claim is the quote)
+      const contradiction = shown === false && entry && typeof entry.note === 'string' && entry.note ? { note: entry.note, claim: entry.quote || null } : null;
+      return { id: item.id, text: item.text, shown, evidence: quote, ...(contradiction && { contradiction }) };
     }),
+    // host.v6: the answer was flagged (an attempt to instruct the agent, a request for the answer, ...): { kind, quote, source }
+    manipulation: source.manipulation || null,
+    // host.v6: the fixed sentence the engine added to the next question
+    notice: source.notice || null,
     missing,
     target: source.target === undefined ? null : source.target,
     isHint: source.isHint === true,
@@ -147,6 +161,11 @@ function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
         question: turn.text,
         askedAt: turn.createdAt,
         rubric,
+        // host.v6: what the student's code printed on the inputs set for this question, and why nothing was run when it was not
+        runs: Array.isArray(turn.runs) ? turn.runs : [],
+        runsNote: turn.runsNote || null,
+        // the engine's fixed sentence in front of the question (unfinished code at the start, or a flagged answer before it)
+        notice: turn.notice || null,
         answers: [],
         followUps: [],
       });
@@ -161,6 +180,7 @@ function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
         afterAnswer: group.answers.length,
         isHint: turn.isHint === true,
         target: turn.target === undefined ? null : turn.target,
+        ...(turn.notice && { notice: turn.notice }),
       });
     } else if (turn.role === 'student') {
       // The decision about this answer is recorded on the host turn that followed it, or on the interview for the last one.
@@ -189,6 +209,11 @@ function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
     modelId: meta.modelId || null,
     checkerModelId: meta.checkerModelId || null,
     writerModelId: meta.writerModelId || null,
+    // host.v6: { compiles, passed, total, stubs, unfinished } decided once at the start; null for other prompt versions
+    codeStatus: meta.codeStatus || null,
+    // every flagged answer of the interview with the student's quote, in order: [{ question, kind, quote, source }]
+    manipulationFlags: groups.flatMap((group) => group.answers.filter((a) => a.check && a.check.manipulation)
+      .map((a) => ({ question: group.index, ...a.check.manipulation }))),
     // Total time added to the deadline while the agent was working on the student's answers.
     extraTimeMs: meta.extraTimeMs || 0,
     timeLeftMs: timeLeftMs(meta, now),

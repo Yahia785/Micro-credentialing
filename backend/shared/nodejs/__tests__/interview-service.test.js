@@ -8,6 +8,7 @@ jest.mock('../db/interviews', () => ({
   getInterviewBySubmission: jest.fn(),
   appendTurns: jest.fn(),
   endInterview: jest.fn(),
+  startInterviewClock: jest.fn(),
 }));
 jest.mock('../db/submissions');
 jest.mock('../db/milestones');
@@ -70,10 +71,13 @@ describe('startInterview', () => {
 
   it('creates the interview and returns the first question and deadline', async () => {
     const result = await start();
+    // The clock does not start at create: it starts when the page first opens the interview.
     expect(result).toEqual({
       interviewId: 'int_sub1',
       question: 'Main A1?',
-      deadline: new Date(NOW + 10 * 60000).toISOString(),
+      deadline: null,
+      timeLimitMinutes: 10,
+      questionCount: 2,
       serverNow: new Date(NOW).toISOString(),
     });
     const [createdMeta, turn] = interviews.createInterview.mock.calls[0];
@@ -82,6 +86,7 @@ describe('startInterview', () => {
       promptVersion: 'host.v3', modelId: 'qwen.qwen3-coder-30b-a3b-v1:0',
       themeIndex: 0, mainIndex: 0, followUpCount: 0, fallbackCount: 0, turnCount: 1,
     });
+    expect(createdMeta.deadline).toBeNull();
     expect(createdMeta.configSnapshot).toEqual(config);
     expect(turn).toMatchObject({ role: 'host', text: 'Main A1?', kind: 'main', themeId: 'ptr' });
   });

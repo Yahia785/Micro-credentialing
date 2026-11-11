@@ -27,7 +27,8 @@ const judging = require('./judge');
 const rubricJudging = require('./judge-rubric');
 const rubricStats = require('./rubric');
 const { caseIds, loadCase } = require('./cases');
-const { RUN_PROFILES, GAMING_PROFILES, HEADLINE_EXCLUDED_CASES, validateStudents, buildProfile, pairsFor, pairGapsLeft } = require('./students');
+const { RUN_PROFILES, EXTRA_PROFILES, GAMING_PROFILES, HEADLINE_EXCLUDED_CASES, validateStudents, buildProfile, pairsFor, pairGapsLeft } = require('./students');
+const { createRunSupport } = require('./eval-runs');
 const metrics = require('./metrics');
 const adaptive = require('./adaptive');
 const { writeReports, toJudgeSampleCsv, terminalSummary } = require('./report');
@@ -110,6 +111,9 @@ function withRetry(base, { calls, sleep, delayMs, retryDelayMs }) {
 
 const callSummary = (call) => (call ? { ...call } : null);
 
+/** host.v6 runs the student's code through these two functions (the real runner with a cache, or the fake); other arms never call them. */
+const runArgs = (opts) => (opts.runSupport ? { runBatch: opts.runSupport.runBatch, countRun: opts.runSupport.countRun } : {});
+
 /** Register the code and interview config the service reads, and build the model function for an arm. */
 function setUpInterview({ caseData, submissionId, promptVersion, temperature, opts, ctx }) {
   const userId = 'eval-student';
@@ -117,6 +121,8 @@ function setUpInterview({ caseData, submissionId, promptVersion, temperature, op
   stores.reset();
   stores.submissions.register({
     submissionId, userId, milestoneId, language: 'cpp', status: 'passed', endedBy: 'submit_button', code: caseData.code,
+    // what the grader stored, for the cases where it matters (the unfinished-code cases 10 and 11)
+    ...(caseData.submission || {}),
   });
   stores.milestones.register({ milestoneId, language: 'cpp', interview: caseData.config });
 
@@ -201,8 +207,10 @@ async function runInterview({ caseData, profileName, answers, promptVersion, arm
   const restoreEnv = useEnv(promptVersion, opts);
 
   try {
-    const started = await service.startInterview({ userId, submissionId, now: T0 });
+    const started = await service.startInterview({ userId, submissionId, now: T0, ...runArgs(opts) });
     interviewId = started.interviewId;
+    // The student's page opens the interview once it is created: that is when the clock starts (the real flow).
+    await service.getInterview({ userId, interviewId, isAdmin: false, now: T0 });
 
     for (let k = 1; k <= MAX_ANSWERS; k += 1) {
       const turns = await stores.interviews.getInterviewTurns(interviewId);
@@ -223,6 +231,8 @@ async function runInterview({ caseData, profileName, answers, promptVersion, arm
           profile: profileName, source: entry.source, label: answer.label, gaps: answer.gaps,
           gapCount: caseData.studentsRaw.gaps[mainOrdinal].length, answerType, mainOrdinal,
           ...(answer.ownCode && { ownCode: true }),
+          ...(answer.claimsCorrect && { claimsCorrect: true }),
+          ...(answer.manipulation && { manipulation: answer.manipulation }),
         },
         call: calls[callsBefore] || null,
         status: result.ended ? result.status : null,
@@ -289,8 +299,9 @@ async function runPairInterview({ caseData, mainOrdinal, pair, side, promptVersi
   const restoreEnv = useEnv(promptVersion, opts);
 
   try {
-    const started = await service.startInterview({ userId, submissionId, now: T0 });
+    const started = await service.startInterview({ userId, submissionId, now: T0, ...runArgs(opts) });
     interviewId = started.interviewId;
+    await service.getInterview({ userId, interviewId, isAdmin: false, now: T0 });
 
     for (let k = 0; k < mainOrdinal; k += 1) {
       await service.submitAnswer({
@@ -411,11 +422,12 @@ function parseArms(promptsValue, temperaturesValue) {
   return specs;
 }
 
-function splitList(value, all, label) {
+/** `all` is what "all" means; `allowed` (default: the same) is everything that may be named (host.v6's extra cases and profiles). */
+function splitList(value, all, label, allowed = all) {
   if (value === undefined || value === 'all') return [...all];
   const items = String(value).split(',').map((s) => s.trim()).filter(Boolean);
-  const unknown = items.filter((i) => !all.includes(i));
-  if (unknown.length) throw new Error(`Unknown ${label}: ${unknown.join(', ')}. Available: ${all.join(', ')}`);
+  const unknown = items.filter((i) => !allowed.includes(i));
+  if (unknown.length) throw new Error(`Unknown ${label}: ${unknown.join(', ')}. Available: ${allowed.join(', ')}`);
   return items;
 }
 
@@ -458,8 +470,13 @@ function normalizeOptions(raw) {
       inputPerMillion: Number(raw.judgePriceIn === undefined ? judging.DEFAULT_JUDGE_PRICES.inputPerMillion : raw.judgePriceIn),
       outputPerMillion: Number(raw.judgePriceOut === undefined ? judging.DEFAULT_JUDGE_PRICES.outputPerMillion : raw.judgePriceOut),
     },
-    cases: splitList(raw.cases, caseIds(), 'case'),
-    profiles: splitList(raw.profiles, RUN_PROFILES, 'profile'),
+    // `all` is the established set; cases 10 and 11 and the manip and claims profiles (host.v6 material) are run when named.
+    cases: splitList(raw.cases, caseIds(), 'case', caseIds({ includeExtra: true })),
+    profiles: splitList(raw.profiles, RUN_PROFILES, 'profile', [...RUN_PROFILES, ...EXTRA_PROFILES]),
+    // where host.v6 gets its program output: the real runner (cached on disk), or the free fake. With --fake-model the default is the fake.
+    runner: raw.runner || (fakeModel ? 'fake' : 'real'),
+    runnerFunction: raw.runnerFunction,
+    runCacheDir: raw.runCacheDir,
     repeats,
     out: path.resolve(raw.out || path.join(__dirname, '../../eval-results', runId)),
     fakeModel,
@@ -714,9 +731,15 @@ async function runEval(rawOptions) {
   }
 
   const plan = planOf(opts, loaded);
+  const usesRuns = opts.armSpecs.some((spec) => engine.usesV6(spec.promptVersion));
+  // Only host.v6 runs the student's code. The support is created for every run (cheap) and passed to the service, which ignores it for the others.
+  opts.runSupport = createRunSupport({ mode: opts.runner, runnerFunction: opts.runnerFunction, ...(opts.runCacheDir && { cacheDir: opts.runCacheDir }) });
   log(`Run ${opts.runId}`);
   log(`  arms: ${opts.arms.join(', ')} | cases: ${opts.cases.join(', ')} | profiles: ${opts.profiles.join(', ')} | repeats: ${opts.repeats}`);
   log(`  ${plan.interviews} interviews, about ${plan.minCalls}-${plan.maxCalls} model calls${opts.fakeModel ? ' (fake model, no Bedrock)' : ` in us-east-1 (single-model arms: ${opts.modelId}${plan.splitArms ? `; host.v5: checker ${opts.checkerModelId}, writer ${opts.writerModelId}` : ''})`}`);
+  if (usesRuns) {
+    log(`  host.v6 runs the student's code on the inputs set for Q1 and Q3: runner = ${opts.runner}${opts.runner === 'real' ? ' (CODE_RUNNER=own: the dev runner Lambda, needs AWS credentials; results are cached in eval-results/run-cache, so repeats and other arms do not run the same program twice)' : ' (free, deterministic; no AWS)'}`);
+  }
   if (opts.pairs) log(`  plus ${plan.pairInterviews} minimal-pair interviews (one decision each, already counted in the calls above); --no-pairs skips them`);
   log('  the model is not asked when only one action is allowed (the next main question, or end); the two-question guard can add one rewrite call per follow-up that asks two things (not counted above)');
   if (opts.armSpecs.some((spec) => spec.temperature !== bedrock.DEFAULT_TEMPERATURE)) {
@@ -873,6 +896,7 @@ async function runEval(rawOptions) {
       fakeModel: opts.fakeModel, modelId: opts.modelId, answerSeconds: opts.answerSeconds, prices: opts.prices,
       armSpecs: opts.armSpecs, rubricSample: opts.rubricSample,
       pairs: opts.pairs, judge: opts.judge, judgeModel: opts.judge ? opts.judgeModelId : null,
+      runner: usesRuns ? opts.runner : null,
       judgePrompt: opts.judge ? judging.JUDGE_PROMPT_VERSION : null, headlineExcludes: HEADLINE_EXCLUDED_CASES,
     },
     plan: {

@@ -236,6 +236,26 @@ identical; the pair interviews are the controlled version of the comparison.
 - **Cases 6 to 9** are the tank controller with one bug each, sharing case 4's statement, questions, rubric and gaps: case 6 `reading > s.high`, case 7 ALARM does not stick, case 8 `isValid` uses `< s.max`, case 9 a pump start is counted on every FILLING reading. `node scripts/eval/build-tank-cases.js` writes the programs and `cases/tank-controller.tests.case6..9.json` (what each buggy program prints for the seven tests; no compiler was run, the outputs come from a transcription in JavaScript; `--check` fails if a file differs). Students answer about their own code (`ownCode`) on case 6 Q4, case 7 Q3 and case 9 Q1 (and case 5 Q1); case 8 changes no answer.
 - **Headline numbers: cases 4 to 9.** Cases 2 and 3 are a separate side check (their own sections), case 1 stays out. The "own-code questions" table and bar pool case 5 Q1, case 6 Q4, case 7 Q3 and case 9 Q1.
 
+## host.v6: running the student's code, unfinished code, manipulation
+
+`host.v6` is the split agent of host.v5 with three additions (`agent/split-agent-v6.js`, prompts `check.v2.md` and `write.v2.md`; host.v5 and its prompts are unchanged, for comparison):
+the agent sees what the student's code printed on inputs the instructor chose (`runs` in the interview config, for the tank: Q1 and Q3), it is told when the code is unfinished
+(and the student gets one fixed sentence before the first question), and it handles attempts to manipulate the interview (a simple engine check plus a `manipulation` flag from the checker:
+the answer counts as no evidence, one fixed neutral sentence, the flag is stored with the student's quote; a request for the answer is treated like "I don't know").
+
+Options added to `run-eval.js`:
+
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `--runner real\|fake` | where host.v6 gets the program output. `real` uses the product's path (`CODE_RUNNER=own`, the dev runner Lambda, AWS credentials in us-east-1; `--runner-function` names it) and caches every result per code hash and stdin in `eval-results/run-cache/`, so repeats and other arms never run a program twice. `fake` is free and deterministic: it "runs" the tank programs of the cases (the outputs come from `build-tank-cases.js`). | `real`, but `fake` with `--fake-model` |
+| `--cases ... case10,case11` | the unfinished-code cases (same problem, questions, rubric and students as case 4): case 10 has an empty `step` with a TODO, case 11 does not compile (a missing semicolon). They are not part of `--cases all`. | not in `all` |
+| `--profiles ... manip,claims` | `manip`: six attempts to manipulate the interview (instruction, request for the answer, request for the rubric, claim of permission, very long paste, a real answer followed by an instruction) mixed with four real answers (`students/manipulation.json`). `claims`: case 4's strong answers for the programs of cases 5 to 9, with a claim about what the code prints where the observed output of that program contradicts it (cases 5, 7, 9; `students/claims.json`); cases 6 and 8 are the control. They are not part of `--profiles all`. | not in `all` |
+
+`node scripts/eval/v6-report.js <results folder>` writes `v6-report.md` (a strengths and weaknesses table, host.v6 against host.v5, with the counts behind every rate, plus cost and latency) and `demo-examples.md`
+(two to three real transcripts per row, each with the instructor's view: code status, runs, check per rubric item, flags with the quote). Every rate is the share of answers where the bad thing happened, so lower is better.
+Rows that need the judge (reveals, two-part, beyond scope) are n/a without `--judge`. The unfinished-code row is a text heuristic; read its examples. With two repeats the "observed output ignored" row has 6 answers per arm,
+which the report calls "too few to say": use `--repeats 3` if that row matters.
+
 ## host.v4 and the rubric check
 
 `host.v4` is the first prompt that works from the instructor's **rubric**: for each main question, a list of items r1, r2, r3 that a

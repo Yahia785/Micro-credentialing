@@ -6,6 +6,12 @@
     {
       "id": "transitions",
       "title": "State transitions",
+      "runs": [
+        [
+          { "label": "the readings of the question", "stdin": "20 80 100 50 18 40 85 70 15" },
+          { "label": "high level and max", "stdin": "20 80 100 10 80 100" }
+        ]
+      ],
       "mainQuestions": [
         "With settings 20, 80, 100, walk me through what your controller does for the readings 50, 18, 40, 85, 70, 15, and how many times the pump starts."
       ],
@@ -58,6 +64,12 @@
     {
       "id": "edge-cases",
       "title": "Edge cases",
+      "runs": [
+        [
+          { "label": "invalid reading while FILLING, then valid ones", "stdin": "20 80 100 10 -5 50 10" },
+          { "label": "reading above max", "stdin": "20 80 100 10 101 30" }
+        ]
+      ],
       "mainQuestions": [
         "Suppose the controller is FILLING and the next reading is -5. What happens, and what happens with the readings after that?"
       ],

@@ -19,6 +19,10 @@
  *   --course <label>           course label (default "ECE 2514")
  *   --hidden-tests <T1,T3>     tests to hide from students (default: none, see tank-controller.tests.json)
  *   --allow-duplicate          create it even if a problem with the same title already exists
+ *   --prompt <host.vN>         the Host prompt version of the interview (default host.v5; host.v6 adds the run results, the unfinished-code
+ *                              and the manipulation handling). The interview config always carries the runs for Q1 and Q3 of the tank.
+ *   --update                   the problem already exists: change only its interview setup (prompt version, runs, rubric) and nothing else.
+ *                              Interviews that already started keep the version they started with.
  *   --profile <name>           AWS profile (default: the usual credential chain)
  *
  * Needs AWS credentials for the dev account with access to the Users (only with an email), Milestones and TestCases tables.
@@ -39,7 +43,7 @@ const TESTS_FILE = path.join(CASES, 'tank-controller.tests.json');
 const TITLE = 'Tank Fill Controller (state machine)';
 const CONCEPT = 'State machines: enum class, struct, functions, switch/if, loops';
 const DEFAULT_COURSE = 'ECE 2514';
-const PROMPT_VERSION = 'host.v5';
+const PROMPT_VERSION = 'host.v5'; // the default; --prompt chooses another
 
 /** The text between a heading and the next rule, from the design file. */
 function section(markdown, heading) {
@@ -92,12 +96,12 @@ function readTests(file = TESTS_FILE, hiddenIds = []) {
   }));
 }
 
-/** The interview setup: the eval case's config, with the rubric kept, host.v5, 10 minutes, one follow-up per main question. */
-function buildInterview(file = CONFIG_FILE) {
+/** The interview setup: the eval case's config, with the rubric and the runs kept, 10 minutes, one follow-up per main question. */
+function buildInterview(file = CONFIG_FILE, promptVersion = PROMPT_VERSION) {
   const { parseInterview } = require('../shared/nodejs/utils/interview-config');
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   const parsed = parseInterview(
-    { ...raw, enabled: true, promptVersion: PROMPT_VERSION, timeLimitMinutes: 10, maxFollowUpsPerMainQuestion: 1 },
+    { ...raw, enabled: true, promptVersion, timeLimitMinutes: 10, maxFollowUpsPerMainQuestion: 1 },
     { language: 'cpp' }
   );
   if (parsed.error) throw new Error(`Interview config is not valid: ${parsed.error}`);
@@ -106,9 +110,9 @@ function buildInterview(file = CONFIG_FILE) {
 
 /**
  * Everything that will be written, with no AWS access.
- * @param {{ previewUserIds?: string[], course?: string, hiddenTests?: string[] }} options
+ * @param {{ previewUserIds?: string[], course?: string, hiddenTests?: string[], promptVersion?: string }} options
  */
-function buildPlan({ previewUserIds = [], course = DEFAULT_COURSE, hiddenTests = [] } = {}) {
+function buildPlan({ previewUserIds = [], course = DEFAULT_COURSE, hiddenTests = [], promptVersion = PROMPT_VERSION } = {}) {
   const { statement, starterCode } = readStatementAndStarter();
   const milestone = {
     // The fields the admin create form sends, with its defaults (difficulty medium, 5000 ms, 256000 KB).
@@ -121,7 +125,7 @@ function buildPlan({ previewUserIds = [], course = DEFAULT_COURSE, hiddenTests =
     timeLimit: 5000,
     memoryLimit: 256000,
     course: course || undefined,
-    interview: buildInterview(),
+    interview: buildInterview(CONFIG_FILE, promptVersion),
     // Hidden from the first write: dev and production share these tables.
     isHidden: true,
     previewUserIds: [...new Set(previewUserIds)],
@@ -142,6 +146,8 @@ function parseArgs(argv) {
     };
     if (a === '--yes') args.yes = true;
     else if (a === '--allow-duplicate') args.allowDuplicate = true;
+    else if (a === '--update') args.update = true;
+    else if (a === '--prompt') args.prompt = value();
     else if (a === '--preview-user') args.previewUsers.push(value());
     else if (a === '--course') args.course = value();
     else if (a === '--profile') args.profile = value();
@@ -198,7 +204,7 @@ async function main() {
   };
 
   const previewUserIds = await resolveUsers(args.previewUsers, lookupByEmail);
-  const plan = buildPlan({ previewUserIds, course: args.course, hiddenTests: args.hiddenTests });
+  const plan = buildPlan({ previewUserIds, course: args.course, hiddenTests: args.hiddenTests, ...(args.prompt && { promptVersion: args.prompt }) });
   const { milestone, testCases } = plan;
 
   console.log(args.yes ? 'WRITING to the dev tables' : 'DRY RUN: nothing is written (add --yes to write)');
@@ -208,7 +214,8 @@ async function main() {
   console.log(`Language:    ${milestone.language}   difficulty ${milestone.difficulty}   time ${milestone.timeLimit} ms   memory ${milestone.memoryLimit} KB`);
   console.log(`Hidden:      ${milestone.isHidden}   preview users: ${previewUserIds.length ? previewUserIds.join(', ') : '(none: admins only)'}`);
   const itv = milestone.interview;
-  console.log(`Interview:   enabled, ${itv.promptVersion}, ${itv.timeLimitMinutes} min, ${itv.maxFollowUpsPerMainQuestion} follow-up per main question, ${itv.themes.length} main questions with rubrics`);
+  const runCount = itv.themes.reduce((n, theme) => n + (theme.runs || []).reduce((m, list) => m + list.length, 0), 0);
+  console.log(`Interview:   enabled, ${itv.promptVersion}, ${itv.timeLimitMinutes} min, ${itv.maxFollowUpsPerMainQuestion} follow-up per main question, ${itv.themes.length} main questions with rubrics, ${runCount} code runs`);
   console.log(`Tests:       ${testCases.map((t) => `${t._id}${t.isHidden ? ' (hidden)' : ''}`).join(', ')}`);
   console.log('\n----- Statement (what students see) -----\n' + milestone.description);
   console.log('\n----- Starter code -----\n' + milestone.starterCode);
@@ -218,8 +225,17 @@ async function main() {
   const { getAllMilestones, createMilestone, updateMilestone, deleteMilestoneWithCleanup } = require('../shared/nodejs/db/milestones');
   const { createTestCasesBatch } = require('../shared/nodejs/db/testcases');
 
+  const existing = (await getAllMilestones()).find((m) => m.title === milestone.title);
+  if (args.update) {
+    if (!existing) throw new Error(`--update: no problem titled "${milestone.title}" exists`);
+    console.log(`\nUpdating the interview setup of ${existing.milestoneId} (${itv.promptVersion}); nothing else changes.`);
+    if (args.yes) {
+      await updateMilestone(existing.milestoneId, { interview: milestone.interview });
+      console.log('Updated.');
+    }
+    return;
+  }
   if (!args.allowDuplicate) {
-    const existing = (await getAllMilestones()).find((m) => m.title === milestone.title);
     if (existing) {
       throw new Error(`A problem titled "${milestone.title}" already exists (${existing.milestoneId}). Use --allow-duplicate to create another.`);
     }

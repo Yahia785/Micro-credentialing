@@ -8,6 +8,7 @@ const { errorResponse } = require('/opt/nodejs/utils/errors');
  * Lambda Handler: Get Interview
  * Endpoint: GET /interviews/{interviewId}
  * Authorization: Interview owner (transcript without reasons) or admin (everything)
+ * The owner opening a running interview starts its clock, once (not for ?peek=1, and never for an admin).
  */
 exports.handler = withHandler(async (ctx) => {
   const interviewId = ctx.pathParams.interviewId;
@@ -19,6 +20,8 @@ exports.handler = withHandler(async (ctx) => {
     userId: ctx.userId,
     interviewId,
     isAdmin: await isAdminUser(ctx.userId),
+    // ?peek=1: only ask whether the interview exists (the waiting page does, while the upload runs); it does not start the clock.
+    peek: !!(ctx.queryParams && ctx.queryParams.peek === '1'),
   });
   return successResponse(200, result);
 });

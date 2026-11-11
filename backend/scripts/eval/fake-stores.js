@@ -63,6 +63,13 @@ const interviews = {
     });
   },
 
+  async startInterviewClock(interviewId, { startedAt, deadline, now = Date.now() }) {
+    const meta = state.metas.get(interviewId);
+    if (!meta || meta.status !== 'in_progress' || meta.deadline) return false;
+    Object.assign(meta, { startedAt, deadline, updatedAt: new Date(now).toISOString() });
+    return true;
+  },
+
   async endInterview(interviewId, { status, endReason, now = Date.now() }) {
     const meta = state.metas.get(interviewId);
     if (!meta || meta.status !== 'in_progress') return false;

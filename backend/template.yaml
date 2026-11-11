@@ -1565,6 +1565,12 @@ Resources:
       Handler: index.handler
       Description: Starts the interview for a coding submission
       Timeout: 25
+      Environment:
+        Variables:
+          # host.v6 runs the student's code on the instructor's inputs (same pattern as RunCodeFunction)
+          CODE_RUNNER: !Ref CodeRunner
+          CODE_RUNNER_FUNCTION: !Ref RunnerFunctionName
+          CODE_RUNNER_TENANT_ISOLATION: "off"
       Events:
         CreateInterview:
           Type: Api
@@ -1589,6 +1595,14 @@ Resources:
             TableName: Submissions
         - DynamoDBReadPolicy:
             TableName: Milestones
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RunUsageTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerFunctionName}"
 
   # ------------------------------------------
   # LAMBDA: Answer Interview Question
@@ -1600,6 +1614,12 @@ Resources:
       Handler: index.handler
       Description: Stores an interview answer and returns the next question
       Timeout: 25
+      Environment:
+        Variables:
+          # host.v6 runs the student's code on the instructor's inputs (same pattern as RunCodeFunction)
+          CODE_RUNNER: !Ref CodeRunner
+          CODE_RUNNER_FUNCTION: !Ref RunnerFunctionName
+          CODE_RUNNER_TENANT_ISOLATION: "off"
       Events:
         SubmitInterviewAnswer:
           Type: Api
@@ -1631,6 +1651,14 @@ Resources:
                 - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${AgentModelId}"
                 - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${AgentCheckerModelId}"
                 - !Sub "arn:aws:bedrock:us-east-1::foundation-model/${AgentWriterModelId}"
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RunUsageTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerFunctionName}"
 
   # ------------------------------------------
   # LAMBDA: Get Interview
@@ -1702,6 +1730,12 @@ Resources:
       Handler: index.handler
       Description: Starts a practice interview on an existing submission's code, admin only
       Timeout: 25
+      Environment:
+        Variables:
+          # host.v6 runs the student's code on the instructor's inputs (same pattern as RunCodeFunction)
+          CODE_RUNNER: !Ref CodeRunner
+          CODE_RUNNER_FUNCTION: !Ref RunnerFunctionName
+          CODE_RUNNER_TENANT_ISOLATION: "off"
       Events:
         StartPracticeInterview:
           Type: Api
@@ -1728,6 +1762,14 @@ Resources:
             TableName: Milestones
         - DynamoDBReadPolicy:
             TableName: Users
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RunUsageTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${RunnerFunctionName}"
 
   # ------------------------------------------
   # LAMBDA: Save the instructor's review of an interview (admin)

@@ -55,6 +55,8 @@ function toStudentAssessment(assessment) {
   if (interview && interview.enabled) {
     view.interviewEnabled = true;
     view.interviewTimeLimitMinutes = interview.timeLimitMinutes;
+    // How many questions the interview has (a number only: the questions themselves stay private), for the waiting page.
+    view.interviewQuestionCount = (interview.themes || []).reduce((n, theme) => n + ((theme.mainQuestions || []).length), 0);
   }
   return view;
 }

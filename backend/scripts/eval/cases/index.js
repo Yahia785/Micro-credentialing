@@ -66,8 +66,37 @@ const CASES = [
   })),
 ];
 
-function caseIds() {
-  return CASES.map((c) => c.id);
+// Cases 10 and 11 (host.v6 material): the tank controller with unfinished code. They are extra cases: `--cases all` and the
+// established tests do not include them, `--cases case10,case11` does. The scripted students are case 4's (the strong answers describe
+// how the controller should work, which is exactly "how I intended it to work"), and the submission carries what the grader would have
+// stored, so the engine can classify the code.
+const EXTRA_CASES = [
+  {
+    id: 'case10',
+    title: 'Tank fill controller (unfinished: step is an empty function with a TODO)',
+    codeFile: path.join(__dirname, 'tank-controller-stub.cpp'),
+    configFile: path.join(__dirname, 'tank-controller.json'),
+    testsFile: path.join(__dirname, 'tank-controller.tests.json'),
+    studentsFile: path.join(students, 'case4.json'),
+    extra: true,
+    submission: { passedTests: 1, totalTests: 7, testResults: [{ status: 'Runtime Error' }, { status: 'Accepted' }] },
+  },
+  {
+    id: 'case11',
+    title: 'Tank fill controller (unfinished: does not compile, a semicolon is missing)',
+    codeFile: path.join(__dirname, 'tank-controller-nocompile.cpp'),
+    configFile: path.join(__dirname, 'tank-controller.json'),
+    testsFile: path.join(__dirname, 'tank-controller.tests.json'),
+    studentsFile: path.join(students, 'case4.json'),
+    extra: true,
+    submission: { passedTests: 0, totalTests: 7, testResults: [{ status: 'Compilation Error' }, { status: 'Compilation Error' }] },
+  },
+];
+const ALL_CASES = [...CASES, ...EXTRA_CASES]; // CASES (exported) stays the established set
+
+/** The ids of the established cases (what `--cases all` means); with includeExtra also the host.v6 material (cases 10 and 11). */
+function caseIds({ includeExtra = false } = {}) {
+  return (includeExtra ? ALL_CASES : CASES).map((c) => c.id);
 }
 
 /** Flat list of the main questions in the order they are asked. */
@@ -103,8 +132,8 @@ function checkRubric(rubric, theme, where) {
 
 /** Load a case: program, validated config and scripted students. */
 function loadCase(id) {
-  const entry = CASES.find((c) => c.id === id);
-  if (!entry) throw new Error(`Unknown case "${id}". Available: ${caseIds().join(', ')}`);
+  const entry = ALL_CASES.find((c) => c.id === id);
+  if (!entry) throw new Error(`Unknown case "${id}". Available: ${caseIds({ includeExtra: true }).join(', ')}`);
 
   const parsed = parseInterview(JSON.parse(fs.readFileSync(entry.configFile, 'utf8')), { language: 'cpp' });
   if (parsed.error) throw new Error(`Case ${id}: invalid interview config: ${parsed.error}`);
@@ -127,6 +156,8 @@ function loadCase(id) {
     config: parsed.value,
     mains: mainQuestionsOf(parsed.value),
     studentsRaw: JSON.parse(fs.readFileSync(entry.studentsFile, 'utf8')),
+    // What the grader stored for this submission (compile result, tests passed), for the cases where it matters (10 and 11).
+    submission: entry.submission || {},
     // Input and expected output of the program's tests. Stored for later: nothing runs them yet.
     tests: entry.testsFile ? JSON.parse(fs.readFileSync(entry.testsFile, 'utf8')).tests : [],
   };

@@ -202,6 +202,29 @@ async function endInterview(interviewId, { status, endReason, now = Date.now() }
   }
 }
 
+/**
+ * Start the clock of a real interview that has none yet: set startedAt and the deadline, once. Returns false when the clock already runs
+ * (or the interview ended), so two tabs opening it at the same moment cannot move each other's deadline.
+ */
+async function startInterviewClock(interviewId, { startedAt, deadline, now = Date.now() }) {
+  try {
+    await dynamodb.send(new UpdateCommand({
+      TableName: table(),
+      Key: { interviewId, sk: META_SK },
+      UpdateExpression: 'SET startedAt = :startedAt, deadline = :deadline, updatedAt = :updatedAt',
+      ConditionExpression: '#status = :inProgress AND (attribute_not_exists(deadline) OR attribute_type(deadline, :nullType))',
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: {
+        ':startedAt': startedAt, ':deadline': deadline, ':updatedAt': new Date(now).toISOString(), ':inProgress': 'in_progress', ':nullType': 'NULL',
+      },
+    }));
+    return true;
+  } catch (error) {
+    if (isConditionFailure(error)) return false;
+    throw error;
+  }
+}
+
 /** Replace the instructor's review stored on the interview. The agent's recorded checks are never touched. */
 async function saveInterviewReview(interviewId, review) {
   try {
@@ -222,6 +245,7 @@ async function saveInterviewReview(interviewId, review) {
 
 module.exports = {
   saveInterviewReview,
+  startInterviewClock,
   interviewIdFor,
   practiceInterviewId,
   listInterviewsBySubmission,

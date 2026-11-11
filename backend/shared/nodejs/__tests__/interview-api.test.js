@@ -10,6 +10,7 @@ jest.mock('../db/interviews', () => ({
   listInterviewsBySubmission: jest.fn(),
   appendTurns: jest.fn(),
   endInterview: jest.fn(),
+  startInterviewClock: jest.fn(),
 }));
 // The model is always a fake in tests: nothing here can reach Bedrock.
 jest.mock('../agent/bedrock-client', () => ({
@@ -273,7 +274,7 @@ describe('POST /interviews (start after a submission)', () => {
   it('starts a real interview for a normal submission of this problem, with the problem\'s prompt version and models', async () => {
     const res = await post('u1');
     expect(res.statusCode).toBe(201);
-    expect(body(res)).toEqual({ interviewId: 'int_sub1', question: 'Walk me through the readings.', deadline: iso(1000 + 10 * 60000), serverNow: expect.any(String) });
+    expect(body(res)).toEqual({ interviewId: 'int_sub1', question: 'Walk me through the readings.', deadline: null, timeLimitMinutes: 10, questionCount: expect.any(Number), serverNow: expect.any(String) });
     const stored = interviews.createInterview.mock.calls[0][0];
     expect(stored).toMatchObject({ isPractice: false, promptVersion: 'host.v5', userId: 'u1', submissionId: 'sub1' });
     expect(stored.checkerModelId).toBeTruthy();
@@ -423,5 +424,42 @@ describe('practice interviews never count as the real interview', () => {
   it('the service exports the three entry points the handlers use', () => {
     expect(typeof service.startPracticeInterview).toBe('function');
     expect(typeof service.listSubmissionInterviews).toBe('function');
+  });
+});
+
+describe('GET /interviews/{id}: the clock of a real interview starts when the student opens it', () => {
+  const waiting = () => meta({ deadline: null, startedAt: iso(-60000), turnCount: 1, themeIndex: 0, mainIndex: 0 });
+  const open = (userId, query) => getHandler(event(userId, { pathParameters: { interviewId: 'int_sub1' }, ...(query && { queryStringParameters: query }) }), {});
+
+  beforeEach(() => {
+    interviews.getInterviewMeta.mockResolvedValue(waiting());
+    interviews.getInterviewTurns.mockResolvedValue([{ sk: 'T#0001', role: 'host', text: 'Walk me through the readings.', kind: 'main', themeId: 't1', createdAt: iso(-60000) }]);
+    interviews.startInterviewClock.mockResolvedValue(true);
+  });
+
+  it('the owner opening it starts the clock once, and sees all the time', async () => {
+    const res = await open('u1');
+    expect(res.statusCode).toBe(200);
+    expect(interviews.startInterviewClock).toHaveBeenCalledTimes(1);
+    expect(interviews.startInterviewClock.mock.calls[0][1]).toMatchObject({ startedAt: iso(1000), deadline: iso(1000 + 10 * 60000) });
+    expect(body(res).interview).toMatchObject({ deadline: iso(1000 + 10 * 60000), timeLeftMs: 10 * 60000 });
+  });
+
+  it('?peek=1 only says whether it exists: the clock does not start, and the student view has all the time', async () => {
+    const res = await open('u1', { peek: '1' });
+    expect(res.statusCode).toBe(200);
+    expect(interviews.startInterviewClock).not.toHaveBeenCalled();
+    expect(body(res).interview).toMatchObject({ deadline: null, timeLeftMs: 10 * 60000 });
+  });
+
+  it('an instructor looking at it never starts it', async () => {
+    const res = await open('admin-1');
+    expect(res.statusCode).toBe(200);
+    expect(interviews.startInterviewClock).not.toHaveBeenCalled();
+  });
+
+  it('a stranger gets 403 and nothing starts', async () => {
+    expect((await open('u2')).statusCode).toBe(403);
+    expect(interviews.startInterviewClock).not.toHaveBeenCalled();
   });
 });

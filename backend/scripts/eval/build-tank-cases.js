@@ -33,7 +33,7 @@ function simulate(variant, input) {
     if (!isValid(r)) return 'ALARM';
     if (r < s.low) return 'FILLING';
     if (reachesHigh(r)) return 'FULL';
-    return current;
+    return variant === 'case5' ? 'IDLE' : current; // case 5 (cases/tank-controller-bug.cpp): the end of step returns IDLE instead of holding the state
   };
   let state = 'IDLE';
   let starts = 0;

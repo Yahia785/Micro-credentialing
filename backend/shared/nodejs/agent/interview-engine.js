@@ -15,6 +15,8 @@ const path = require('path');
 const bedrock = require('./bedrock-client');
 const { isYesNo, isMultiPart, firstQuestionOnly, leaksCriterion } = require('./follow-up-check');
 const split = require('./split-agent');
+const splitV6 = require('./split-agent-v6');
+const { detectManipulation, MANIPULATION_SENTENCE } = require('./manipulation');
 
 const { PROMPT_VERSIONS } = require('./prompt-versions');
 // The prompt versions that receive the instructor's rubric (a list of items r1, r2, ... per main question) and reply with
@@ -25,7 +27,10 @@ const RUBRIC_PROMPTS = Object.freeze(['host.v4', 'host.v4.1']);
 const REPAIR_PROMPTS = Object.freeze(['host.v4.1']);
 // host.v5 is the split agent (split-agent.js): one call checks the answer against the rubric, a second writes the follow-up.
 // It works from the rubric too and runs at temperature 0, but it has no single prompt file and sends no host message.
-const SPLIT_PROMPTS = Object.freeze(['host.v5']);
+const SPLIT_PROMPTS = Object.freeze(['host.v5', 'host.v6']);
+// host.v6 is the split agent plus the observed behavior of the student's code, the code status and the manipulation handling
+// (split-agent-v6.js, check.v2 / write.v2). host.v5 itself is unchanged.
+const V6_PROMPTS = Object.freeze(['host.v6']);
 // A yes/no follow-up is rewritten once as an open question (then the engine falls back), for these versions.
 const OPEN_QUESTION_PROMPTS = Object.freeze(['host.v4', 'host.v4.1']);
 // The temperature an arm of these versions runs at when none is named (the other versions use the client's default).
@@ -77,6 +82,11 @@ function followUpBudget(config) {
 const promptCache = {};
 function loadPrompt(version = resolvePromptVersion()) {
   resolvePromptVersion(version);
+  if (V6_PROMPTS.includes(version)) return `${splitV6.CHECK_SYSTEM}
+
+---
+
+${splitV6.WRITE_SYSTEM}`;
   if (SPLIT_PROMPTS.includes(version)) return `${require('./rubric-check').CHECK_SYSTEM}
 
 ---
@@ -92,6 +102,8 @@ ${split.WRITE_SYSTEM}`; // the two prompts of the split agent
 const usesRubric = (version) => RUBRIC_PROMPTS.includes(version) || SPLIT_PROMPTS.includes(version);
 /** True for the split agent. */
 const usesSplit = (version) => SPLIT_PROMPTS.includes(version);
+/** True for host.v6 (observed behavior, code status, manipulation). */
+const usesV6 = (version) => V6_PROMPTS.includes(version);
 /** True for the prompt versions whose invalid replies are repaired where possible. */
 const repairsReplies = (version) => REPAIR_PROMPTS.includes(version);
 
@@ -104,6 +116,13 @@ function rubricFor(config, state) {
   const own = Array.isArray(theme.rubric) ? theme.rubric[state.mainIndex] : null;
   if (Array.isArray(own) && own.length) return own.map((item) => ({ id: String(item.id), text: String(item.text) }));
   return (theme.criteria || []).map((text, i) => ({ id: `r${i + 1}`, text }));
+}
+
+/** The runs the instructor set for a main question, as [{ label, stdin }]: theme.runs[mainIndex]. Empty when none. */
+function runsAt(config, { themeIndex, mainIndex }) {
+  const theme = config.themes[themeIndex] || {};
+  const own = Array.isArray(theme.runs) ? theme.runs[mainIndex] : null;
+  return Array.isArray(own) ? own.map((run) => ({ label: String(run.label), stdin: String(run.stdin) })) : [];
 }
 
 function initialState() {
@@ -328,7 +347,7 @@ async function guardTwoQuestions({ decision, firstReply, userMessage, system, mo
  *   engineDecision?: true, guard?: object, missing?: string[], target?: string|null, isHint?: boolean
  * }>}
  */
-async function decideNext({ config, state, code, turns, modelId, promptVersion, converseFn = bedrock.converse, checkerModelId, writerModelId }) {
+async function decideNext({ config, state, code, turns, modelId, promptVersion, converseFn = bedrock.converse, checkerModelId, writerModelId, observed = [], codeStatus = null }) {
   const followUpsRemaining = followUpBudget(config) - state.followUpCount;
   const nextMain = nextMainPosition(config, state);
   const theme = currentTheme(config, state);
@@ -345,8 +364,14 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
   let splitRecord = null; // host.v5: the evidence, the models and every call
   let rejected = null; // host.v4 and later: why the reply was not used (the check that failed) and the raw reply
   const repairs = []; // host.v4.1 and the yes/no guard: what the engine repaired in the reply
+  let manipulation = null; // host.v6: the flag on the student's answer ({ kind, quote, source }) and the notice the engine adds
+
+  // host.v6: the engine's own check of the student's latest answer (no model).
+  const latestAnswer = [...turns].reverse().find((t) => t.role === 'student');
+  const engineFlag = usesV6(version) && latestAnswer ? detectManipulation(latestAnswer.text) : null;
 
   if (allowed.length === 1) {
+    if (engineFlag) manipulation = engineFlag;
     // Nothing to choose: no follow-up is left for this main question. The model is not asked.
     engineDecision = true;
     decision = {
@@ -356,6 +381,22 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
         ? 'engine: no follow-up left for this main question; asked the next main question'
         : 'engine: no follow-up left and no main question remains; ended',
     };
+  } else if (usesV6(version)) {
+    const models = splitV6.resolveSplitModels({ checkerModelId, writerModelId });
+    splitRecord = { models, calls: [] };
+    const stepped = await splitV6.decide({
+      converseFn, models, code, turns, mainQuestion: currentMainQuestion(config, state), rubric, criteria: theme.criteria,
+      answer: latestAnswer ? latestAnswer.text : '', observed, codeStatus, flag: engineFlag, nextMain: !!nextMain,
+    });
+    splitRecord.calls.push(...stepped.calls);
+    splitRecord.evidence = stepped.evidence || undefined;
+    usage = stepped.usage;
+    repairs.push(...stepped.repairs);
+    if (stepped.guard) guard = stepped.guard;
+    manipulation = stepped.manipulation;
+    fallback = stepped.fallback;
+    rejected = stepped.rejected;
+    decision = stepped.decision;
   } else if (usesSplit(version)) {
     const models = split.resolveSplitModels({ checkerModelId, writerModelId });
     splitRecord = { models, calls: [] };
@@ -539,6 +580,7 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
       calls: splitRecord.calls,
       ...(splitRecord.evidence && { evidence: splitRecord.evidence }),
     }),
+    ...(manipulation && { manipulation }),
     ...(rejected && rubric && { rejected: { code: rejected.code, reply: String(rejected.reply || '').slice(0, 2000) } }),
     ...(decision && Array.isArray(decision.missing) && {
       missing: decision.missing,
@@ -546,6 +588,9 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
       isHint: asked ? decision.isHint : false,
     }),
   };
+
+  // host.v6: a flagged answer gets one fixed neutral sentence in front of whatever is asked next.
+  const notice = manipulation && action !== ACTIONS.END ? { notice: MANIPULATION_SENTENCE } : {};
 
   const baseState = { ...state, fallbackCount: state.fallbackCount + (fallback ? 1 : 0) };
 
@@ -559,6 +604,7 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
       state: { ...baseState, followUpCount: state.followUpCount + 1 },
       fallback,
       usage,
+      ...notice,
       ...record,
     };
   }
@@ -575,6 +621,7 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
       state: next,
       fallback,
       usage,
+      ...notice,
       ...record,
     };
   }
@@ -592,6 +639,8 @@ function recordFields(decision) {
   if (decision.calls) out.calls = decision.calls;
   if (decision.evidence) out.evidence = decision.evidence;
   if (decision.rejected) out.rejected = decision.rejected;
+  if (decision.manipulation) out.manipulation = decision.manipulation;
+  if (decision.notice) out.notice = decision.notice;
   if (Array.isArray(decision.missing)) {
     out.missing = decision.missing;
     out.target = decision.target;
@@ -620,7 +669,10 @@ module.exports = {
   resolvePromptVersion,
   usesRubric,
   usesSplit,
+  usesV6,
+  runsAt,
   SPLIT_PROMPTS,
+  V6_PROMPTS,
   repairsReplies,
   rubricFor,
   followUpBudget,
