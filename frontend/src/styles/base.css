@@ -81,3 +81,49 @@ textarea {
   font-family: inherit;
   font-size: inherit;
 }
+
+/*
+ * Sign-in screen. It is rendered by Amplify's Authenticator, so it is themed through
+ * Amplify's own CSS variables rather than restyled element by element.
+ */
+[data-amplify-authenticator],
+[data-amplify-theme] {
+  --amplify-colors-brand-primary-10: var(--color-brand-subtle-bg);
+  --amplify-colors-brand-primary-20: var(--color-brand-border);
+  --amplify-colors-brand-primary-40: var(--color-brand);
+  --amplify-colors-brand-primary-60: var(--color-brand);
+  --amplify-colors-brand-primary-80: var(--color-brand);
+  --amplify-colors-brand-primary-90: var(--color-brand-hover);
+  --amplify-colors-brand-primary-100: var(--color-brand-active);
+  --amplify-colors-font-interactive: var(--color-brand);
+  --amplify-colors-border-focus: var(--color-brand);
+  --amplify-components-button-primary-background-color: var(--color-brand);
+  --amplify-components-button-primary-hover-background-color: var(--color-brand-hover);
+  --amplify-components-button-primary-active-background-color: var(--color-brand-active);
+  --amplify-components-button-primary-focus-background-color: var(--color-brand-hover);
+  --amplify-components-button-link-color: var(--color-brand);
+  --amplify-components-tabs-item-active-color: var(--color-brand);
+  --amplify-components-tabs-item-active-border-color: var(--color-brand);
+  --amplify-components-tabs-item-hover-color: var(--color-brand-hover);
+  --amplify-components-tabs-item-focus-color: var(--color-brand);
+  --amplify-components-authenticator-modal-background-color: var(--color-bg-page);
+  --amplify-components-authenticator-router-box-shadow: var(--shadow-md);
+  --amplify-components-authenticator-router-border-color: var(--color-border);
+  --amplify-components-fieldcontrol-border-color: var(--color-gray-500);
+  --amplify-fonts-default-variable: var(--font-sans);
+  --amplify-fonts-default-static: var(--font-sans);
+}
+
+/* Centre the sign-in card in the window. Only the sign-in view has this wrapper; the app renders outside it. */
+[data-amplify-authenticator] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-6) var(--space-4);
+}
+
+[data-amplify-authenticator] [data-amplify-router] {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
