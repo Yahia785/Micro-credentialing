@@ -3,7 +3,7 @@ import { classNames } from '../../utils/classNames';
 import { Spinner } from './Spinner';
 import styles from './Button.module.css';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'dangerOutline' | 'ghost';
 export type ButtonSize = 'sm' | 'md';
 
 export interface ButtonProps extends ComponentPropsWithRef<'button'> {

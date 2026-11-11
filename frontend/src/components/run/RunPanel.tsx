@@ -4,6 +4,8 @@ import { Alert, Badge } from '../ui';
 import type { BadgeVariant } from '../ui';
 import type { RunResponse, RunStatus } from '../../api/submissions';
 import type { RunState } from '../../hooks/useRunCode';
+import { SampleTestBox } from './SampleTestBox';
+import { sampleStatusFor } from './sampleStatus';
 import styles from './RunPanel.module.css';
 
 interface RunPanelProps {
@@ -129,9 +131,7 @@ export function RunPanel({ state, input, onInputChange, onRun, disabled }: RunPa
               onKeyDown={onInputKey}
               spellCheck={false}
               placeholder="Type the input your program reads. Press Ctrl+Enter to run."
-              aria-describedby={`${inputId}-hint`}
             />
-            <p id={`${inputId}-hint`} className={styles.hint}>Used by Run. Sample tests use their own input.</p>
           </div>
 
           <div className={styles.outputColumn}>
@@ -165,10 +165,10 @@ function Output({ state }: { state: RunState }) {
   if (state.phase === 'error') {
     return <Alert variant="danger" title="Could not run your code">{state.message}</Alert>;
   }
-  return <Result response={state.response} />;
+  return <Result state={state} response={state.response} />;
 }
 
-function Result({ response }: { response: RunResponse }) {
+function Result({ state, response }: { state: RunState; response: RunResponse }) {
   if (response.status === 'compile_error') {
     return <Block label="Compiler output" text={response.compileOutput || 'The code did not compile.'} tone="error" />;
   }
@@ -177,18 +177,23 @@ function Result({ response }: { response: RunResponse }) {
     return (
       <ol className={styles.tests}>
         {response.results.map((test) => (
-          <li key={test.index} className={styles.test}>
-            <div className={styles.testHead}>
-              <span className={styles.testTitle}>Sample test {test.index}</span>
-              <Badge variant={test.passed ? 'success' : 'danger'}>{test.passed ? 'Passed' : 'Failed'}</Badge>
-              {!test.passed && test.status in STATUS && test.status !== 'accepted' && (
-                <span className={styles.meta}>{STATUS[test.status as RunStatus].label}</span>
-              )}
-            </div>
-            <Block label="Input" text={test.input} />
-            <Block label="Expected output" text={test.expectedOutput} />
-            <Block label="Your output" text={test.actualOutput || '(no output)'} />
-            {test.stderr && <Block label="Error output" text={test.stderr} tone="error" />}
+          <li key={test.index}>
+            <SampleTestBox
+              title={`Sample test ${test.index}`}
+              status={sampleStatusFor(state, test.index)}
+              note={
+                !test.passed && test.status in STATUS && test.status !== 'accepted' && test.status !== 'failed' ? (
+                  <span className={styles.meta}>{STATUS[test.status as RunStatus].label}</span>
+                ) : undefined
+              }
+            >
+              <Block label="Input" text={test.input} />
+              <div className={styles.compare}>
+                <Block label="Expected output" text={test.expectedOutput} />
+                <Block label="Your output" text={test.actualOutput || '(no output)'} />
+              </div>
+              {test.stderr && <Block label="Error output" text={test.stderr} tone="error" />}
+            </SampleTestBox>
           </li>
         ))}
       </ol>

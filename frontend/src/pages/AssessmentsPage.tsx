@@ -26,6 +26,7 @@ export function AssessmentsPage() {
   const [errors, setErrors] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [courseFilter, setCourseFilter] = useState(ALL_COURSES);
 
   const loadedOnce = useRef(false);
@@ -54,6 +55,15 @@ export function AssessmentsPage() {
     // in memory is stale (e.g. a submission made from another tab or session).
     refreshProfile();
   }, [refreshProfile]);
+
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      await loadAssessments();
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const handleDelete = async (assessment: Assessment) => {
     const message =
@@ -131,6 +141,14 @@ export function AssessmentsPage() {
             </Alert>
           ))}
 
+          {errors.length > 0 && (
+            <div>
+              <Button variant="secondary" onClick={handleRetry} loading={retrying}>
+                {retrying ? 'Retrying…' : 'Retry'}
+              </Button>
+            </div>
+          )}
+
           {notice && (
             <Alert variant="warning" onDismiss={() => setNotice(null)}>
               {notice}
@@ -188,7 +206,7 @@ export function AssessmentsPage() {
             </section>
           ))}
 
-          {assessments.length === 0 && (
+          {assessments.length === 0 && errors.length === 0 && (
             <EmptyState
               headingLevel={2}
               title="No assessments available yet"

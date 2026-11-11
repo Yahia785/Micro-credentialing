@@ -134,7 +134,7 @@ export function AssessmentCard({
                 </Button>
                 <Button
                   size="sm"
-                  variant="danger"
+                  variant="dangerOutline"
                   onClick={(e) => {
                     e.stopPropagation();
                     onDelete(assessment);

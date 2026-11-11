@@ -1,0 +1,32 @@
+.box {
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  background-color: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-left-width: var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.idle {
+  border-left-color: var(--color-gray-400);
+}
+
+.passed {
+  border-left-color: var(--color-success);
+}
+
+.failed {
+  border-left-color: var(--color-danger);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}

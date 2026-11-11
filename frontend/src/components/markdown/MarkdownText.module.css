@@ -1,0 +1,131 @@
+/* Reading text: about 70 characters per line, generous spacing, three heading sizes at most. */
+.markdown {
+  max-width: 70ch;
+  color: var(--color-text-primary);
+  line-height: var(--line-height-relaxed);
+  overflow-wrap: anywhere;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+/* A single line break in the source stays a line break, as in the plain-text descriptions written before Markdown. */
+.markdown p {
+  margin: 0 0 var(--space-4);
+  white-space: pre-line;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: var(--space-6) 0 var(--space-2);
+  line-height: var(--line-height-tight);
+}
+
+.markdown h1 {
+  font-size: var(--font-size-xl);
+}
+
+.markdown h2 {
+  font-size: var(--font-size-lg);
+}
+
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: var(--font-size-md);
+}
+
+.markdown strong {
+  font-weight: var(--font-weight-bold);
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-6);
+}
+
+.markdown li {
+  margin-bottom: var(--space-1);
+}
+
+.markdown li > p {
+  margin-bottom: var(--space-2);
+}
+
+.markdown blockquote {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-1) var(--space-4);
+  border-left: var(--space-1) solid var(--color-gray-300);
+  color: var(--color-text-secondary);
+}
+
+.markdown a {
+  text-decoration: underline;
+}
+
+/* Inline code: gray-900 text on gray-100 is 15:1. */
+.markdown code {
+  padding: 0 var(--space-1);
+  background-color: var(--color-gray-100);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* Code blocks scroll sideways instead of wrapping. */
+.markdown pre {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  overflow-x: auto;
+  background-color: var(--color-gray-100);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  line-height: var(--line-height-normal);
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: var(--font-size-sm);
+  white-space: pre;
+}
+
+.markdown table {
+  display: block;
+  max-width: 100%;
+  margin: 0 0 var(--space-4);
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.markdown th,
+.markdown td {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.markdown th {
+  background-color: var(--color-gray-100);
+  font-weight: var(--font-weight-semibold);
+}
+
+.markdown hr {
+  margin: var(--space-6) 0;
+  border: 0;
+  border-top: 1px solid var(--color-divider);
+}

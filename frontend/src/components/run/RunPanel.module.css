@@ -143,13 +143,9 @@
   outline-offset: 1px;
 }
 
-.hint {
-  margin: var(--space-1) 0 0;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-}
 
 .output {
+  container-type: inline-size;
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -206,26 +202,21 @@
   list-style: none;
 }
 
-.test {
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--color-border);
+/* Expected and actual output side by side; stacked when the panel is narrow. */
+.compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
 }
 
-.test:last-child {
-  border-bottom: 0;
+.compare .block {
+  margin-bottom: 0;
 }
 
-.testHead {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-
-.testTitle {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
+@container (max-width: 34rem) {
+  .compare {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Narrow: the input sits above the output and the whole panel scrolls inside its height. */

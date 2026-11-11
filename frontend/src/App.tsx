@@ -49,9 +49,17 @@ function AppGate() {
   return <RouterProvider router={router} />;
 }
 
+/** The app name above the sign-in form. Only the sign-in view uses it. */
+const AUTH_COMPONENTS = {
+  Header() {
+    return <h1 className={styles.signInTitle}>{APP_NAME}</h1>;
+  },
+};
+
 function App() {
   return (
     <Authenticator
+      components={AUTH_COMPONENTS}
       formFields={{
         signIn: {
           username: {

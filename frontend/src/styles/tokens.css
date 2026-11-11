@@ -32,6 +32,7 @@
   /* ---- Surfaces ---- */
   --color-bg-page: #eff0f2;               /* a step darker than the cards so white surfaces lift off it */
   --color-bg-card: #ffffff;
+  --color-scrim: rgba(23, 24, 27, 0.72);  /* behind dialogs */
   --color-border: var(--color-gray-300);
   --color-divider: var(--color-gray-200);
 

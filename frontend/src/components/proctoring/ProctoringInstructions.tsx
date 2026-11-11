@@ -1,4 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useId } from 'react';
+import { Alert, Badge, Button, Card } from '../ui';
+import styles from './ProctoringInstructions.module.css';
 
 interface ProctoringInstructionsProps {
   problemTitle: string;
@@ -17,6 +19,9 @@ export function ProctoringInstructions({
   const [webcamError, setWebcamError] = useState<string | null>(null);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [isRequesting, setIsRequesting] = useState(false);
+
+  const titleId = useId();
+  const reasonId = useId();
 
   const webcamStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
@@ -164,274 +169,109 @@ export function ProctoringInstructions({
 
   const canProceed = webcamGranted && screenGranted && isEntireScreen;
 
+  const screenReady = screenGranted && isEntireScreen;
+  const blockedReason = canProceed
+    ? ''
+    : !webcamGranted
+      ? 'Allow your camera and microphone to continue.'
+      : !screenGranted
+        ? 'Share your entire screen to continue.'
+        : 'Select "Entire Screen" to continue.';
+
   return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000,
-      padding: '20px'
-    }}>
-      <div style={{
-        backgroundColor: 'white',
-        borderRadius: '12px',
-        padding: '30px',
-        maxWidth: '800px',
-        width: '100%',
-        maxHeight: '90vh',
-        overflow: 'auto',
-        boxShadow: '0 10px 40px rgba(0,0,0,0.3)'
-      }}>
-        {/* Header */}
-        <div style={{ marginBottom: '25px' }}>
-          <h2 style={{ margin: '0 0 10px 0', color: '#333', fontSize: '28px' }}>
-            🎥 Proctoring Setup Required
-          </h2>
-          <p style={{ margin: 0, color: '#666', fontSize: '16px' }}>
-            Problem: <strong>{problemTitle}</strong>
+    <div className={styles.overlay}>
+      <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <header className={styles.header}>
+          <h2 id={titleId} className={styles.title}>Set up proctoring</h2>
+          <p className={styles.problem}>
+            Assessment: <strong>{problemTitle}</strong>
           </p>
-        </div>
+        </header>
 
-        {/* Instructions */}
-        <div style={{
-          backgroundColor: '#e7f3ff',
-          borderLeft: '4px solid #0066cc',
-          padding: '20px',
-          borderRadius: '8px',
-          marginBottom: '25px'
-        }}>
-          <h3 style={{ marginTop: 0, color: '#0066cc', fontSize: '20px' }}>
-            📋 Important Information
-          </h3>
-          <ul style={{ color: '#333', lineHeight: '1.8', marginBottom: 0 }}>
-            <li>This problem requires <strong>proctoring</strong> to ensure academic integrity</li>
-            <li>Your <strong>webcam and microphone</strong> will record you during the assessment</li>
-            <li>Your <strong>screen</strong> will be recorded during the assessment</li>
-            <li>Recordings will be reviewed by instructors</li>
-            <li>You must grant all permissions to proceed</li>
+        <Alert variant="info" title="Before you start">
+          <ul className={styles.list}>
+            <li>This assessment is proctored to keep it fair for everyone.</li>
+            <li>Your camera, microphone and screen are recorded until you submit.</li>
+            <li>Your instructors review the recordings.</li>
+            <li>You need to allow all three to start.</li>
           </ul>
-        </div>
+        </Alert>
 
-        {/* CRITICAL: Entire Screen Warning */}
-        <div style={{
-          backgroundColor: '#fff3cd',
-          border: '2px solid #ffc107',
-          borderRadius: '8px',
-          padding: '15px',
-          marginBottom: '20px'
-        }}>
-          <h3 style={{ color: '#856404', marginTop: 0, fontSize: '18px' }}>
-            ⚠️ IMPORTANT: Screen Sharing Requirement
-          </h3>
-          <p style={{ color: '#856404', margin: '10px 0', fontSize: '15px', fontWeight: 'bold' }}>
-            When prompted to share your screen, you MUST select:
-          </p>
-          <ul style={{ color: '#856404', fontSize: '14px', marginBottom: 0 }}>
-            <li><strong>"Entire Screen"</strong> - NOT "Chrome Tab" or "Window"</li>
-            <li>If you have multiple monitors, select the screen where you'll be coding</li>
-            <li>Selecting a tab or window will prevent you from proceeding</li>
+        <Alert variant="warning" title="When you share your screen, choose Entire Screen">
+          <ul className={styles.list}>
+            <li>Choose <strong>Entire Screen</strong>, not a browser tab or a window. A tab or window cannot be recorded for this assessment.</li>
+            <li>With more than one monitor, choose the one you will code on.</li>
           </ul>
-        </div>
+        </Alert>
 
-        {/* Webcam Permission */}
-        <div style={{
-          border: '2px solid #dee2e6',
-          borderRadius: '8px',
-          padding: '20px',
-          marginBottom: '20px',
-          backgroundColor: webcamGranted ? '#d4edda' : '#fff'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
-            <h3 style={{ margin: 0, color: '#333', fontSize: '18px' }}>
-              📹 Step 1: Enable Webcam & Microphone
-            </h3>
-            {webcamGranted && (
-              <span style={{ color: '#28a745', fontWeight: 'bold', fontSize: '16px' }}>
-                ✅ Granted
-              </span>
-            )}
-          </div>
-
+        <div className={styles.steps}>
+        <Card
+          headingLevel={3}
+          title="Step 1: Camera and microphone"
+          actions={webcamGranted ? <Badge variant="success">Granted</Badge> : undefined}
+        >
           {!webcamGranted && (
-            <button
-              onClick={requestWebcamAccess}
-              disabled={isRequesting}
-              style={{
-                padding: '12px 24px',
-                backgroundColor: isRequesting ? '#6c757d' : '#007bff',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: isRequesting ? 'not-allowed' : 'pointer',
-                fontSize: '16px',
-                fontWeight: 'bold',
-                width: '100%'
-              }}
-            >
-              {isRequesting ? '⏳ Requesting Access...' : '🎥 🎤 Allow Camera & Microphone'}
-            </button>
+            <Button onClick={requestWebcamAccess} loading={isRequesting} disabled={isRequesting}>
+              {isRequesting ? 'Requesting access…' : 'Allow camera and microphone'}
+            </Button>
           )}
 
-          {webcamError && (
-            <div style={{
-              marginTop: '10px',
-              padding: '12px',
-              backgroundColor: '#f8d7da',
-              color: '#721c24',
-              borderRadius: '6px',
-              fontSize: '14px'
-            }}>
-              ⚠️ {webcamError}
-            </div>
-          )}
+          {webcamError && <Alert variant="danger">{webcamError}</Alert>}
 
           {/* Always rendered so ref is populated when stream arrives */}
-          <div style={{ marginTop: '15px', display: webcamGranted ? 'block' : 'none' }}>
+          <div hidden={!webcamGranted}>
             <video
               ref={webcamVideoRef}
+              className={`${styles.preview} ${styles.previewCover}`}
               autoPlay
               muted
               playsInline
-              style={{
-                width: '100%',
-                maxHeight: '200px',
-                borderRadius: '8px',
-                backgroundColor: '#000',
-                objectFit: 'cover'
-              }}
+              aria-label="Preview of your camera"
             />
-            <p style={{ 
-              marginTop: '10px', 
-              fontSize: '13px', 
-              color: '#28a745',
-              fontWeight: 'bold',
-              textAlign: 'center' 
-            }}>
-              🎤 Microphone active - Your audio will be recorded
-            </p>
+            <p className={styles.previewNote}>Your microphone is on. Your audio will be recorded.</p>
           </div>
-        </div>
+        </Card>
 
-        {/* Screen Share Permission */}
-        <div style={{
-          border: '2px solid #dee2e6',
-          borderRadius: '8px',
-          padding: '20px',
-          marginBottom: '25px',
-          backgroundColor: (screenGranted && isEntireScreen) ? '#d4edda' : '#fff'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
-            <h3 style={{ margin: 0, color: '#333', fontSize: '18px' }}>
-              🖥️ Step 2: Share Your Screen
-            </h3>
-            {screenGranted && isEntireScreen && (
-              <span style={{ color: '#28a745', fontWeight: 'bold', fontSize: '16px' }}>
-                ✅ Entire Screen Granted
-              </span>
-            )}
-          </div>
-
+        <Card
+          headingLevel={3}
+          title="Step 2: Share your screen"
+          actions={screenReady ? <Badge variant="success">Entire screen granted</Badge> : undefined}
+        >
           {!screenGranted && (
-            <button
-              onClick={requestScreenAccess}
-              disabled={isRequesting}
-              style={{
-                padding: '12px 24px',
-                backgroundColor: isRequesting ? '#6c757d' : '#28a745',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: isRequesting ? 'not-allowed' : 'pointer',
-                fontSize: '16px',
-                fontWeight: 'bold',
-                width: '100%'
-              }}
-            >
-              {isRequesting ? '⏳ Requesting Access...' : '🖥️ Share Screen'}
-            </button>
+            <Button onClick={requestScreenAccess} loading={isRequesting} disabled={isRequesting}>
+              {isRequesting ? 'Requesting access…' : 'Share screen'}
+            </Button>
           )}
 
-          {screenError && (
-            <div style={{
-              marginTop: '10px',
-              padding: '12px',
-              backgroundColor: '#f8d7da',
-              color: '#721c24',
-              borderRadius: '6px',
-              fontSize: '14px',
-              fontWeight: 'bold'
-            }}>
-              ⚠️ {screenError}
-            </div>
-          )}
+          {screenError && <Alert variant="danger">{screenError}</Alert>}
 
           {/* Always rendered so ref is populated when stream arrives */}
-          <div style={{ marginTop: '15px', display: (screenGranted && isEntireScreen) ? 'block' : 'none' }}>
+          <div hidden={!screenReady}>
             <video
               ref={screenVideoRef}
+              className={styles.preview}
               autoPlay
               muted
               playsInline
-              style={{
-                width: '100%',
-                maxHeight: '200px',
-                borderRadius: '8px',
-                backgroundColor: '#000',
-                objectFit: 'contain'
-              }}
+              aria-label="Preview of your shared screen"
             />
           </div>
+        </Card>
         </div>
 
-        {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: '15px' }}>
-          <button
-            onClick={handleCancel}
-            style={{
-              flex: 1,
-              padding: '14px',
-              backgroundColor: '#6c757d',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '16px',
-              fontWeight: 'bold'
-            }}
-          >
-            ← Cancel
-          </button>
-
-          <button
-            onClick={handleProceed}
-            disabled={!canProceed}
-            style={{
-              flex: 2,
-              padding: '14px',
-              backgroundColor: canProceed ? '#28a745' : '#dee2e6',
-              color: canProceed ? 'white' : '#6c757d',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: canProceed ? 'pointer' : 'not-allowed',
-              fontSize: '16px',
-              fontWeight: 'bold'
-            }}
-          >
-            {canProceed 
-              ? '✅ Start Problem' 
-              : !webcamGranted 
-                ? '⏸️ Grant Camera & Microphone to Continue'
-                : !screenGranted
-                  ? '⏸️ Share Your Entire Screen to Continue'
-                  : '⏸️ Select "Entire Screen" to Continue'}
-          </button>
-        </div>
+        <footer className={styles.footer}>
+          {blockedReason && (
+            <p id={reasonId} className={styles.reason}>{blockedReason}</p>
+          )}
+          <div className={styles.actions}>
+            <Button variant="secondary" onClick={handleCancel}>
+              Cancel
+            </Button>
+            <Button onClick={handleProceed} disabled={!canProceed} aria-describedby={blockedReason ? reasonId : undefined}>
+              Start assessment
+            </Button>
+          </div>
+        </footer>
       </div>
     </div>
   );

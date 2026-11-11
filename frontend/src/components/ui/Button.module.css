@@ -81,6 +81,24 @@
   background-color: var(--color-danger-text-on-subtle);
 }
 
+/* Quiet danger: an outline in the danger color for actions that are destructive but not the point of the screen. */
+.dangerOutline {
+  background-color: transparent;
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.dangerOutline:hover:not(:disabled) {
+  background-color: var(--color-danger-subtle-bg);
+  color: var(--color-danger-text-on-subtle);
+}
+
+.dangerOutline:disabled {
+  background-color: transparent;
+  border-color: var(--color-gray-300);
+  color: var(--color-gray-500);
+}
+
 .ghost {
   background-color: transparent;
   color: var(--color-text-primary);

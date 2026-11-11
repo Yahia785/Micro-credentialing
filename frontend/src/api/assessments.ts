@@ -73,7 +73,7 @@ export async function getAllAssessments(): Promise<LoadedAssessments> {
     }
   } else {
     console.error('Failed to load problems:', codingResult.reason);
-    errors.push("We couldn't load the coding assessments. Refresh the page to try again.");
+    errors.push("We couldn't load the coding assessments. Select Retry to try again.");
   }
 
   if (embeddedResult.status === 'fulfilled') {
@@ -93,7 +93,7 @@ export async function getAllAssessments(): Promise<LoadedAssessments> {
     }
   } else {
     console.error('Failed to load embedded assessments:', embeddedResult.reason);
-    errors.push("We couldn't load the embedded systems assessments. Refresh the page to try again.");
+    errors.push("We couldn't load the embedded systems assessments. Select Retry to try again.");
   }
 
   return { assessments, errors };

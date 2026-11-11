@@ -1,0 +1,127 @@
+/* Full-window overlay; the dialog scrolls inside it on a short screen. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background-color: var(--color-scrim);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 48rem;
+  max-height: 100%;
+  padding: var(--space-8);
+  overflow-y: auto;
+  background-color: var(--color-bg-page);
+  border-top: var(--space-1) solid var(--color-brand);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.header {
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-size-2xl);
+}
+
+.problem {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+}
+
+.list {
+  margin: 0;
+  padding-left: var(--space-5);
+  line-height: var(--line-height-relaxed);
+}
+
+.preview {
+  display: block;
+  width: 100%;
+  max-height: 14rem;
+  background-color: var(--color-gray-900);
+  border-radius: var(--radius-md);
+  object-fit: contain;
+}
+
+.previewCover {
+  object-fit: cover;
+}
+
+.previewNote {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+/* The two steps sit side by side so the whole setup fits a laptop screen. */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+/* The Start button stays in view however tall the dialog is. */
+.footer {
+  position: sticky;
+  bottom: calc(var(--space-8) * -1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 calc(var(--space-8) * -1) calc(var(--space-8) * -1);
+  padding: var(--space-4) var(--space-8);
+  background-color: var(--color-bg-page);
+  border-top: 1px solid var(--color-border);
+}
+
+.reason {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: right;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+@media (max-width: 720px) {
+  .steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .dialog {
+    padding: var(--space-5) var(--space-4);
+  }
+
+  .footer {
+    bottom: calc(var(--space-5) * -1);
+    margin: 0 calc(var(--space-4) * -1) calc(var(--space-5) * -1);
+    padding: var(--space-4);
+  }
+
+  .reason {
+    text-align: left;
+  }
+
+  .actions {
+    flex-direction: column-reverse;
+  }
+}
