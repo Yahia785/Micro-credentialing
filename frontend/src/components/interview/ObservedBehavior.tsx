@@ -101,7 +101,10 @@ export function QuestionRuns({ question }: { question: AdminMainQuestion }) {
 export function AnswerNotes({ check }: { check: AgentCheck | null }) {
   if (!check) return null;
   const contradictions = check.items.filter((item) => item.contradiction);
-  if (!check.manipulation && contradictions.length === 0) return null;
+  const partials = check.items.filter((item) => item.shown === false && item.partialQuote && !item.contradiction);
+  const viaFollowUp = check.items.filter((item) => item.viaFollowUp);
+  const contradicted = check.contradicted ?? [];
+  if (!check.manipulation && contradictions.length === 0 && partials.length === 0 && viaFollowUp.length === 0 && contradicted.length === 0) return null;
 
   return (
     <div className={styles.notes}>
@@ -113,6 +116,23 @@ export function AnswerNotes({ check }: { check: AgentCheck | null }) {
           <blockquote className={styles.quote}>{check.manipulation.quote}</blockquote>
         </Alert>
       )}
+      {viaFollowUp.map((item) => (
+        <p key={`via-${item.id}`} className={styles.note}>
+          <strong>{`Item ${item.id} shown in follow-up${item.afterHint ? ' (after a hint)' : ''}.`}</strong>
+        </p>
+      ))}
+      {partials.map((item) => (
+        <p key={`partial-${item.id}`} className={styles.note}>
+          <strong>{`Item ${item.id} not shown: `}</strong>
+          {`the student said only part of it ("${item.partialQuote}").`}
+        </p>
+      ))}
+      {contradicted.map((entry) => (
+        <p key={`finding-${entry.id}`} className={styles.contradiction}>
+          <strong>{`Contradicts finding ${entry.id}: `}</strong>
+          {`the student said "${entry.quote}", and the program printed something else.`}
+        </p>
+      ))}
       {contradictions.map((item) => (
         <p key={item.id} className={styles.contradiction}>
           <strong>{`Item ${item.id} not shown: `}</strong>

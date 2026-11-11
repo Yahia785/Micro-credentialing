@@ -19,7 +19,13 @@ export interface StartInterviewResult {
   questionCount?: number;
   serverNow: string;
   isPractice?: boolean;
+  /** "preparing" while the server classifies the code, runs it and (host.v7) analyzes it; the waiting page polls for "ready". */
+  prepareStatus?: PrepareStatus;
+  /** A real interview only. The page keeps it in memory (never in storage): opening the interview and every answer must carry it. */
+  sessionKey?: string;
 }
+
+export type PrepareStatus = 'preparing' | 'ready' | 'failed' | 'skipped';
 
 /** POST /interviews/{id}/answers: the next question, or the end of the interview. */
 export type AnswerResult = { question: string; deadline: string } | { ended: true; status: InterviewStatus };
@@ -36,7 +42,11 @@ export interface StudentInterview {
   status: InterviewStatus;
   startedAt: string;
   endedAt: string | null;
-  deadline: string;
+  /** Null until the first question is shown (a real interview's clock starts then). */
+  deadline: string | null;
+  /** "left_page" when the interview was abandoned. */
+  endReason?: string | null;
+  prepareStatus?: PrepareStatus;
   timeLeftMs: number;
   serverNow: string;
   currentQuestion: string | null;
@@ -58,6 +68,11 @@ export interface CheckItem extends RubricItem {
   evidence: string | null;
   /** host.v6: the checker's note when the observed output of the student's code contradicted their claim (the claim is the quote). */
   contradiction?: { note: string; claim: string | null };
+  /** What the student did say about an item that is not shown (the item counts as shown only when the quote states the whole item). */
+  partialQuote?: string;
+  /** Shown by the answer to a follow-up question, and after a hint when the follow-up was one. */
+  viaFollowUp?: boolean;
+  afterHint?: boolean;
 }
 
 export interface AgentRepair {
@@ -98,6 +113,9 @@ export interface AgentCheck {
   isHint: boolean;
   /** host.v6: the fixed sentence the engine put in front of the next question. */
   notice?: string | null;
+  /** host.v7: findings of the code analysis this answer contradicted (with the student's words) and findings it addressed. */
+  contradicted?: Array<{ id: string; quote: string }>;
+  addressed?: string[];
   guard: { fired?: boolean; original?: string; fixedByRetry?: boolean; retryFailed?: boolean } | null;
   repairs: AgentRepair[];
   rejected?: { code: string; reply: string };
@@ -118,7 +136,9 @@ export interface AdminFollowUp {
   /** How many answers came before this follow-up in its main question. */
   afterAnswer: number;
   isHint: boolean;
+  /** A rubric item id (r1) or, when targetKind is "finding", the id of a finding of the code analysis (f1). */
   target: string | null;
+  targetKind?: 'rubric' | 'finding';
 }
 
 /**
@@ -129,6 +149,9 @@ export interface RubricSummaryItem extends RubricItem {
   agentShown: boolean | null;
   /** The student's quote from the agent's check, when the agent found the item shown. */
   evidence: string | null;
+  /** Shown only by an answer to a follow-up (and after a hint). */
+  viaFollowUp?: boolean;
+  afterHint?: boolean;
   instructorShown: boolean | null;
   changed: boolean;
   /** The final value: the instructor's decision when there is one, otherwise the agent's. */
@@ -152,6 +175,34 @@ export interface CodeStatus {
   total: number | null;
   stubs: string[];
   unfinished: boolean;
+}
+
+/** host.v7: one finding of the code analysis. Instructors only. */
+export interface CodeFinding {
+  id: string;
+  kind: 'bug' | 'risk' | 'strength' | 'unfinished';
+  concept: string;
+  lines: string | null;
+  relatedQuestion: number | null;
+  evidence: { stdin: string; output: string } | null;
+}
+
+/** host.v7: a run the agent chose for the analysis, with its reason. */
+export interface AgentRun extends ObservedRun {
+  reason: string;
+  chosenBy: 'agent';
+}
+
+/** host.v7: what the prepare step found. Instructors only; students never see any of it. */
+export interface CodeAnalysis {
+  status: 'ok' | 'partial' | 'failed' | 'skipped';
+  error?: string;
+  findings: CodeFinding[];
+  runs: AgentRun[];
+  runsNote?: string | null;
+  plan?: Array<{ label: string; stdin: string; reason: string }>;
+  calls?: AgentCall[];
+  latencyMs?: number;
 }
 
 export interface AdminMainQuestion {
@@ -211,7 +262,7 @@ export interface AdminInterview {
   checkerModelId: string | null;
   writerModelId: string | null;
   startedAt: string;
-  deadline: string;
+  deadline: string | null;
   endedAt: string | null;
   endReason: string | null;
   /** Total time added to the deadline while the agent worked on the student's answers. */
@@ -223,6 +274,11 @@ export interface AdminInterview {
   codeStatus?: CodeStatus | null;
   /** host.v6: every flagged answer with the student's quote. */
   manipulationFlags?: Array<ManipulationFlag & { question: number }>;
+  prepareStatus?: PrepareStatus;
+  /** host.v7: the findings, the runs the agent chose and what the step cost; null for the other prompt versions. */
+  analysis?: CodeAnalysis | null;
+  /** The student left the page (or confirmed leaving): when. Their answers until then are in the questions below. */
+  abandoned?: { at: string | null; reason: string | null } | null;
   /** The instructor's saved review, or null before anything was saved. */
   review: InterviewReview | null;
   mainQuestions: AdminMainQuestion[];

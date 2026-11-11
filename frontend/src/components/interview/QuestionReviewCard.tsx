@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { AdminAnswer, AdminFollowUp, AdminMainQuestion, AgentCheck, RubricItem } from '../../types/interview';
+import type { AdminAnswer, AdminFollowUp, AdminMainQuestion, AgentCheck, CodeFinding, RubricItem } from '../../types/interview';
 import { classNames } from '../../utils/classNames';
 import { formatTime, highlightQuotes, reviewedItems, shortText } from '../../utils/interview';
 import type { ReviewedItem } from '../../utils/interview';
@@ -168,8 +168,10 @@ function AnswerReview({ answer, label }: { answer: AdminAnswer; label: string })
   );
 }
 
-function FollowUpReview({ followUp, rubric }: { followUp: AdminFollowUp; rubric: RubricItem[] }) {
-  const target = followUp.target ? rubric.find((item) => item.id === followUp.target) : undefined;
+function FollowUpReview({ followUp, rubric, findings }: { followUp: AdminFollowUp; rubric: RubricItem[]; findings: CodeFinding[] }) {
+  const isFinding = followUp.targetKind === 'finding';
+  const target = followUp.target && !isFinding ? rubric.find((item) => item.id === followUp.target) : undefined;
+  const finding = followUp.target && isFinding ? findings.find((item) => item.id === followUp.target) : undefined;
   return (
     <Disclosure
       defaultOpen
@@ -188,8 +190,9 @@ function FollowUpReview({ followUp, rubric }: { followUp: AdminFollowUp; rubric:
       <p className={styles.followUpText}>{followUp.question}</p>
       {followUp.target && (
         <p className={styles.target}>
-          Asked about item {followUp.target}
+          {isFinding ? `Asked about finding ${followUp.target}` : `Asked about item ${followUp.target}`}
           {target ? `: ${plain(target.text)}` : ''}
+          {finding ? `: ${finding.concept}` : ''}
         </p>
       )}
     </Disclosure>
@@ -293,10 +296,12 @@ interface QuestionReviewCardProps {
   draft: Record<string, boolean> | undefined;
   disabled?: boolean;
   onDecide: (questionIndex: number, itemId: string, value: boolean | null) => void;
+  /** host.v7: the findings of the code analysis, so a follow-up aimed at one can say which. */
+  findings?: CodeFinding[];
 }
 
 /** One main question as a collapsible section: a header for the overview, the question, its rubric, and the conversation. */
-export function QuestionReviewCard({ question, draft, disabled = false, onDecide }: QuestionReviewCardProps) {
+export function QuestionReviewCard({ question, draft, disabled = false, onDecide, findings = [] }: QuestionReviewCardProps) {
   const items = reviewedItems(question, draft);
   const total = items.length;
   const shownCount = items.filter((item) => item.current === true).length;
@@ -362,7 +367,7 @@ export function QuestionReviewCard({ question, draft, disabled = false, onDecide
                 {question.followUps
                   .filter((followUp) => followUp.afterAnswer === index + 1)
                   .map((followUp, followIndex) => (
-                    <FollowUpReview key={followIndex} followUp={followUp} rubric={question.rubric} />
+                    <FollowUpReview key={followIndex} followUp={followUp} rubric={question.rubric} findings={findings} />
                   ))}
               </div>
             ))}

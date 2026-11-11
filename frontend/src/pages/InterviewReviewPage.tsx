@@ -12,6 +12,7 @@ import { CodePanel } from '../components/interview/CodePanel';
 import { DisclosureSignalContext } from '../components/interview/disclosureSignal';
 import type { DisclosureSignal } from '../components/interview/disclosureSignal';
 import { QuestionReviewCard } from '../components/interview/QuestionReviewCard';
+import { AbandonedBanner, CodeAnalysisPanel } from '../components/interview/CodeAnalysisPanel';
 import { CodeStatusBanner } from '../components/interview/ObservedBehavior';
 import { Alert, Badge, Button, Card, EmptyState, FormField, Input, PageHeader, Spinner, Textarea } from '../components/ui';
 import { classNames } from '../utils/classNames';
@@ -343,7 +344,9 @@ export function InterviewReviewPage() {
               </details>
             </Card>
 
+            <AbandonedBanner interview={interview} />
             <CodeStatusBanner status={interview.codeStatus} />
+            <CodeAnalysisPanel analysis={interview.analysis} />
 
             <section className={styles.reviewPanel} aria-labelledby="instructor-review-title">
               <div className={styles.reviewHead}>
@@ -419,6 +422,7 @@ export function InterviewReviewPage() {
                       draft={draft[String(question.index)]}
                       disabled={saving}
                       onDecide={decide}
+                      findings={interview.analysis?.findings}
                     />
                   ))}
                 </DisclosureSignalContext.Provider>

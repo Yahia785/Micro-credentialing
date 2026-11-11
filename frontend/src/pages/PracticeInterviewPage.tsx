@@ -28,6 +28,8 @@ export function PracticeInterviewPage() {
   const [questionCount, setQuestionCount] = useState<number | null>(null);
   const [milestoneId, setMilestoneId] = useState<string | null>(null);
   const [firstLoadDone, setFirstLoadDone] = useState(false);
+  // The server prepares the interview in the background (runs, and for host.v7 the analysis); its clock starts when it is ready.
+  const [preparing, setPreparing] = useState(false);
   const sawInProgress = useRef(false);
 
   const { chat, loading, loadError, sending, sendError, reload, sendAnswer } = useInterviewController({
@@ -36,6 +38,7 @@ export function PracticeInterviewPage() {
       const view = await getAdminInterview(interviewId);
       setCode(view.code);
       setMilestoneId(view.milestoneId);
+      setPreparing(view.prepareStatus === 'preparing');
       return chatFromAdminView(view, null);
     },
     send: (answer, timing) => answerInterview(interviewId, answer, timing),
@@ -65,6 +68,13 @@ export function PracticeInterviewPage() {
       cancelled = true;
     };
   }, [milestoneId]);
+
+  // While it is preparing, ask again every two seconds until it is ready.
+  useEffect(() => {
+    if (!preparing) return undefined;
+    const timer = window.setTimeout(() => void reload(), 2000);
+    return () => window.clearTimeout(timer);
+  }, [preparing, reload, chat]);
 
   const inProgress = chat?.status === 'in_progress';
   useInterviewLeaveGuard(inProgress);
@@ -102,7 +112,13 @@ export function PracticeInterviewPage() {
         </Alert>
       }
     >
-      {view ? (
+      {view && preparing ? (
+        <div className={styles.scrollBody}>
+          <Alert variant="info" title="Preparing the practice interview">
+            <p className={styles.alertText}>The agent is running the student&apos;s code and reading it. The timer starts when the first question is ready.</p>
+          </Alert>
+        </div>
+      ) : view ? (
         <InterviewChat
           chat={view}
           code={code}
