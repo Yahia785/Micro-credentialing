@@ -414,6 +414,7 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
         decision.isHint = false;
       }
       if (checkedOnly.manipulation) manipulation = checkedOnly.manipulation;
+      findingNotes = { contradicted: checkedOnly.contradicted, followUpOutcome: checkedOnly.followUpOutcome };
     }
   } else if (usesV6(version)) {
     const models = splitV6.resolveSplitModels({ checkerModelId, writerModelId });
@@ -431,7 +432,7 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
     repairs.push(...stepped.repairs);
     if (stepped.guard) guard = stepped.guard;
     manipulation = stepped.manipulation;
-    findingNotes = { contradicted: stepped.contradicted, addressed: stepped.addressed };
+    findingNotes = { contradicted: stepped.contradicted, addressed: stepped.addressed, followUpOutcome: stepped.followUpOutcome };
     fallback = stepped.fallback;
     rejected = stepped.rejected;
     decision = stepped.decision;
@@ -621,6 +622,8 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
     ...(manipulation && { manipulation }),
     ...(findingNotes && findingNotes.contradicted && { contradicted: findingNotes.contradicted }),
     ...(findingNotes && findingNotes.addressed && { addressed: findingNotes.addressed }),
+    ...(findingNotes && findingNotes.followUpOutcome && { followUpOutcome: findingNotes.followUpOutcome }),
+    ...(asked && decision && decision.contradictionTarget && { contradictionTarget: decision.contradictionTarget }),
     ...(rejected && rubric && { rejected: { code: rejected.code, reply: String(rejected.reply || '').slice(0, 2000) } }),
     ...(decision && Array.isArray(decision.missing) && {
       missing: decision.missing,
@@ -683,6 +686,8 @@ function recordFields(decision) {
   if (decision.manipulation) out.manipulation = decision.manipulation;
   if (decision.contradicted) out.contradicted = decision.contradicted;
   if (decision.addressed) out.addressed = decision.addressed;
+  if (decision.followUpOutcome) out.followUpOutcome = decision.followUpOutcome;
+  if (decision.contradictionTarget) out.contradictionTarget = decision.contradictionTarget;
   if (decision.notice) out.notice = decision.notice;
   if (Array.isArray(decision.missing)) {
     out.missing = decision.missing;

@@ -614,7 +614,8 @@ describe('host.v7 through the service', () => {
     await prepareInterview({ interviewId: 'int_sub1', converseFn: analysisModel(), runBatch, countRun: counter(), now: NOW });
     const { metaUpdates } = interviews.finishPrepare.mock.calls[0][1];
     expect(metaUpdates.analysis.status).toBe('ok');
-    expect(metaUpdates.analysis.findings).toEqual([{ id: 'f1', ...FINDING }]);
+    // the evidence is the instructor's run of question 2: the finding belongs to that question (the model said 1)
+    expect(metaUpdates.analysis.findings).toEqual([{ id: 'f1', ...FINDING, relatedQuestion: 2 }]);
     expect(metaUpdates.analysis.runs[0]).toMatchObject({ stdin: '1 2 3', chosenBy: 'agent', reason: 'a small input' });
     expect(metaUpdates.analysis.calls.map((c) => [c.step, c.inputTokens, c.latencyMs])).toEqual([['plan', 700, 300], ['analysis', 900, 400]]);
     expect(typeof metaUpdates.prepareMs).toBe('number');

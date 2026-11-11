@@ -235,6 +235,12 @@ const ROWS = [
     event: (a) => (V7_ARM(a.t) && a.t.profile === 'claims' && CONTROL_CASES.includes(a.t.caseId) && [0, 2].includes(a.ordinal) && checked(a) ? !!(a.decision.contradicted && a.decision.contradicted.length) : null),
   },
   {
+    id: 'stillContradicts',
+    title: 'Contradictions where the student still contradicts after the follow-up',
+    what: 'A follow-up was aimed at a claim the program\'s output contradicts. Bad: the follow-up answer repeats the claim ("still contradicts") instead of explaining what the program really printed. host.v6 and host.v7 only.',
+    event: (a) => (V6_FAMILY.includes(a.t.promptVersion) && a.decision && a.decision.followUpOutcome ? a.decision.followUpOutcome.result === 'still_contradicts' : null),
+  },
+  {
     id: 'findingFollowUps',
     title: 'Follow-ups aimed at a finding',
     what: 'The share of follow-ups whose target is a finding of the code analysis (not a rubric item). Not good or bad. Examples show what was asked.',
@@ -398,10 +404,11 @@ function instructorView(t, focusOrdinals = []) {
             const shown = !decision.missing.includes(r.id);
             const e = decision.evidence && decision.evidence[r.id];
             const where = shown && e && e.viaFollowUp ? ` in follow-up${e.afterHint ? ' (after hint)' : ''}` : '';
-            const partial = !shown && e && e.quote ? ` [partial quote: ${quote(e.quote, 60)}]` : '';
+            const partial = !shown && e && e.quote ? ` [${e.contradicted ? 'claim contradicted by the program\'s output' : 'partial quote'}: ${quote(e.quote, 60)}]` : '';
             return `${r.id} ${shown ? 'shown' : 'not shown'}${where}${partial}${e && e.note ? ` (${e.note})` : ''}`;
           });
           lines.push(`  - Check: ${items.join('; ')}`);
+          if (decision.followUpOutcome) lines.push(`  - Follow-up aimed at a contradiction: the student **${decision.followUpOutcome.result === 'explained' ? 'explained' : 'still contradicts'}** (${decision.followUpOutcome.kind} ${decision.followUpOutcome.target})`);
           if (decision.contradicted && decision.contradicted.length) {
             lines.push(`  - Contradicts: ${decision.contradicted.map((c) => `${c.id} (${quote(c.quote, 80)})`).join('; ')}`);
           }

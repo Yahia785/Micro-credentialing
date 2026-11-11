@@ -252,6 +252,7 @@ async function prepareInterview({ interviewId, converseFn = bedrock.converse, ru
         models: { checker: splitV6.resolveSplitModels({ checkerModelId: meta.checkerModelId, writerModelId: meta.writerModelId }).checker },
         context: buildContext({ submission, milestone, config, codeStatus: prepared.codeStatus }),
         instructorRuns: prepared.observed.flatMap((entry) => entry.runs),
+        instructorRunsByQuestion: prepared.observed.map((entry) => entry.runs),
         userId: meta.userId, interviewId, limits: runLimits, runBatch, countRun, deadlineAt: budget, clock,
       });
     }

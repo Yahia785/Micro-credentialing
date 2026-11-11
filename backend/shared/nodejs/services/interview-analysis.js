@@ -197,6 +197,35 @@ function readFindings(text, { runs, questionCount, lineCount }) {
   return { findings: findings.slice(0, MAX_FINDINGS), invalid };
 }
 
+/**
+ * One finding per root cause. Findings that cite the same input are one cause seen twice (a consequence cites the same run as the cause):
+ * they are merged into the first one, which keeps the ids of what it absorbed in `mergedWith` so the instructor can see it.
+ */
+function mergeByEvidence(findings) {
+  const out = [];
+  findings.forEach((finding) => {
+    const same = finding.evidence ? out.find((kept) => kept.evidence && sameInput(kept.evidence.stdin, finding.evidence.stdin)) : null;
+    if (!same) { out.push({ ...finding }); return; }
+    same.mergedWith = [...(same.mergedWith || []), finding.concept];
+  });
+  return out;
+}
+
+/**
+ * A finding whose evidence is the instructor's run of a main question belongs to that question and can only be targeted there (the
+ * follow-up of another question would preview it). Evidence from a run the agent chose keeps the question the model gave.
+ * @param {Array<Array<{stdin: string}>>} byQuestion the instructor's runs, one list per main question
+ */
+function tieToInstructorRuns(findings, byQuestion) {
+  if (!Array.isArray(byQuestion)) return findings;
+  return findings.map((finding) => {
+    if (!finding.evidence) return finding;
+    const at = byQuestion.map((runs, i) => (runs.some((r) => sameInput(r.stdin, finding.evidence.stdin)) ? i + 1 : null)).filter(Boolean);
+    if (at.length === 0) return finding;
+    return { ...finding, relatedQuestion: at.includes(finding.relatedQuestion) ? finding.relatedQuestion : at[0] };
+  });
+}
+
 const withIds = (findings) => findings.map((finding, i) => ({ id: `f${i + 1}`, ...finding }));
 
 // --- the whole analysis ------------------------------------------------------------------------------------------------------
@@ -209,7 +238,7 @@ const withIds = (findings) => findings.map((finding, i) => ({ id: `f${i + 1}`, .
  * @returns {Promise<{ status: 'ok'|'partial'|'failed'|'skipped', findings: object[], runs: object[], runsNote: string|null, plan: object[], calls: object[], latencyMs: number, rejected?: object[] }>}
  *   `runs` are the runs the agent chose (label, stdin, stdout, status, timeMs, reason, chosenBy: 'agent').
  */
-async function analyzeCode({ converseFn, models, context, instructorRuns, userId, interviewId, limits, runBatch, countRun, deadlineAt = null, clock = () => performance.now() }) {
+async function analyzeCode({ converseFn, models, context, instructorRuns, instructorRunsByQuestion, userId, interviewId, limits, runBatch, countRun, deadlineAt = null, clock = () => performance.now() }) {
   const startedAt = clock();
   const calls = [];
   const ask = recorder(models.checker, calls, converseFn);
@@ -273,7 +302,7 @@ async function analyzeCode({ converseFn, models, context, instructorRuns, userId
       if (!unavailable(error)) throw error;
     }
   }
-  out.findings = withIds(read.findings); // what is still invalid after the retry was left out by readFindings
+  out.findings = withIds(tieToInstructorRuns(mergeByEvidence(read.findings), instructorRunsByQuestion)); // what is still invalid after the retry was left out by readFindings
   if (read.invalid.length > 0) out.rejected = read.invalid;
   log.info('Interview analysis done', { interviewId, findings: out.findings.length, plannedRuns: out.plan.length, runs: out.runs.length });
   return finish(out.error ? 'partial' : 'ok');
@@ -296,6 +325,6 @@ function buildContext({ submission, milestone, config, codeStatus }) {
 }
 
 module.exports = {
-  analyzeCode, buildContext, readPlan, readFindings, readLines, buildPlanMessage, buildAnalysisMessage, testLines,
+  analyzeCode, buildContext, mergeByEvidence, tieToInstructorRuns, readPlan, readFindings, readLines, buildPlanMessage, buildAnalysisMessage, testLines,
   PLAN_SYSTEM, ANALYZE_SYSTEM, PLAN_PROMPT_VERSION, ANALYZE_PROMPT_VERSION, MAX_PLANNED_RUNS, MAX_FINDINGS,
 };

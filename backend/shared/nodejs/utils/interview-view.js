@@ -97,6 +97,8 @@ function toCheck(source, rubric) {
       return {
         id: item.id, text: item.text, shown, evidence: quote,
         ...(partialQuote && { partialQuote }),
+        // the claim in the quote is contradicted by what the program printed: it counts as not shown
+        ...(shown === false && entry && entry.contradicted === true && { contradictedByProgram: true }),
         // the evidence as a list of exact fragments of the answer, when the evidence is in several places
         ...(shown === true && entry && Array.isArray(entry.fragments) && { fragments: entry.fragments }),
         // shown by an answer to a follow-up question (and after a hint when the follow-up was one)
@@ -109,6 +111,8 @@ function toCheck(source, rubric) {
     // host.v7: the findings of the code analysis this answer contradicted (with the student's words) and the ones it addressed
     ...(Array.isArray(source.contradicted) && source.contradicted.length && { contradicted: source.contradicted }),
     ...(Array.isArray(source.addressed) && source.addressed.length && { addressed: source.addressed }),
+    // after a follow-up aimed at a contradiction: did the student explain the real output ("explained") or repeat the claim ("still_contradicts")?
+    ...(source.followUpOutcome && { followUpOutcome: source.followUpOutcome }),
     // host.v6: the fixed sentence the engine added to the next question
     notice: source.notice || null,
     missing,
@@ -204,6 +208,7 @@ function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
         target: turn.target === undefined ? null : turn.target,
         // host.v7: 'finding' when the follow-up was aimed at a finding of the code analysis (target is then its id)
         targetKind: turn.targetKind === 'finding' ? 'finding' : 'rubric',
+        ...(turn.contradictionTarget && { aimedAtContradiction: true }),
         ...(turn.notice && { notice: turn.notice }),
       });
     } else if (turn.role === 'student') {

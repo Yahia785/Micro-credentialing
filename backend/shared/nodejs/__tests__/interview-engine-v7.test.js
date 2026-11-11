@@ -490,3 +490,125 @@ describe('a quote can be a list of exact fragments', () => {
     expect(v6.CHECK_SYSTEM).toMatch(/Never join parts with "\.\.\."/);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// The case 7 situation: f1 (ALARM does not stick) and f2 (an extra pump start after ALARM, a consequence of f1) cite the same input, and
+// the student claims the correct behavior ("ALARM stays") that the program's output contradicts.
+
+describe('one finding per root cause', () => {
+  const Q3_RUN = { label: 'invalid', stdin: '20 80 100 10 -5 50', stdout: '10 -> FILLING\n-5 -> ALARM\n50 -> IDLE\nPump starts: 2\n', status: 'accepted' };
+  const Q1_RUN = { label: 'example', stdin: '20 80 100 50 18', stdout: '50 -> IDLE\n18 -> FILLING\n', status: 'accepted' };
+  const f1 = { kind: 'bug', concept: 'ALARM does not stay: 50 -> IDLE after -5', lines: '28', relatedQuestion: 3, evidence: { stdin: '20 80 100 10 -5 50', output: '50 -> IDLE' } };
+  const f2 = { kind: 'bug', concept: 'an extra pump start after ALARM', lines: '30', relatedQuestion: 1, evidence: { stdin: '20 80 100 10 -5 50', output: 'Pump starts: 2' } };
+
+  it('findings that share the same evidence input are merged into the first one', () => {
+    const merged = analysis.mergeByEvidence([f1, f2, { ...f1, concept: 'other', evidence: { stdin: 'x', output: 'y' } }]);
+    expect(merged).toHaveLength(2);
+    expect(merged[0].concept).toBe(f1.concept);
+    expect(merged[0].mergedWith).toEqual([f2.concept]);
+    expect(merged[1].evidence.stdin).toBe('x');
+  });
+
+  it('a finding whose evidence is another main question\'s instructor run belongs to that question only', () => {
+    const tied = analysis.tieToInstructorRuns([{ ...f2, relatedQuestion: 1 }], [[Q1_RUN], [], [Q3_RUN]]);
+    expect(tied[0].relatedQuestion).toBe(3); // the model said Q1; the run is Q3's
+    // evidence from a run the agent chose keeps the model's question; no evidence is left alone
+    expect(analysis.tieToInstructorRuns([{ ...f2, evidence: { stdin: '9 9', output: 'z' }, relatedQuestion: 1 }], [[Q1_RUN], [], [Q3_RUN]])[0].relatedQuestion).toBe(1);
+    expect(analysis.tieToInstructorRuns([{ ...f2, evidence: null, relatedQuestion: 2 }], [[Q1_RUN]])[0].relatedQuestion).toBe(2);
+  });
+
+  it('analyzeCode: f1 and f2 come back as ONE finding, tied to Q3, so Q1 gets none', async () => {
+    const reply = JSON.stringify({ findings: [f1, f2] });
+    const converseFn = async (req) => ({ text: /^You plan/.test(req.system) ? JSON.stringify({ runs: [] }) : reply, inputTokens: 1, outputTokens: 1, latencyMs: 1 });
+    const out = await analysis.analyzeCode({
+      converseFn, models: { checker: 'm' }, instructorRuns: [Q1_RUN, Q3_RUN], instructorRunsByQuestion: [[Q1_RUN], [], [Q3_RUN]], userId: 'u', interviewId: 'i',
+      limits: {}, runBatch: async () => [], countRun: async () => {},
+      context: { statement: 's', code: 'a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\nn\no\np\nq\nr\ns\nt\nu\nv\nw\nx\ny\nz\nA\nB\nC\nD\nE', codeStatus: { compiles: true, unfinished: false }, testResults: [], questions: [{ question: 'Q1', rubric }, { question: 'Q2', rubric }, { question: 'Q3', rubric }] },
+    });
+    expect(out.findings).toHaveLength(1);
+    expect(out.findings[0]).toMatchObject({ id: 'f1', relatedQuestion: 3, mergedWith: [f2.concept] });
+    expect(out.findings.filter((f) => f.relatedQuestion === 1)).toEqual([]);
+  });
+
+  it('the analysis prompt asks for one finding per root cause, and the plan asks for state coverage', () => {
+    expect(analysis.ANALYZE_SYSTEM).toMatch(/ONE finding per root cause/);
+    expect(analysis.PLAN_SYSTEM).toMatch(/enters that state and then sends a reading of each kind/);
+    expect(analysis.PLAN_SYSTEM).toMatch(/Six is the limit/);
+  });
+});
+
+describe('a contradicted claim is not evidence', () => {
+  const CLAIM = 'ALARM stays until the controller is reset';
+  const ANSWER_CLAIM = `the reading is invalid so it goes to ALARM and ${CLAIM}`;
+  const contradictedReply = (extra = {}) => JSON.stringify({
+    manipulation: false,
+    evidence: { r1: { quote: 'it goes to ALARM', shown: true }, r2: { quote: CLAIM, shown: true, contradicted: true, note: 'claims ALARM stays, the program printed 50 -> IDLE' }, r3: { quote: '', shown: false } },
+    missing: ['r3'], ...extra,
+  });
+
+  it('shown but contradicted by the observed output counts as not shown, keeps the quote and says why', async () => {
+    const out = await decide(model({ check: [contradictedReply()] }), { turns: [mainTurn, student(ANSWER_CLAIM)] });
+    expect(out.evidence.r2).toMatchObject({ quote: CLAIM, shown: false, contradicted: true });
+    expect(out.evidence.r1.shown).toBe(true);
+    expect(out.missing).toEqual(['r2', 'r3']);
+    // the follow-up goes to the contradicted item first, not r3
+    expect(out).toMatchObject({ action: 'follow_up', target: 'r2' });
+    expect(out.contradictionTarget).toEqual({ kind: 'item', id: 'r2' });
+    const item = toCheck({ missing: out.missing, evidence: out.evidence }, rubric).items[1];
+    expect(item).toMatchObject({ shown: false, evidence: 'not shown', contradictedByProgram: true, partialQuote: CLAIM });
+  });
+
+  it('host.v7: an item whose quote the checker says a finding contradicts is demoted too, whatever the item flag says', async () => {
+    const reply = checkJson(['r1', 'r2'], {
+      evidence: { r1: { quote: 'it goes to ALARM', shown: true }, r2: { quote: CLAIM, shown: true }, r3: { quote: '', shown: false } },
+      top: { contradicted: [{ id: 'f1', quote: CLAIM }] },
+    });
+    const out = await decide(model({ check: [reply] }), { promptVersion: 'host.v7', findings: FINDINGS.slice(0, 1), turns: [mainTurn, student(ANSWER_CLAIM)] });
+    expect(out.evidence.r2).toMatchObject({ shown: false, contradicted: true, quote: CLAIM });
+    expect(out.missing).toEqual(['r2', 'r3']);
+    expect(out.target).toBe('f1');
+    expect(out.contradictionTarget).toEqual({ kind: 'finding', id: 'f1' });
+  });
+
+  describe('after a follow-up aimed at the contradiction: explained, or still contradicts', () => {
+    const turnsAfter = (answer, target) => ({
+      state: { ...engine.initialState(), followUpCount: 1 },
+      turns: [mainTurn, student(ANSWER_CLAIM), { role: 'host', text: 'For 10 -5 50 your program printed 50 -> IDLE. Walk me through it.', kind: 'follow_up', target: target.id, targetKind: target.kind === 'finding' ? 'finding' : undefined, contradictionTarget: target, missing: ['r2', 'r3'], isHint: false, evidence: evidenceOf(['r1']) }, student(answer)],
+    });
+
+    it('finding: the follow-up answer that explains the real output is "explained"', async () => {
+      const m = model({ check: [checkJson(['r1'], { top: { contradicted: [] } })] });
+      const out = await decide(m, { promptVersion: 'host.v7', findings: FINDINGS.slice(0, 1), ...turnsAfter('oh, after -5 it goes to ALARM but my code returns IDLE for 50, so ALARM does not stay', { kind: 'finding', id: 'f1' }) });
+      expect(out.followUpOutcome).toEqual({ target: 'f1', kind: 'finding', result: 'explained' });
+      expect(engine.recordFields(out).followUpOutcome.result).toBe('explained');
+    });
+
+    it('finding: repeating the claim (the words are in THIS answer) is "still_contradicts"; a quote from the first answer only is not', async () => {
+      const again = 'no, ALARM stays until the controller is reset';
+      const m = model({ check: [checkJson(['r1'], { top: { contradicted: [{ id: 'f1', quote: 'ALARM stays until the controller is reset' }] } })] });
+      const out = await decide(m, { promptVersion: 'host.v7', findings: FINDINGS.slice(0, 1), ...turnsAfter(again, { kind: 'finding', id: 'f1' }) });
+      expect(out.followUpOutcome.result).toBe('still_contradicts');
+      const old = model({ check: [checkJson(['r1'], { top: { contradicted: [{ id: 'f1', quote: 'the reading is invalid' }] } })] });
+      const other = await decide(old, { promptVersion: 'host.v7', findings: FINDINGS.slice(0, 1), ...turnsAfter('I see, my code lets it go back to IDLE', { kind: 'finding', id: 'f1' }) });
+      expect(other.followUpOutcome.result).toBe('explained');
+    });
+
+    it('item (host.v6): contradicted again is "still_contradicts"; shown after the follow-up is "explained"; it is recorded either way', async () => {
+      const target = { kind: 'item', id: 'r2' };
+      const again = await decide(model({ check: [contradictedReply()] }), turnsAfter('it stays in ALARM until reset', target));
+      expect(again.followUpOutcome).toEqual({ target: 'r2', kind: 'item', result: 'still_contradicts' });
+      expect(again.action).toBe('next_main'); // no follow-up left: check only
+      const fixed = await decide(model({ check: [checkJson(['r1', 'r2'])] }), turnsAfter('I see, it prints IDLE; my code does not hold ALARM', target));
+      expect(fixed.followUpOutcome.result).toBe('explained');
+    });
+
+    it('with no follow-up budget (check only) the outcome is recorded on the decision too', async () => {
+      const out = await engine.decideNext({
+        config: config(), code: CODE, promptVersion: 'host.v6', converseFn: model({ check: [contradictedReply()] }), ...turnsAfter('it stays in ALARM until reset', { kind: 'item', id: 'r2' }),
+      });
+      expect(out.engineDecision).toBe(true);
+      expect(out.followUpOutcome).toMatchObject({ result: 'still_contradicts' });
+      expect(toCheck(out, rubric).followUpOutcome.result).toBe('still_contradicts');
+    });
+  });
+});

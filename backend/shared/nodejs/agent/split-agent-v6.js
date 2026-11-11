@@ -167,6 +167,7 @@ function validateCheckV6(text, rubric, answer, findings = []) {
   // the answer). A string that joins parts with "..." is read as a list too. validateCheck (v1) sees the first fragment only.
   const haystack = squash(answer);
   const fragmentsOf = {};
+  const demoted = [];
   let checkable = text;
   if (parsed && parsed.evidence && typeof parsed.evidence === 'object' && !Array.isArray(parsed.evidence)) {
     const copy = { ...parsed, evidence: {} };
@@ -185,7 +186,13 @@ function validateCheckV6(text, rubric, answer, findings = []) {
       } else {
         copy.evidence[id] = entry;
       }
+      // A claim the program's output contradicts is not evidence: marked shown AND contradicted, it counts as not shown (the quote stays).
+      if (copy.evidence[id] && copy.evidence[id].shown === true && copy.evidence[id].contradicted === true) {
+        copy.evidence[id] = { ...copy.evidence[id], shown: false };
+        demoted.push(id);
+      }
     }
+    if (demoted.length) copy.missing = [...new Set([...(Array.isArray(parsed.missing) ? parsed.missing : []), ...demoted])];
     checkable = JSON.stringify(copy);
   }
   const verdict = validateCheck(checkable, rubric, answer);
@@ -197,6 +204,8 @@ function validateCheckV6(text, rubric, answer, findings = []) {
     // quote stays one string (the fragments joined) for the record; fragments keeps the list
     evidence[id] = {
       quote: fragments ? fragments.join(' ... ') : entry.quote, shown: entry.shown, ...(fragments && fragments.length > 1 && { fragments }), ...(note && { note }),
+      // the claim in the quote is contradicted by what the program printed
+      ...(entry.contradicted === true && !entry.shown && { contradicted: true }),
     };
   });
   const known = new Set((findings || []).map((f) => f.id));
@@ -238,10 +247,17 @@ async function checkAnswer({ converseFn, modelId, mainQuestion, rubric, answer, 
   return { ok: false, error: verdict.error, reply, retried, calls: rec.calls, usage: rec.total };
 }
 
+/** The pieces of an evidence entry's quote. */
+const piecesOf = (entry) => (entry.fragments && entry.fragments.length ? entry.fragments : [entry.quote]).filter((piece) => squash(piece || ''));
+
+/** True when the quote of an item and a quote the checker says a finding contradicts are the same words (one holds the other). */
+const sameClaim = (entry, quote) => piecesOf(entry).some((piece) => squash(quote).includes(squash(piece)) || squash(piece).includes(squash(quote)));
+
 /**
  * The evidence after a follow-up answer: what the earlier checks showed stays shown (with its quote); an item the new check shows gets
  * `viaFollowUp` when its quote is in a follow-up answer, and `afterHint` when the follow-up that was answered was a hint. An item the new
- * check does not show keeps its partial quote and note, if any.
+ * check does not show keeps its partial quote and note, if any. An item whose quote the check says a finding contradicts is demoted: it
+ * counts as not shown, keeps its quote and is marked `contradicted`. (Also used for the first answer, with no `previous`.)
  * @param previous { evidence, missing, isHint } as recorded on the host turn that asked the follow-up (the check of the answer before)
  */
 function mergeEvidence({ rubric, previous, checked, followUpText, afterHint }) {
@@ -254,7 +270,10 @@ function mergeEvidence({ rubric, previous, checked, followUpText, afterHint }) {
       evidence[id] = { ...((previous && previous.evidence && previous.evidence[id]) || { quote: '' }), shown: true };
       return;
     }
-    const now = checked.evidence[id];
+    let now = checked.evidence[id];
+    if (now.shown && (checked.contradicted || []).some((c) => sameClaim(now, c.quote))) {
+      now = { ...now, shown: false, contradicted: true, note: now.note || 'the answer says something the program’s output contradicts' };
+    }
     const pieces = now.fragments || [now.quote];
     const inFollowUp = now.shown && follow && pieces.some((piece) => squash(piece) && follow.includes(squash(piece)));
     evidence[id] = { ...now, ...(inFollowUp && { viaFollowUp: true, ...(afterHint && { afterHint: true }) }) };
@@ -424,20 +443,39 @@ function exchangeOf(turns, latestFlagged) {
 }
 
 /** The finding to aim at, by the order: (1) one the answer contradicts, (2) a missing rubric item, (3) a related bug or risk the answer did not address. */
-function chooseTarget({ findings, askedFindings, checked, missing }) {
+function chooseTarget({ findings, askedFindings, checked, missing, evidence = null }) {
   const open = (findings || []).filter((f) => !askedFindings.includes(f.id));
   const contradiction = ((checked && checked.contradicted) || []).find((c) => open.some((f) => f.id === c.id));
   if (contradiction) {
     const finding = open.find((f) => f.id === contradiction.id);
     return { type: 'finding', id: finding.id, finding, why: `the student's answer ("${contradiction.quote}") does not match what the program printed`, reason: `answer contradicts finding ${finding.id}` };
   }
-  if (missing.length) return { type: 'rubric', id: missing[0], reason: `${missing.join(', ')} not shown; asked about ${missing[0]}` };
+  if (missing.length) {
+    // an item whose claim the program contradicted first
+    const aim = (evidence && missing.find((id) => evidence[id] && evidence[id].contradicted)) || missing[0];
+    return { type: 'rubric', id: aim, reason: `${missing.join(', ')} not shown; asked about ${aim}` };
+  }
   const addressed = (checked && checked.addressed) || [];
   const unaddressed = open.find((f) => (f.kind === 'bug' || f.kind === 'risk') && !addressed.includes(f.id));
   if (unaddressed) {
     return { type: 'finding', id: unaddressed.id, finding: unaddressed, why: 'a finding about the code that the answer did not mention', reason: `finding ${unaddressed.id} not addressed` };
   }
   return null;
+}
+
+/**
+ * After a follow-up that was aimed at a contradiction (recorded on that host turn as `contradictionTarget`): did the student's answer to it
+ * explain what the program really printed ("explained") or repeat the claim ("still_contradicts")? For a finding the checker must report the
+ * contradiction again with words that are in THIS answer; for an item the new check must mark it contradicted again.
+ */
+function outcomeOf({ lastHost, checked, evidence, latestAnswer }) {
+  const target = lastHost && lastHost.contradictionTarget;
+  if (!target) return null;
+  const latest = squash(latestAnswer || '');
+  const still = target.kind === 'finding'
+    ? (checked.contradicted || []).some((c) => c.id === target.id && latest.includes(squash(c.quote)))
+    : !!(evidence[target.id] && evidence[target.id].contradicted);
+  return { target: target.id, kind: target.kind, result: still ? 'still_contradicts' : 'explained' };
 }
 
 /**
@@ -464,6 +502,10 @@ async function checkOnly({ converseFn, models, mainQuestion, rubric, turns, obse
   const merged = mergeEvidence({ rubric, previous, checked, followUpText: followText, afterHint: !!(lastHost && lastHost.isHint) });
   out.evidence = merged.evidence;
   out.missing = merged.missing;
+  const latest = exchange.length ? exchange[exchange.length - 1].answer : '';
+  const outcome = outcomeOf({ lastHost, checked, evidence: merged.evidence, latestAnswer: latest });
+  if (outcome) out.followUpOutcome = outcome;
+  if (checked.contradicted && checked.contradicted.length) out.contradicted = checked.contradicted;
   if (checked.manipulation) out.manipulation = { kind: 'model', quote: String(exchange[exchange.length - 1].answer).slice(0, 300), source: 'model' };
   return out;
 }
@@ -508,10 +550,9 @@ async function decide({ converseFn, models, code, turns, mainQuestion, rubric, c
       return out;
     }
     const followText = exchange.slice(1).map((part) => part.answer).join('\n');
-    const merged = isFollowUpAnswer
-      ? mergeEvidence({ rubric, previous, checked, followUpText: followText, afterHint: !!(lastHost && lastHost.isHint) })
-      : { evidence: checked.evidence, missing: checked.missing };
+    const merged = mergeEvidence({ rubric, previous, checked, followUpText: followText, afterHint: !!(lastHost && lastHost.isHint) });
     out.evidence = merged.evidence;
+    if (isFollowUpAnswer && !checked.manipulation) out.followUpOutcome = outcomeOf({ lastHost, checked, evidence: merged.evidence, latestAnswer: answer }) || undefined;
     if (checked.manipulation) {
       out.manipulation = { kind: 'model', quote: String(answer).slice(0, 300), source: 'model' };
       missing = prevMissing;
@@ -525,7 +566,7 @@ async function decide({ converseFn, models, code, turns, mainQuestion, rubric, c
     if (checked.contradicted && checked.contradicted.length) out.contradicted = checked.contradicted;
     if (checked.addressed && checked.addressed.length) out.addressed = checked.addressed;
   }
-  const target = chooseTarget({ findings, askedFindings: asked, checked: out.manipulation ? null : checked, missing });
+  const target = chooseTarget({ findings, askedFindings: asked, checked: out.manipulation ? null : checked, missing, evidence: out.evidence });
   if (!target) {
     out.decision = { action: nextMain ? 'next_main' : 'end', question: '', reason: 'check: every rubric item is shown; no follow-up needed', missing, target: null, isHint: false };
     return out;
@@ -556,6 +597,9 @@ async function decide({ converseFn, models, code, turns, mainQuestion, rubric, c
     missing,
     target: target.id,
     ...(target.type === 'finding' && { targetKind: 'finding' }),
+    // this follow-up confronts the student with a claim the program's output contradicts (the next check records how they answered)
+    ...(target.type === 'finding' && checked && (checked.contradicted || []).some((c) => c.id === target.id) && { contradictionTarget: { kind: 'finding', id: target.id } }),
+    ...(target.type === 'rubric' && out.evidence && out.evidence[target.id] && out.evidence[target.id].contradicted && { contradictionTarget: { kind: 'item', id: target.id } }),
     isHint: giveUp || written.isHint,
   };
   return out;

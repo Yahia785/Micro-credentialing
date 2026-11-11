@@ -24,7 +24,7 @@ A list of findings. Each finding has:
 2. Never invent output. Evidence is copied from <runs> exactly. A finding with evidence that is not in <runs> is thrown away.
 3. If the program is correct on every run and every visible test, report no bugs. Do not make findings up. An empty list is a good answer. "strength" findings are optional, at most two.
 4. If the code is unfinished, report "unfinished" findings for the parts that are missing and do not report behavior of code that does not run.
-5. At most 8 findings. One finding per cause: do not report the same bug twice.
+5. At most 8 findings. ONE finding per root cause. A consequence of a bug is not a second finding: if one defect makes the program print several wrong things (an alarm that does not stay, and then an extra count after it), report the defect once and describe the consequences inside it. Two findings that cite the same input are the same cause and are merged.
 6. Never reveal anything from the hidden tests, and never guess what they contain.
 
 # Output
