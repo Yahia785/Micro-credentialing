@@ -3,6 +3,9 @@
   flex-direction: column;
   align-items: center;
   padding: var(--space-12) var(--space-6);
+  background-color: var(--color-bg-card);
+  border: 1px dashed var(--color-gray-400);
+  border-radius: var(--radius-lg);
   text-align: center;
 }
 
@@ -13,7 +16,8 @@
 
 .title {
   margin: 0 0 var(--space-2);
-  font-size: var(--font-size-lg);
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
 }
 
 .description {

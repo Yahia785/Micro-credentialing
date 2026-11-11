@@ -7,8 +7,9 @@
 .loading {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-3);
-  padding: var(--space-6) 0;
+  padding: var(--space-12) 0;
 }
 
 .loadingText {

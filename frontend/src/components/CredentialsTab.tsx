@@ -56,13 +56,11 @@ export function CredentialsTab() {
 
   if (credentials.length === 0) {
     return (
-      <Card>
-        <EmptyState
-          headingLevel={2}
-          title="No credentials yet"
-          description="You earn a credential by passing a proctored assessment and the instructor's review. Once it is approved, it appears here."
-        />
-      </Card>
+      <EmptyState
+        headingLevel={2}
+        title="No credentials yet"
+        description="You earn a credential by passing a proctored assessment and the instructor's review. Once it is approved, it appears here."
+      />
     );
   }
 
