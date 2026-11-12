@@ -302,7 +302,9 @@ async function analyzeCode({ converseFn, models, context, instructorRuns, instru
       if (!unavailable(error)) throw error;
     }
   }
-  out.findings = withIds(tieToInstructorRuns(mergeByEvidence(read.findings), instructorRunsByQuestion)); // what is still invalid after the retry was left out by readFindings
+  // Unfinished code: nothing the program does is reported (it is missing or does not run), only what is missing.
+  const reported = context.codeStatus && context.codeStatus.unfinished ? read.findings.filter((finding) => finding.kind === 'unfinished') : read.findings;
+  out.findings = withIds(tieToInstructorRuns(mergeByEvidence(reported), instructorRunsByQuestion)); // what is still invalid after the retry was left out by readFindings
   if (read.invalid.length > 0) out.rejected = read.invalid;
   log.info('Interview analysis done', { interviewId, findings: out.findings.length, plannedRuns: out.plan.length, runs: out.runs.length });
   return finish(out.error ? 'partial' : 'ok');

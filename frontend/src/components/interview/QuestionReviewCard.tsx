@@ -300,7 +300,7 @@ interface QuestionReviewCardProps {
   findings?: CodeFinding[];
 }
 
-/** One main question as a collapsible section: a header for the overview, the question, its rubric, and the conversation. */
+/** One main question as a collapsible section: a header for the overview, the question, the conversation, and the rubric below it. */
 export function QuestionReviewCard({ question, draft, disabled = false, onDecide, findings = [] }: QuestionReviewCardProps) {
   const items = reviewedItems(question, draft);
   const total = items.length;
@@ -340,23 +340,6 @@ export function QuestionReviewCard({ question, draft, disabled = false, onDecide
 
         <QuestionRuns question={question} />
 
-        {items.length > 0 && (
-          <section className={styles.group} aria-label={`Rubric for question ${question.index}`}>
-            <h4 className={styles.groupTitle}>Rubric: agent&apos;s check and instructor&apos;s decision</h4>
-            <div className={styles.groupList}>
-              {items.map((item) => (
-                <RubricItemRow
-                  key={item.id}
-                  questionIndex={question.index}
-                  item={item}
-                  disabled={disabled}
-                  onDecide={(value) => onDecide(question.index, item.id, value)}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
         <section className={styles.group} aria-label={`Conversation for question ${question.index}`}>
           <h4 className={styles.groupTitle}>Conversation</h4>
           <div className={styles.groupList}>
@@ -373,6 +356,23 @@ export function QuestionReviewCard({ question, draft, disabled = false, onDecide
             ))}
           </div>
         </section>
+
+        {items.length > 0 && (
+          <section className={styles.group} aria-label={`Rubric for question ${question.index}`}>
+            <h4 className={styles.groupTitle}>Rubric: agent&apos;s check and instructor&apos;s decision</h4>
+            <div className={styles.groupList}>
+              {items.map((item) => (
+                <RubricItemRow
+                  key={item.id}
+                  questionIndex={question.index}
+                  item={item}
+                  disabled={disabled}
+                  onDecide={(value) => onDecide(question.index, item.id, value)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </Disclosure>
   );

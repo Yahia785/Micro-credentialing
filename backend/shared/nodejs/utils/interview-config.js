@@ -12,6 +12,9 @@
  *                                             // when that question is asked (host.v6 shows the output to the agent, never to the student)
  * }
  *
+ * `fixedFollowUps` (optional): one follow-up question per main question, in the order the main questions are asked. The Host (v6 and v7)
+ * asks it when the follow-up it wrote was rejected even after one rewrite. Instructor-only until it is asked.
+ *
  * Older configs may carry `maxFollowUpsPerTheme` (0-5) instead. It still validates and is kept
  * as written; the interview engine converts it when it runs.
  *
@@ -273,6 +276,14 @@ function parseInterview(raw, assessment = {}) {
     }
   }
 
+  let fixedFollowUps;
+  if (raw.fixedFollowUps !== undefined && raw.fixedFollowUps !== null) {
+    const total = themes.reduce((n, theme) => n + theme.mainQuestions.length, 0);
+    const list = cleanStringList(raw.fixedFollowUps, 'interview.fixedFollowUps', Math.max(total, 1), LIMITS.maxQuestionLength, errors, { required: false });
+    if (Array.isArray(raw.fixedFollowUps) && list.length !== raw.fixedFollowUps.length && errors.length === 0) errors.push('interview.fixedFollowUps entries must not be empty');
+    if (list.length) fixedFollowUps = list;
+  }
+
   if (raw.enabled && themes.length === 0 && errors.length === 0) {
     errors.push('interview.themes must have at least one theme when the interview is enabled');
   }
@@ -283,7 +294,7 @@ function parseInterview(raw, assessment = {}) {
 
   return {
     provided: true,
-    value: { enabled: raw.enabled, timeLimitMinutes, ...followUpLimit, ...(promptVersion && { promptVersion }), themes },
+    value: { enabled: raw.enabled, timeLimitMinutes, ...followUpLimit, ...(promptVersion && { promptVersion }), themes, ...(fixedFollowUps && { fixedFollowUps }) },
     error: null,
   };
 }

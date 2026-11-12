@@ -5,6 +5,7 @@ import { BlockingOverlay } from '../ui';
 import type { AssessmentSessionState } from '../../hooks/useAssessmentSession';
 import { WorkspaceInactiveContext } from '../workspace/WorkspaceInactiveContext';
 import { toEditorMilestone } from '../../utils/assessments';
+import { SubmissionStatusView } from './SubmissionStatusView';
 
 /** Renders the proctoring setup screen, the editor and the "submitting" overlay for the open assessment. */
 export function AssessmentSession({ session }: { session: AssessmentSessionState }) {
@@ -26,6 +27,11 @@ export function AssessmentSession({ session }: { session: AssessmentSessionState
     markSubmitted,
     markSubmissionSettled,
   } = session;
+
+  // Opened later with no streams (view mode) and held for the instructor: the status view replaces the editor.
+  const entry = selectedAssessment ? userProfile?.completedMilestones?.find((m) => m.milestoneId === selectedAssessment.milestoneId) : undefined;
+  const heldEntry =
+    selectedAssessment?.kind === 'coding' && !webcamStream && !screenStream && interviewTarget === null && entry?.heldForReview === true ? entry : null;
 
   return (
     <>
@@ -55,7 +61,10 @@ export function AssessmentSession({ session }: { session: AssessmentSessionState
         />
       )}
 
-      {selectedAssessment && (
+      {/* A submission whose result is held for the instructor: only its status, from the profile (nothing loads, so nothing flashes). */}
+      {heldEntry && selectedAssessment && <SubmissionStatusView title={selectedAssessment.title} completed={heldEntry} onClose={handleCloseEditor} />}
+
+      {selectedAssessment && !heldEntry && (
         // While the interview waiting page is up, the editor is still here finishing the recording upload; it is out of reach until it goes.
         <WorkspaceInactiveContext.Provider value={interviewTarget !== null}>
           <CodeEditor

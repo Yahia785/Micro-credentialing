@@ -135,6 +135,19 @@ function runsAt(config, { themeIndex, mainIndex }) {
   return Array.isArray(own) ? own.map((run) => ({ label: String(run.label), stdin: String(run.stdin) })) : [];
 }
 
+/**
+ * The instructor's fixed follow-up for the main question being discussed: `config.fixedFollowUps` is one question per main question, in the
+ * order the main questions are asked (all themes, in order). null when there is none. It is asked only when the follow-up the model wrote
+ * was rejected even after its rewrite (host.v6 and host.v7).
+ */
+function fixedFollowUpFor(config, state) {
+  const list = Array.isArray(config.fixedFollowUps) ? config.fixedFollowUps : [];
+  let ordinal = state.mainIndex;
+  for (let i = 0; i < state.themeIndex; i += 1) ordinal += (config.themes[i].mainQuestions || []).length;
+  const text = list[ordinal];
+  return typeof text === 'string' && text.trim() ? text.trim() : null;
+}
+
 function initialState() {
   return { themeIndex: 0, mainIndex: 0, followUpCount: 0, fallbackCount: 0 };
 }
@@ -424,7 +437,7 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
     const stepped = await splitV6.decide({
       converseFn, models, code, turns, mainQuestion: mainQuestionText, rubric, criteria: theme.criteria,
       answer: latestAnswer ? latestAnswer.text : '', observed, codeStatus, flag: engineFlag, nextMain: !!nextMain,
-      findings: v7 ? (findings || []) : null, asked: askedFindings, mode,
+      findings: v7 ? (findings || []) : null, asked: askedFindings, mode, fixedFollowUp: fixedFollowUpFor(config, state),
     });
     splitRecord.calls.push(...stepped.calls);
     splitRecord.evidence = stepped.evidence || undefined;
@@ -624,6 +637,7 @@ async function decideNext({ config, state, code, turns, modelId, promptVersion, 
     ...(findingNotes && findingNotes.addressed && { addressed: findingNotes.addressed }),
     ...(findingNotes && findingNotes.followUpOutcome && { followUpOutcome: findingNotes.followUpOutcome }),
     ...(asked && decision && decision.contradictionTarget && { contradictionTarget: decision.contradictionTarget }),
+    ...(asked && decision && decision.fixedFollowUp && { fixedFollowUp: true }),
     ...(rejected && rubric && { rejected: { code: rejected.code, reply: String(rejected.reply || '').slice(0, 2000) } }),
     ...(decision && Array.isArray(decision.missing) && {
       missing: decision.missing,
@@ -688,6 +702,7 @@ function recordFields(decision) {
   if (decision.addressed) out.addressed = decision.addressed;
   if (decision.followUpOutcome) out.followUpOutcome = decision.followUpOutcome;
   if (decision.contradictionTarget) out.contradictionTarget = decision.contradictionTarget;
+  if (decision.fixedFollowUp) out.fixedFollowUp = true;
   if (decision.notice) out.notice = decision.notice;
   if (Array.isArray(decision.missing)) {
     out.missing = decision.missing;
@@ -721,6 +736,7 @@ module.exports = {
   usesV6,
   usesV7,
   runsAt,
+  fixedFollowUpFor,
   SPLIT_PROMPTS,
   V6_PROMPTS,
   V7_PROMPTS,

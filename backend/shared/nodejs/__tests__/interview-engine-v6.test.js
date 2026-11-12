@@ -145,7 +145,7 @@ describe('the check may mark an item not shown when the claim contradicts the ob
 describe('the write call never gets the answer to give away', () => {
   it('its prompt forbids giving the correct answer or expected output and the unfinished-code questions', () => {
     expect(v6.WRITE_SYSTEM).toMatch(/Never give the correct answer, the expected output or the fix/);
-    expect(v6.WRITE_SYSTEM).toMatch(/do not ask what a missing, empty or placeholder function does/);
+    expect(v6.WRITE_SYSTEM).toMatch(/not ask what a missing, empty or placeholder function does/i);
     expect(v6.WRITE_SYSTEM).toMatch(/Quote only what the program printed, never what it should have printed/);
     expect(v6.CHECK_SYSTEM).toMatch(/Answers? that describes? the intended design/i);
   });

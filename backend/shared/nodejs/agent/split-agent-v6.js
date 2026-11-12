@@ -14,7 +14,11 @@
  * Follow-up answers are checked too (check only, no write): the checker sees the main answer and the follow-up answers together, items
  * already shown stay shown, and an item the follow-up answer newly shows is marked viaFollowUp (and afterHint when the follow-up was a hint).
  * An item counts as shown only when the quote states the whole item; a partial quote is kept as evidence of what was said.
- * A follow-up never states the content of a not-shown item (givesAwayItem, then the same rewrite as a rubric leak).
+ * A follow-up never ASSERTS the content of a not-shown item (givesAwayItem: an outcome said as a statement or premise; numbers and state
+ * names used as a scenario or as the question are fine), and the same rewrite as a rubric leak is tried once. A follow-up that is still
+ * rejected after that rewrite is replaced by the instructor's fixed follow-up for the main question (config.fixedFollowUps) when there is one.
+ * Unfinished code: no program output, observed behavior or findings are used against an answer or aimed at, and no follow-up asks what the
+ * code prints or returns (asksAboutCode); the answer is judged as a description of the intended design.
  *
  * host.v7 (mode 'v7') is this agent with the findings of the code analysis (analysis.js) for the current main question: the check call
  * also reports the findings the answer contradicts or addressed, and the follow-up target order is (1) a contradicted finding, (2) a
@@ -26,7 +30,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { isYesNo, isMultiPart, firstQuestionOnly, leaksCriterion, givesAwayItem } = require('./follow-up-check');
+const { isYesNo, isMultiPart, firstQuestionOnly, leaksCriterion, givesAwayItem, asksAboutCode } = require('./follow-up-check');
 const { validateCheck, squash, RETRY_NOTE } = require('./rubric-check');
 const { isGiveUpKind } = require('./manipulation');
 const { describeCodeStatus } = require('./code-status');
@@ -57,7 +61,8 @@ const systemFor = (mode) => (mode === 'v7' ? { check: CHECK_SYSTEM_V7, write: WR
 
 const REQUESTS = Object.freeze({
   json: 'Your reply was not a valid JSON object. Reply with the JSON object only: no other text, no code fences.',
-  giveAway: 'Your follow-up states what the student still has to show. Rewrite it as ONE question that does not say what happens or why: point to the input or to a place in the code, and let the student say it. Reply with the same JSON object only.',
+  giveAway: 'Your follow-up says what the student still has to show (what the controller does, or why) as a statement or as part of the question. Rewrite it as ONE question that only sets up the situation (an input, a state, a place in the code) and lets the student say what happens or why. Numbers and state names are fine as the situation. Reply with the same JSON object only.',
+  intendedDesign: 'The code of the student is unfinished, so do not ask what it prints, returns or does. Rewrite your follow-up as ONE question about how they planned it to work or what they would write. Reply with the same JSON object only.',
   leak: 'Your follow-up repeats wording from the private guidance. Rewrite it in your own words, without the wording of any rubric item, as ONE question about the same point. Reply with the same JSON object only.',
   yesNo: 'Your follow-up can be answered with yes or no. Rewrite it as ONE open question (explain, trace, predict the output, or what would happen if) about the same point. Reply with the same JSON object only.',
   twoQuestions: 'Your follow-up asks more than one question. Rewrite it as ONE question about the same point, with a single question mark and no second request. Reply with the same JSON object only.',
@@ -66,6 +71,10 @@ const REQUESTS = Object.freeze({
 const WRAPPER_TAG = /<(\/?\s*(?:student_answer|student_code|instructor_config|transcript|observed_behavior|code_findings))/gi;
 const neutralise = (text) => String(text).replace(WRAPPER_TAG, '&lt;$1');
 const unavailable = (error) => error && error.name === 'ModelUnavailableError';
+/** True when the code status says the program is unfinished (it does not compile, or a function is empty or a placeholder). */
+const isUnfinished = (codeStatus) => !!(codeStatus && codeStatus.unfinished);
+/** The write codes after which the instructor's fixed follow-up is used instead of moving on (the writer's reply was rejected). */
+const REJECTED_WRITES = ['gives_away', 'rubric_leak', 'rubric_word', 'question_invalid', 'yes_no', 'bad_json', 'asks_about_code'];
 
 function resolveSplitModels({ checkerModelId, writerModelId } = {}) {
   return {
@@ -159,7 +168,7 @@ function buildCheckMessage({ mainQuestion, rubric, answer, exchange, codeStatus,
  * findings the answer `contradicted` ([{ id, quote }], the quote must be in the answer) and `addressed` (ids). Ids of findings that
  * were not given are dropped, not an error.
  */
-function validateCheckV6(text, rubric, answer, findings = []) {
+function validateCheckV6(text, rubric, answer, findings = [], { ignoreOutput = false } = {}) {
   const raw = String(text || '');
   let parsed = {};
   try { parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)); } catch { /* validateCheck says what is wrong */ }
@@ -187,6 +196,11 @@ function validateCheckV6(text, rubric, answer, findings = []) {
         copy.evidence[id] = entry;
       }
       // A claim the program's output contradicts is not evidence: marked shown AND contradicted, it counts as not shown (the quote stays).
+      // (unfinished code: no output is ever used against an answer, so the flag is dropped and the item stays as the checker judged the words)
+      if (ignoreOutput && copy.evidence[id] && copy.evidence[id].contradicted !== undefined) {
+        const { contradicted: _dropped, ...kept } = copy.evidence[id];
+        copy.evidence[id] = kept;
+      }
       if (copy.evidence[id] && copy.evidence[id].shown === true && copy.evidence[id].contradicted === true) {
         copy.evidence[id] = { ...copy.evidence[id], shown: false };
         demoted.push(id);
@@ -208,7 +222,7 @@ function validateCheckV6(text, rubric, answer, findings = []) {
       ...(entry.contradicted === true && !entry.shown && { contradicted: true }),
     };
   });
-  const known = new Set((findings || []).map((f) => f.id));
+  const known = new Set(ignoreOutput ? [] : (findings || []).map((f) => f.id));
   const contradicted = (Array.isArray(parsed.contradicted) ? parsed.contradicted : [])
     .filter((entry) => entry && known.has(entry.id) && typeof entry.quote === 'string' && squash(entry.quote) && haystack.includes(squash(entry.quote)))
     .map((entry) => ({ id: entry.id, quote: entry.quote.slice(0, 300) }));
@@ -217,6 +231,8 @@ function validateCheckV6(text, rubric, answer, findings = []) {
 }
 
 async function checkAnswer({ converseFn, modelId, mainQuestion, rubric, answer, exchange, codeStatus, observed, findings, mode }) {
+  const unfinished = isUnfinished(codeStatus);
+  if (unfinished) { observed = []; findings = findings === null || findings === undefined ? findings : []; }
   const rec = recorder('check', modelId);
   const everything = exchange && exchange.length ? exchange.map((part) => part.answer).join('\n') : answer;
   const messages = [{ role: 'user', content: [{ text: buildCheckMessage({ mainQuestion, rubric, answer, exchange, codeStatus, observed, findings }) }] }];
@@ -227,7 +243,7 @@ async function checkAnswer({ converseFn, modelId, mainQuestion, rubric, answer, 
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const result = await rec.ask(converseFn, { system: systemFor(mode).check, messages, maxTokens: CHECK_MAX_TOKENS });
       reply = result.text;
-      verdict = validateCheckV6(result.text, rubric, everything, findings);
+      verdict = validateCheckV6(result.text, rubric, everything, findings, { ignoreOutput: unfinished });
       if (verdict.ok) break;
       if (attempt === 1) {
         retried = true;
@@ -330,23 +346,26 @@ function parseWrite(text) {
 
 /**
  * Why a follow-up cannot be used, or null: it is empty or too long, it has the word rubric, it repeats rubric wording, or (rule 3) it
- * states the content of an item the student has not shown yet ('gives_away').
+ * asserts the content of an item the student has not shown yet ('gives_away'), or (unfinished code) asks what the code prints or returns
+ * ('asks_about_code').
  */
-function problemWith(question, secrets, { notShown = [], mainQuestion = '' } = {}) {
+function problemWith(question, secrets, { notShown = [], mainQuestion = '', unfinished = false } = {}) {
   if (!question || question.length > MAX_FOLLOW_UP_LENGTH) return 'question_invalid';
   if (/\b(rubric|criteria|criterion)\b/i.test(question)) return 'rubric_word';
   if (leaksCriterion(question, secrets)) return 'rubric_leak';
   if (givesAwayItem(question, notShown, mainQuestion)) return 'gives_away';
+  if (unfinished && asksAboutCode(question)) return 'asks_about_code';
   return null;
 }
 
 async function writeFollowUp({
   converseFn, modelId, code, turns, mainQuestion, rubric, missing, criteria = [], codeStatus, observed, noUsableAnswer = false, findings, target, mode,
 }) {
+  const unfinished = isUnfinished(codeStatus);
   const rec = recorder('write', modelId);
   const secrets = [...criteria, ...rubric.map((item) => item.text)];
   // Only the items that are not shown yet are protected from being stated: a shown item was the student's own words.
-  const guard = { notShown: rubric.filter((item) => missing.includes(item.id)), mainQuestion };
+  const guard = { notShown: rubric.filter((item) => missing.includes(item.id)), mainQuestion, unfinished };
   const messages = [{ role: 'user', content: [{ text: buildWriteMessage({ code, turns, mainQuestion, rubric, missing, codeStatus, observed, noUsableAnswer, findings, target }) }] }];
   const repairs = [];
   let guardRecord = null;
@@ -372,11 +391,11 @@ async function writeFollowUp({
       if (!reply) return fail('bad_json');
     }
     let found = problem(reply.question);
-    if (found === 'rubric_leak' || found === 'gives_away') {
+    if (found === 'rubric_leak' || found === 'gives_away' || found === 'asks_about_code') {
       const original = reply.question;
-      const again = await call(found === 'gives_away' ? REQUESTS.giveAway : REQUESTS.leak);
+      const again = await call(found === 'gives_away' ? REQUESTS.giveAway : found === 'asks_about_code' ? REQUESTS.intendedDesign : REQUESTS.leak);
       const fixed = !!again && !problem(again.question);
-      repairs.push({ type: found === 'gives_away' ? 'give_away_rewrite' : 'leak_rewrite', original, fixed });
+      repairs.push({ type: found === 'gives_away' ? 'give_away_rewrite' : found === 'asks_about_code' ? 'intended_design_rewrite' : 'leak_rewrite', original, fixed });
       if (fixed) { reply = again; found = null; }
     }
     if (found) return fail(found);
@@ -483,6 +502,7 @@ function outcomeOf({ lastHost, checked, evidence, latestAnswer }) {
  * @returns {{ evidence?, missing?, calls, usage, repairs, manipulation? }}
  */
 async function checkOnly({ converseFn, models, mainQuestion, rubric, turns, observed, codeStatus, findings, mode }) {
+  if (isUnfinished(codeStatus)) { observed = []; findings = findings === null || findings === undefined ? findings : []; }
   const out = { calls: [], usage: { inputTokens: 0, outputTokens: 0, latencyMs: 0 }, repairs: [] };
   const exchange = exchangeOf(turns, false);
   const lastHost = [...turns].reverse().find((t) => t.role === 'host');
@@ -518,7 +538,9 @@ async function checkOnly({ converseFn, models, mainQuestion, rubric, turns, obse
  * @returns {{ decision, fallback, rejected, repairs, guard, calls, usage, evidence, manipulation, retried }}
  *          decision is null when the models failed (fallback is then 'model_unavailable' or 'invalid_output')
  */
-async function decide({ converseFn, models, code, turns, mainQuestion, rubric, criteria, answer, observed, codeStatus, flag, nextMain, findings = null, asked = [], mode = 'v6' }) {
+async function decide({ converseFn, models, code, turns, mainQuestion, rubric, criteria, answer, observed, codeStatus, flag, nextMain, findings = null, asked = [], mode = 'v6', fixedFollowUp = null }) {
+  // Unfinished code: the program output, the observed behavior and the findings are never used against an answer or aimed at.
+  if (isUnfinished(codeStatus)) { observed = []; findings = findings === null ? null : []; }
   const out = { decision: null, fallback: null, rejected: null, repairs: [], guard: null, calls: [], usage: { inputTokens: 0, outputTokens: 0, latencyMs: 0 }, evidence: null, manipulation: flag || null };
   const addUsage = (u) => {
     out.usage = { inputTokens: out.usage.inputTokens + u.inputTokens, outputTokens: out.usage.outputTokens + u.outputTokens, latencyMs: out.usage.latencyMs + u.latencyMs };
@@ -584,8 +606,26 @@ async function decide({ converseFn, models, code, turns, mainQuestion, rubric, c
   if (written.guard) out.guard = written.guard;
   if (written.unavailable) { out.fallback = 'model_unavailable'; return out; }
   if (!written.ok) {
-    out.fallback = 'invalid_output';
     out.rejected = { code: written.error, reply: written.reply };
+    // The writer's reply was rejected even after its one rewrite: ask the instructor's fixed follow-up for this main question instead of
+    // moving on (when there is one, and it was not asked already).
+    const alreadyAsked = turns.some((t) => t.role === 'host' && t.kind === 'follow_up' && t.text === fixedFollowUp);
+    // (on unfinished code a fixed follow-up that asks what the code prints or returns is not used either)
+    const usable = fixedFollowUp && !(isUnfinished(codeStatus) && asksAboutCode(fixedFollowUp));
+    if (usable && REJECTED_WRITES.includes(written.error) && !alreadyAsked) {
+      out.fixedFollowUp = true;
+      out.decision = {
+        action: 'follow_up',
+        question: fixedFollowUp,
+        reason: `check: ${target.reason}; the written follow-up was rejected (${written.error}), asked the instructor's fixed follow-up`,
+        missing,
+        target: target.type === 'rubric' ? target.id : (missing[0] || null),
+        isHint: false,
+        fixedFollowUp: true,
+      };
+      return out;
+    }
+    out.fallback = 'invalid_output';
     return out;
   }
   out.decision = {
@@ -608,6 +648,6 @@ async function decide({ converseFn, models, code, turns, mainQuestion, rubric, c
 module.exports = {
   DEFAULT_SPLIT_MODEL, CHECK_PROMPT_VERSION, WRITE_PROMPT_VERSION, CHECK_PROMPT_VERSION_V7, WRITE_PROMPT_VERSION_V7,
   CHECK_SYSTEM, WRITE_SYSTEM, CHECK_SYSTEM_V7, WRITE_SYSTEM_V7, REQUESTS, WITHHELD,
-  resolveSplitModels, checkAnswer, writeFollowUp, decide, checkOnly, mergeEvidence, exchangeOf, chooseTarget, findingLines, problemWith,
+  isUnfinished, REJECTED_WRITES, resolveSplitModels, checkAnswer, writeFollowUp, decide, checkOnly, mergeEvidence, exchangeOf, chooseTarget, findingLines, problemWith,
   buildCheckMessage, buildWriteMessage, validateCheckV6, maskFlaggedAnswers, observedLines, squash,
 };

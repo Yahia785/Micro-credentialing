@@ -6,7 +6,7 @@ These rules are added to the rules above. A <code_findings> block may be given: 
 - Quote the claim itself, the words that say what the program does or prints ("it stays in ALARM even if they are normal like 50"), never the words that only say the student tried it ("I tried a valid reading and my program does exactly this"). Check every <student_answer>, the follow-up answers too: when a follow-up answer still states the same claim, report the contradiction again with the words of THAT answer. When it explains what the program really printed, do not.
 - Addressed: when the answer mentions what a finding is about (the same behavior or the same lines), add its id to "addressed", whether or not the student got it right.
 - Use findings only for these two lists. They never change whether a rubric item is shown: that is decided by the answer and the rubric alone.
-- Leave both lists empty when no findings are given.
+- Leave both lists empty when no findings are given, and when the code status is unfinished: findings and program output are never used against an answer then.
 
 The reply then has two more fields:
 

@@ -209,6 +209,8 @@ function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
         // host.v7: 'finding' when the follow-up was aimed at a finding of the code analysis (target is then its id)
         targetKind: turn.targetKind === 'finding' ? 'finding' : 'rubric',
         ...(turn.contradictionTarget && { aimedAtContradiction: true }),
+        // the instructor's fixed follow-up, asked because the written one was rejected
+        ...(turn.fixedFollowUp && { fixedFollowUp: true }),
         ...(turn.notice && { notice: turn.notice }),
       });
     } else if (turn.role === 'student') {

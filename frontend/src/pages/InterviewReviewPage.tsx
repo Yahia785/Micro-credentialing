@@ -60,6 +60,8 @@ export function InterviewReviewPage() {
   const [list, setList] = useState<InterviewSummary[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [title, setTitle] = useState<string | null>(null);
+  // The student's session ended by leaving the page: no interview is ever created for such a submission.
+  const [leftBeforeInterview, setLeftBeforeInterview] = useState(false);
   const [interview, setInterview] = useState<AdminInterview | null>(null);
   const [interviewError, setInterviewError] = useState<string | null>(null);
   const [loadingInterview, setLoadingInterview] = useState(false);
@@ -107,7 +109,8 @@ export function InterviewReviewPage() {
   useEffect(() => {
     let cancelled = false;
     getSubmission(submissionId)
-      .then((data: { submission?: { milestoneId?: string } }) => {
+      .then((data: { submission?: { milestoneId?: string; endedBy?: string } }) => {
+        if (!cancelled) setLeftBeforeInterview(data?.submission?.endedBy === 'left_page');
         const milestoneId = data?.submission?.milestoneId;
         return milestoneId ? getMilestone(milestoneId) : null;
       })
@@ -243,8 +246,12 @@ export function InterviewReviewPage() {
         {list !== null && ordered.length === 0 && (
           <EmptyState
             headingLevel={2}
-            title="No interview yet"
-            description="The student has not started the interview for this submission. You can try the interview yourself with a practice interview."
+            title={leftBeforeInterview ? 'No interview' : 'No interview yet'}
+            description={
+              leftBeforeInterview
+                ? 'No interview (the student left before it started). You can try the interview yourself with a practice interview.'
+                : 'The student has not started the interview for this submission. You can try the interview yourself with a practice interview.'
+            }
             action={
               <Button onClick={() => void startPractice()} loading={startingPractice}>
                 {startingPractice ? 'Starting…' : 'Start practice interview'}
