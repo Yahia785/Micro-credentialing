@@ -1,5 +1,7 @@
 import { getAuthToken, API_BASE } from './config';
 import type { LogEntry } from '../utils/proctoringLogger';
+import { PART_SIZE, uploadInParts } from './multipartUpload';
+import type { MultipartApi, PutPart } from './multipartUpload';
 
 /**
  * Get presigned S3 upload URL for a recording
@@ -141,8 +143,88 @@ export async function sendClientLogs(data: {
   }
 }
 
+/** One POST to a /proctoring/multipart/* endpoint. */
+async function postMultipart<T>(action: 'create' | 'presign' | 'complete' | 'abort', data: object): Promise<T> {
+  const token = await getAuthToken();
+
+  const response = await fetch(`${API_BASE}/proctoring/multipart/${action}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Multipart ${action} failed:`, response.status, errorText);
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+function multipartApi(submissionId: string, fileType: 'webcam' | 'screen'): MultipartApi {
+  return {
+    create: () => postMultipart('create', { submissionId, fileType }),
+    presign: async (uploadId, partNumbers) => {
+      const { urls } = await postMultipart<{ urls: Array<{ partNumber: number; url: string }> }>('presign', {
+        submissionId,
+        fileType,
+        uploadId,
+        partNumbers,
+      });
+      return urls;
+    },
+    complete: (uploadId, parts) => postMultipart('complete', { submissionId, fileType, uploadId, parts }),
+    abort: async (uploadId) => {
+      await postMultipart('abort', { submissionId, fileType, uploadId });
+    },
+  };
+}
+
+/** Sends one part with XHR (fetch cannot report upload progress). A part that stalls for 15 minutes counts as failed. */
+const PART_TIMEOUT_MS = 15 * 60 * 1000;
+
+const putPartWithXhr: PutPart = (url, body, onProgress) =>
+  new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.timeout = PART_TIMEOUT_MS;
+    xhr.upload.onprogress = (event) => onProgress(event.loaded);
+    xhr.onload = () => resolve({ status: xhr.status, etag: xhr.getResponseHeader('ETag') });
+    xhr.onerror = () => reject(new Error('Network error while uploading a part'));
+    xhr.ontimeout = () => reject(new Error('A part upload timed out'));
+    xhr.onabort = () => reject(new Error('A part upload was cancelled'));
+    xhr.send(body);
+  });
+
+/** Presigned PUT of the whole blob: the original way, used for small recordings and as the fallback. */
+async function uploadSinglePut(
+  submissionId: string,
+  fileType: 'webcam' | 'screen',
+  blob: Blob,
+): Promise<string> {
+  // Step 1: Get presigned upload URL (metadata set by Lambda)
+  const { uploadUrl, key } = await getUploadUrl({
+    submissionId,
+    fileType,
+  });
+
+  // Step 2: Upload blob to S3 (metadata already in presigned URL)
+  await uploadRecordingToS3(uploadUrl, blob);
+
+  // Step 3: Return the S3 key for metadata saving
+  return key;
+}
+
 /**
- * Complete workflow: Upload recording and save metadata
+ * Complete workflow: Upload recording and save metadata.
+ *
+ * Under 8 MiB: one presigned PUT. Larger: S3 multipart upload (parts of 8 MiB, 3 at a time, each retried on its own).
+ * If the multipart upload fails for any reason it is aborted and the single PUT is tried once, so the result is never
+ * worse than before. Resolves with the S3 key; throws only when both ways fail.
  */
 export async function uploadRecording(
   submissionId: string,
@@ -150,17 +232,20 @@ export async function uploadRecording(
   blob: Blob,
 ): Promise<string> {
   try {
-    // Step 1: Get presigned upload URL (metadata set by Lambda)
-    const { uploadUrl, key } = await getUploadUrl({
-      submissionId,
-      fileType,
-    });
+    if (blob.size < PART_SIZE) {
+      return await uploadSinglePut(submissionId, fileType, blob);
+    }
 
-    // Step 2: Upload blob to S3 (metadata already in presigned URL)
-    await uploadRecordingToS3(uploadUrl, blob);
-
-    // Step 3: Return the S3 key for metadata saving
-    return key;
+    try {
+      const { key } = await uploadInParts(blob, multipartApi(submissionId, fileType), putPartWithXhr, {
+        onRetry: ({ partNumber, attempt, reason }) =>
+          console.warn(`Part ${partNumber} failed (retry ${attempt}): ${reason}`),
+      });
+      return key;
+    } catch (multipartError) {
+      console.warn('Multipart upload failed, trying a single upload instead:', multipartError);
+      return await uploadSinglePut(submissionId, fileType, blob);
+    }
   } catch (error) {
     console.error('Error uploading recording:', error);
     throw error;
