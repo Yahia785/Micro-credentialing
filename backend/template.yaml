@@ -1133,6 +1133,153 @@ Resources:
         - S3CrudPolicy:
             BucketName: micro-credentialing-recordings
 
+  # ==========================================
+  # PROCTORING: MULTIPART RECORDING UPLOAD
+  # Big recordings go to S3 in 8 MiB parts (create -> presign -> complete, abort on failure) instead of one PUT.
+  # The S3 key is built from the caller's user ID inside the functions. Permissions cover the recordings/ prefix only.
+  # ==========================================
+
+  # ------------------------------------------
+  # LAMBDA: Start a multipart upload
+  # ------------------------------------------
+  MultipartCreateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/proctoring/multipart-create/
+      Handler: index.handler
+      Description: Start an S3 multipart upload for a proctoring recording
+      Events:
+        MultipartCreate:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/multipart/create
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsMultipartCreate:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/multipart/create
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: arn:aws:s3:::micro-credentialing-recordings/recordings/*
+
+  # ------------------------------------------
+  # LAMBDA: Presigned URLs for the parts
+  # ------------------------------------------
+  MultipartPresignFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/proctoring/multipart-presign/
+      Handler: index.handler
+      Description: Presigned S3 URLs for the parts of a multipart recording upload
+      Events:
+        MultipartPresign:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/multipart/presign
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsMultipartPresign:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/multipart/presign
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        # The presigned URLs carry the permissions of this role, so it needs PutObject for the parts to be accepted.
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: arn:aws:s3:::micro-credentialing-recordings/recordings/*
+
+  # ------------------------------------------
+  # LAMBDA: Finish a multipart upload
+  # ------------------------------------------
+  MultipartCompleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/proctoring/multipart-complete/
+      Handler: index.handler
+      Description: Complete an S3 multipart upload of a proctoring recording
+      Events:
+        MultipartComplete:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/multipart/complete
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsMultipartComplete:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/multipart/complete
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        # GetObject is what HeadObject needs (size of the finished file, and the retry check).
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+                - s3:ListMultipartUploadParts
+              Resource: arn:aws:s3:::micro-credentialing-recordings/recordings/*
+
+  # ------------------------------------------
+  # LAMBDA: Cancel a multipart upload
+  # ------------------------------------------
+  MultipartAbortFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/proctoring/multipart-abort/
+      Handler: index.handler
+      Description: Abort an S3 multipart upload of a proctoring recording
+      Events:
+        MultipartAbort:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/multipart/abort
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+        # OPTIONS - NO AUTH (allows CORS preflight)
+        OptionsMultipartAbort:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MicroCredentialingAPI
+            Path: /proctoring/multipart/abort
+            Method: OPTIONS
+            Auth:
+              Authorizer: NONE
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:AbortMultipartUpload
+                - s3:ListMultipartUploadParts
+              Resource: arn:aws:s3:::micro-credentialing-recordings/recordings/*
+
   # ------------------------------------------
   # LAMBDA: Save Recording Metadata
   # ------------------------------------------
