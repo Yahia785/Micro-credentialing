@@ -21,8 +21,10 @@
  *   --allow-duplicate          create it even if a problem with the same title already exists
  *   --prompt <host.vN>         the Host prompt version of the interview (default host.v5; host.v6 adds the run results, the unfinished-code
  *                              and the manipulation handling). The interview config always carries the runs for Q1 and Q3 of the tank.
- *   --update                   the problem already exists: change only its interview setup (prompt version, runs, rubric) and nothing else.
+ *   --update                   the problem already exists: change only its interview setup (prompt version, questions, runs, rubric) and its
+ *                              description (tank-controller.description.md). Starter code, tests, title, visibility and everything else stay.
  *                              Interviews that already started keep the version they started with.
+ *   --dry-run                  print what would change and write nothing, even with --yes (without --yes nothing is written either)
  *   --profile <name>           AWS profile (default: the usual credential chain)
  *
  * Needs AWS credentials for the dev account with access to the Users (only with an email), Milestones and TestCases tables.
@@ -37,7 +39,8 @@ const DEV = Object.freeze({ region: 'us-east-1', milestones: 'Milestones', testC
 
 const CASES = path.join(__dirname, 'eval', 'cases');
 const DESIGN_FILE = path.join(CASES, 'case4-tank-controller.md');
-const CONFIG_FILE = path.join(CASES, 'tank-controller.json');
+const DESCRIPTION_FILE = path.join(CASES, 'tank-controller.description.md');
+const CONFIG_FILE =path.join(CASES, 'tank-controller.json');
 const TESTS_FILE = path.join(CASES, 'tank-controller.tests.json');
 
 const TITLE = 'Tank Fill Controller (state machine)';
@@ -67,10 +70,13 @@ function toPlainText(markdown) {
     .trim();
 }
 
-/** The student-facing statement and the starter code, taken from the design file (section 1 and 2). */
-function readStatementAndStarter(file = DESIGN_FILE) {
+/**
+ * The student-facing statement and the starter code. The statement is Markdown (the problem page renders it) and comes from its own
+ * file; the starter code is section 2 of the design file.
+ */
+function readStatementAndStarter(file = DESIGN_FILE, descriptionFile = DESCRIPTION_FILE) {
   const markdown = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
-  const statement = toPlainText(section(markdown, '## 1. Problem statement (what students see)'));
+  const statement = fs.readFileSync(descriptionFile, 'utf8').replace(/\r\n/g, '\n').trim();
   const starterSection = section(markdown, '## 2. Starter code (provided to students)');
   const fence = starterSection.match(/```cpp\n([\s\S]*?)```/);
   if (!fence) throw new Error('The design file has no C++ starter code in section 2');
@@ -135,6 +141,14 @@ function buildPlan({ previewUserIds = [], course = DEFAULT_COURSE, hiddenTests =
 
 // ---------------------------------------------------------------------------------------------------------------
 
+/** What --update would change on the stored problem: only the description and the interview setup. */
+function updateChanges(existing, milestone) {
+  return {
+    description: (existing.description || '') !== milestone.description,
+    interview: JSON.stringify(existing.interview || null) !== JSON.stringify(milestone.interview),
+  };
+}
+
 function parseArgs(argv) {
   const args = { previewUsers: [], hiddenTests: [] };
   for (let i = 0; i < argv.length; i += 1) {
@@ -147,6 +161,7 @@ function parseArgs(argv) {
     if (a === '--yes') args.yes = true;
     else if (a === '--allow-duplicate') args.allowDuplicate = true;
     else if (a === '--update') args.update = true;
+    else if (a === '--dry-run') args.dryRun = true;
     else if (a === '--prompt') args.prompt = value();
     else if (a === '--preview-user') args.previewUsers.push(value());
     else if (a === '--course') args.course = value();
@@ -207,7 +222,8 @@ async function main() {
   const plan = buildPlan({ previewUserIds, course: args.course, hiddenTests: args.hiddenTests, ...(args.prompt && { promptVersion: args.prompt }) });
   const { milestone, testCases } = plan;
 
-  console.log(args.yes ? 'WRITING to the dev tables' : 'DRY RUN: nothing is written (add --yes to write)');
+  const write = args.yes === true && args.dryRun !== true;
+  console.log(write ? 'WRITING to the dev tables' : 'DRY RUN: nothing is written (add --yes to write)');
   console.log(`Region ${DEV.region}; tables ${DEV.milestones}, ${DEV.testCases} (shared with production, so the problem stays hidden)`);
   console.log(`\nTitle:       ${milestone.title}`);
   console.log(`Course:      ${milestone.course || '(none)'}`);
@@ -228,9 +244,12 @@ async function main() {
   const existing = (await getAllMilestones()).find((m) => m.title === milestone.title);
   if (args.update) {
     if (!existing) throw new Error(`--update: no problem titled "${milestone.title}" exists`);
-    console.log(`\nUpdating the interview setup of ${existing.milestoneId} (${itv.promptVersion}); nothing else changes.`);
-    if (args.yes) {
-      await updateMilestone(existing.milestoneId, { interview: milestone.interview });
+    const changes = updateChanges(existing, milestone);
+    console.log(`\nUpdating ${existing.milestoneId}: the interview setup (${itv.promptVersion}) and the description. Starter code, tests and everything else stay.`);
+    console.log(`  description: ${changes.description ? `changes (${(existing.description || '').length} -> ${milestone.description.length} characters)` : 'already the same'}`);
+    console.log(`  interview:   ${changes.interview ? 'changes' : 'already the same'}   prompt version ${existing.interview ? existing.interview.promptVersion : '(none)'} -> ${itv.promptVersion}`);
+    if (write) {
+      await updateMilestone(existing.milestoneId, { interview: milestone.interview, description: milestone.description });
       console.log('Updated.');
     }
     return;
@@ -240,7 +259,7 @@ async function main() {
       throw new Error(`A problem titled "${milestone.title}" already exists (${existing.milestoneId}). Use --allow-duplicate to create another.`);
     }
   }
-  if (!args.yes) return;
+  if (!write) return;
 
   const created = await createMilestone(milestone);
   const milestoneId = created.milestoneId;
@@ -263,4 +282,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildPlan, parseArgs, resolveUsers, readStatementAndStarter, readTests, buildInterview, toPlainText, DEV, TITLE };
+module.exports = { updateChanges, buildPlan, parseArgs, resolveUsers, readStatementAndStarter, readTests, buildInterview, toPlainText, DEV, TITLE };

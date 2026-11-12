@@ -150,7 +150,7 @@ Compiled with `g++ -std=c++17 -Wall -Wextra` (no warnings) and checked against e
 One theme per main question, **one criterion per main question**, three gaps each. Main questions are asked word for word, in this order. 10-minute typed interview, follow-up budget 1 per main question (as now).
 
 ### Q1. Trace (theme: state transitions)
-**Main question:** "With settings 20, 80, 100, walk me through what your controller does for the readings 50, 18, 40, 85, 70, 15, and how many times the pump starts."
+**Main question:** "The settings are LOW = 20, HIGH = 80 and MAX = 100. Walk me through what your controller does for the readings 50, 18, 40, 85, 70, 15, and how many times the pump starts."
 **Criterion:** The student traces each reading to the correct state and explains why the state holds between the two levels.
 **Gaps:**
 - g1: At 40 the controller stays `FILLING`, because a reading between `low` and `high` keeps the current state.
@@ -158,7 +158,7 @@ One theme per main question, **one criterion per main question**, three gaps eac
 - g3: The pump starts twice (at 18 and at 15), because a start is counted only when entering `FILLING` from another state.
 
 ### Q2. Why two levels (theme: design reasoning)
-**Main question:** "Why does the controller use two levels, 20 and 80, instead of switching the pump at a single level like 50?"
+**Main question:** "Why does the controller use two levels, LOW = 20 and HIGH = 80, instead of switching the pump at a single level like 50?"
 **Criterion:** The student explains the purpose of the gap between the levels (hysteresis) and its effect on the pump.
 **Gaps:**
 - g1: With a single level, readings that go back and forth around it (49, 51, 49, 51) would turn the pump on and off on every reading.
@@ -166,7 +166,7 @@ One theme per main question, **one criterion per main question**, three gaps eac
 - g3: Fewer switches means less wear on the pump (and a more stable level), which is why real controllers do this.
 
 ### Q3. Invalid reading (theme: edge cases)
-**Main question:** "Suppose the controller is FILLING and the next reading is -5. What happens, and what happens with the readings after that?"
+**Main question:** "With LOW = 20, HIGH = 80 and MAX = 100, suppose the controller is FILLING and the next reading is -5. What happens, and what happens with the readings after that?"
 **Criterion:** The student explains how an invalid reading is detected and what the alarm state does to later readings.
 **Gaps:**
 - g1: -5 is invalid because it is negative, so the controller moves to `ALARM`.
@@ -174,7 +174,7 @@ One theme per main question, **one criterion per main question**, three gaps eac
 - g3: The controller stays in `ALARM` for every later reading, even valid ones, because `step` checks `ALARM` first.
 
 ### Q4. What-if (theme: boundaries / fault injection)
-**Main question:** "If the check `reading >= s.high` were changed to `reading > s.high`, what would change in the output?"
+**Main question:** "With HIGH = 80, if the check `reading >= s.high` were changed to `reading > s.high`, what would change in the output?"
 **Criterion:** The student identifies the boundary case the change affects and its consequence.
 **Gaps:**
 - g1: Only a reading of exactly 80 (exactly `high`) behaves differently.

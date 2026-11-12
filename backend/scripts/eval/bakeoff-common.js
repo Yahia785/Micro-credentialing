@@ -110,6 +110,14 @@ function parseRubricCell(cell) {
   });
 }
 
+/** The wording of the tank questions before the settings were named (LOW, HIGH, MAX): the CSV of labels was written with it. */
+const LEGACY_QUESTIONS = [
+  'With settings 20, 80, 100, walk me through what your controller does for the readings 50, 18, 40, 85, 70, 15, and how many times the pump starts.',
+  'Why does the controller use two levels, 20 and 80, instead of switching the pump at a single level like 50?',
+  'Suppose the controller is FILLING and the next reading is -5. What happens, and what happens with the readings after that?',
+  'If the check `reading >= s.high` were changed to `reading > s.high`, what would change in the output?',
+];
+
 /** The 5 main answers of the demo transcript, each with no item missing. */
 function loadDemoSet(file = DEMO_FILE) {
   const demo = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -121,7 +129,8 @@ function loadDemoSet(file = DEMO_FILE) {
     id: `D${i + 1}`,
     caseId: demo.caseId,
     mainOrdinal: i,
-    question: mains[i].text,
+    // The case's current wording (the transcript has the wording of before the settings were named; the rubric is the same).
+    question: caseData.mains[i].question,
     rubric: caseData.mains[i].rubric,
     answer: turn.text,
     reference: [],
@@ -169,7 +178,7 @@ function loadClaudeLabelsSet(file = LABELS_FILE) {
     const reference = label === 'none' ? [] : label.split(/[\s,]+/).filter(Boolean);
     if (reference.some((id) => !rubric.some((item) => item.id === id))) throw new Error(`${row.id}: label "${label}" names an unknown item`);
     const caseData = loadCase(row.case);
-    const mainOrdinal = caseData.mains.findIndex((m) => m.question === row.main_question);
+    const mainOrdinal = caseData.mains.findIndex((m) => m.question === row.main_question || LEGACY_QUESTIONS.includes(row.main_question) && LEGACY_QUESTIONS.indexOf(row.main_question) === caseData.mains.indexOf(m));
     return {
       set: 'claude-labels', id: row.id, caseId: row.case, mainOrdinal, question: row.main_question, rubric, answer: row.student_answer, reference,
     };
