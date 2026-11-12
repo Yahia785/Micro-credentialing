@@ -145,6 +145,8 @@ export interface AdminFollowUp {
   /** A rubric item id (r1) or, when targetKind is "finding", the id of a finding of the code analysis (f1). */
   target: string | null;
   targetKind?: 'rubric' | 'finding';
+  /** The instructor's fixed follow-up, asked because the follow-up the agent wrote was rejected. */
+  fixedFollowUp?: boolean;
 }
 
 /**

@@ -184,6 +184,7 @@ function FollowUpReview({ followUp, rubric, findings }: { followUp: AdminFollowU
             {formatTime(followUp.askedAt)}
           </time>
           {followUp.isHint && <Badge variant="info">Hint</Badge>}
+          {followUp.fixedFollowUp && <Badge variant="neutral">Instructor&apos;s fixed follow-up</Badge>}
         </>
       }
     >
