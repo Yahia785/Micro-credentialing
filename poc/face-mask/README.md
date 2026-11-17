@@ -1,8 +1,8 @@
 # Face mask PoC (privacy-preserving proctoring)
 
-A standalone web page that runs on one laptop, masks the student's face in the webcam video, and saves the masked video plus a per-frame data file. **Nothing is uploaded.** It exists to decide by Nov 9 whether a client-side face mask is good enough.
+A standalone web page that runs on one laptop, masks the student's face in the webcam video, and saves the masked video plus a per-frame data file. **Nothing is uploaded.** This PoC measures how much cheating detection degrades when the analysis only sees masked video. Three conditions are run on the same sessions: (1) raw video analyzed on the server, a research reference only; (2) masked video analyzed on the server, which is the real system; (3) the sidecar, with gaze measured on the device from raw frames, a research reference only.
 
-**Branch rules.** Work only on `feature/privacy-mask`. Everything lives in `poc/face-mask/`. Do not edit `frontend/`, `backend/`, the root `.gitignore` or any other `package.json`, because other branches (`feature/ai-agent`, `feature/cpp-runner`) change shared files and this must merge later without conflicts. Commit locally, do not push. Never commit recordings, models or WASM (the PoC's own `.gitignore` covers them).
+**Branch rules.** Work only on `feature/privacy-mask`. Everything lives in `poc/face-mask/`. This branch is a proof of concept only: it is never merged into `develop` or `main` and never deployed. Pushing the branch is allowed. Do not edit `frontend/`, `backend/`, the root `.gitignore` or any other `package.json`, because other branches (`feature/ai-agent`, `feature/cpp-runner`) change shared files. Never commit recordings, models, WASM or any image of a real face (`server/out/debug/` is local only). The PoC's own `.gitignore` covers recordings, models and WASM.
 
 ## What it does
 
@@ -25,6 +25,8 @@ Only the masked view is shown on the page. The raw camera element is hidden and 
 | `masked-<id>.webm` | masked canvas video (vp9, else vp8) plus microphone audio |
 | `raw-<id>.webm` | raw camera video plus audio. Research only. On by default, untick "Also save raw video" to skip |
 | `sidecar-<id>.jsonl` | one JSON object per line: `header`, many `frame` lines, `key` lines, last line `summary` |
+
+**The sidecar is a research baseline only and is not part of the real system.** In the real system the mask is applied on the device, all AI and human analysis runs on the server on the masked video only, and key logging stores the time and a category only, never the key. Today the server flags `looking_away`, `looking_away_while_typing`, `off_screen_look` and `copy_pattern` come from the sidecar; no server-side gaze reader for the masked video exists yet.
 
 `header` line: id, laptop, scenario, start time, size, delegate (GPU/CPU), `detectLongSide`, user agent, mask options, recorder start offsets, `setup` (did the setup check pass, did the person continue anyway, which checks failed) and `calibration` (baseline, noise, and the left/right edge readings).
 
@@ -65,12 +67,14 @@ Other commands (in `poc\face-mask\client`): `npm run build` (type-check and bund
 
 ```powershell
 cd poc\face-mask\analysis
-python -m venv ..\.venv
-..\.venv\Scripts\Activate.ps1
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python setup_models.py          # one time: downloads the YuNet face detector for test 2 (git-ignored)
 python -m pytest tests -q        # unit tests of the look-away rule
 ```
+
+This creates `poc\face-mask\analysis\.venv`, the venv used by the analysis scripts (tests 1 to 3 and 6, `speed_report.py`) and their tests. Test 5 and the server analyzer use a different venv, `poc\face-mask\server\.venv` (see "Server analysis").
 
 Move the downloaded files for one test session into one folder, e.g. `poc\face-mask\recordings\laptopA` (that folder is git-ignored).
 
@@ -237,7 +241,7 @@ Every detection must last a minimum time (phone 1.5 s; book, extra laptop, secon
 
 ### Setup (PowerShell)
 
-Two virtual environments, so the analyzer never needs torch:
+This section uses `poc\face-mask\server\.venv` (analyzer, its tests, test 5) and, only for the one-time model export, `poc\face-mask\server\.venv-export`. The analysis scripts use the separate `poc\face-mask\analysis\.venv`. Two virtual environments here, so the analyzer never needs torch:
 
 ```powershell
 cd poc\face-mask\server
@@ -313,13 +317,15 @@ For every session with both `raw-<id>` and `masked-<id>` videos (record with "Al
 
 `confidence` is the mean detection score for objects, the share of sampled frames that were blocked for `camera_blocked`, and 1.0 for the rule-based sidecar flags (the rule was satisfied). Times are seconds on the session timeline (video time plus the recorder start offset from the sidecar header). The file holds numbers, labels and short texts only: no images and no faces, ever.
 
-### How it fits Lambda later
+### Lambda design (not built or tested)
+
+This is design only. No AWS code, Dockerfile, container image or Lambda run exists. The only checks done are the code split into `analyze_chunk` / `merge_flags` and the chunk equivalence test (a three-chunk run gives the same flags as one chunk).
 
 - `analyze_chunk(video_path, sidecar_frames, chunk_start_s, keys_s=..., header=..., options=...)` analyzes ONE chunk: `video_path` is the clip of that chunk (time 0 of the clip = `chunk_start_s` of the session), `sidecar_frames` are the sidecar `frame` lines of the chunk, `keys_s` the key-press times (include presses up to 2 s outside the chunk). It returns flags in an intermediate format. A detection that is too short but touches the first or last sample of the chunk is kept, because it may continue in the neighbouring chunk.
 - `merge_flags(list_of_chunk_flag_lists)` joins flags across chunk boundaries, sums the evidence counts, stretches a typing flag to the whole look-away, applies the minimum durations and returns the final flags. Always run it, even with one chunk.
 - No global state: everything is passed in. The only cache is the loaded model (`load_detector`), reused across calls like a Lambda warm start. CPU only; `--threads` maps to onnxruntime threads.
 - `analysis\common.py` must be next to the package or on `PYTHONPATH` in the image (it only uses the standard library). On the laptop it is found automatically.
-- Timing measured on this laptop (12 cores, CPU only, no GPU), seconds of work per minute of video:
+- Timing measured on the laptop (12 cores, CPU only, no GPU), not on Lambda, seconds of work per minute of video:
 
   | Recording | Settings | Decode and sample | analyze_chunk | Total |
   | --- | --- | --- | --- | --- |
