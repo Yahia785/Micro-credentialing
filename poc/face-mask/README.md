@@ -108,6 +108,15 @@ start_s,end_s,label,direction
 
 The raw and masked videos start within a few ms of each other; the sidecar header lists each recorder's start offset if you need to correct it.
 
+## Scripted sessions (optional)
+
+Instead of labelling by hand you can record a scripted session. The schedule lives in `client\src\scripted-sessions.json` (sessions H1, H2 honest; C1 to C4 copy attempts; V1 visible objects). **H1, C1 and C2 are for tuning; H2, C3 and C4 are held out** and must not be used to choose thresholds.
+
+- **Choose a script:** on the setup screen (step 1) pick it in the **Script** dropdown. The default is `none`, and then the page behaves exactly as before. With a script the file names use `script-<id>` as the scenario (for example `laptop_script-C1_<time>`). An invalid script (not starting at 0, a gap or overlap, unsorted, end not after start, a direction other than empty, left, right, up or down) shows an error and refuses to start.
+- **During the recording:** a cue panel above the video shows what to do now ("say"), the seconds left in the segment and the next instruction. Beeps tell you when to switch while you look away from the screen: a short beep 3, 2 and 1 s before each change and a long beep when a new segment starts. The script ends with "Script finished: press Stop and save"; the recording is not stopped automatically. The panel never takes keyboard focus from the typing box.
+- **Clock:** all cue times use the same clock and zero point as the sidecar `frame` lines (time since you pressed Start recording), which is also what the analysis and test 3 use for labels.
+- **Extra output:** the sidecar header gets a `script` block (id, split, kind, version of the JSON). Each segment start writes a `cue` line (`t` = actual time in ms, `planned_s`, `label`, `direction`). If you press Stop before the script ends, the `summary` line says `script_complete: false` and the `last_segment_index`. On Stop and save you also get `sidecar-<id>.labels.csv` (`start_s,end_s,label,direction`) built from the actual cue times and cut off at the stop time. Segments labelled `honest-type` and `honest-keyboard` get no row, because they are normal on-screen or keyboard behaviour, not look-aways.
+
 ## The tests
 
 Run from `poc\face-mask\analysis` with the venv active, on a folder of recordings:

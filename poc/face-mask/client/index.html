@@ -42,6 +42,12 @@
             <button id="btnSpeed" class="secondary">Run speed test (about 2 min)</button>
             <button id="btnCancelSpeed" class="secondary" hidden>Cancel</button>
           </div>
+          <div class="controls">
+            <label>Script
+              <select id="selScript"></select>
+            </label>
+            <span id="scriptMsg" class="scriptmsg"></span>
+          </div>
           <p id="speedMsg"></p>
           <table id="speedTable" hidden></table>
           <div class="buttons">
@@ -56,6 +62,11 @@
           <p id="calibMsg"></p>
         </section>
         <div class="buttons"><button id="btnRecal" class="secondary" hidden>Recalibrate</button></div>
+        <div id="cuePanel" class="cue" hidden>
+          <div id="cueNow"></div>
+          <div id="cueLeft"></div>
+          <div id="cueNext"></div>
+        </div>
         <div class="view">
           <canvas id="out" width="1280" height="720"></canvas>
         </div>

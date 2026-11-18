@@ -46,6 +46,23 @@ export interface SessionInfo {
   setup: unknown;
   /** Baseline, noise and edge readings from the calibration. */
   calibration: unknown;
+  /** Scripted-session mode only: which script was run. Omitted when the script is "none". */
+  script?: { id: string; split: string; kind: string; version: string };
+}
+
+export interface CueLine {
+  /** ACTUAL session time in ms: same clock and zero point as the frame t. */
+  t: number;
+  planned_s: number;
+  label: string;
+  direction: string;
+}
+
+export interface StopExtras {
+  /** Written into the summary line (script mode only). */
+  scriptOutcome?: { complete: boolean; lastSegmentIndex: number };
+  /** Content of sidecar-<id>.labels.csv, downloaded as an extra file (script mode only). */
+  labelsCsv?: string;
 }
 
 function pickMime(): string {
@@ -124,6 +141,7 @@ export class RecordingSession {
   private raw: OneRecorder | null = null;
   private frames: FrameRecord[] = [];
   private keys: { t: number; cat: string }[] = [];
+  private cues: CueLine[] = [];
   private lost = 0;
 
   constructor(
@@ -155,7 +173,12 @@ export class RecordingSession {
     this.keys.push({ t: this.now(), cat });
   }
 
-  async stopAndDownload(): Promise<void> {
+  /** Scripted-session mode: a cue line is written at each segment start. */
+  addCue(c: CueLine): void {
+    this.cues.push(c);
+  }
+
+  async stopAndDownload(extras: StopExtras = {}): Promise<void> {
     const durationMs = this.now();
     const [maskedBlob, rawBlob] = await Promise.all([this.masked.stop(), this.raw ? this.raw.stop() : null]);
 
@@ -176,22 +199,24 @@ export class RecordingSession {
         maskOptions: this.info.maskOptions,
         setup: this.info.setup,
         calibration: this.info.calibration,
+        ...(this.info.script ? { script: this.info.script } : {}),
         recorderStartMs: { masked: round(this.masked.startedAt, 1), raw: this.raw ? round(this.raw.startedAt, 1) : null },
       }),
     );
-    // Frames and key presses are written in time order.
+    // Frames, key presses and cues are written in time order.
+    const extra: { t: number; line: string }[] = [
+      ...this.keys.map((k) => ({ t: k.t, line: JSON.stringify({ type: "key", t: round(k.t, 1), cat: k.cat }) })),
+      ...this.cues.map((c) => ({
+        t: c.t,
+        line: JSON.stringify({ type: "cue", t: round(c.t, 1), planned_s: c.planned_s, label: c.label, direction: c.direction }),
+      })),
+    ].sort((a, b) => a.t - b.t);
     let ki = 0;
     for (const f of this.frames) {
-      while (ki < this.keys.length && this.keys[ki].t <= f.t) {
-        const k = this.keys[ki++];
-        lines.push(JSON.stringify({ type: "key", t: round(k.t, 1), cat: k.cat }));
-      }
+      while (ki < extra.length && extra[ki].t <= f.t) lines.push(extra[ki++].line);
       lines.push(JSON.stringify(frameLine(f)));
     }
-    while (ki < this.keys.length) {
-      const k = this.keys[ki++];
-      lines.push(JSON.stringify({ type: "key", t: round(k.t, 1), cat: k.cat }));
-    }
+    while (ki < extra.length) lines.push(extra[ki++].line);
     const s = summarize(
       this.frames.map((f) => f.t),
       this.lost,
@@ -205,6 +230,9 @@ export class RecordingSession {
         durationS: round(s.durationS, 2),
         avgFps: round(s.avgFps, 2),
         p10Fps: round(s.p10Fps, 2),
+        ...(extras.scriptOutcome
+          ? { script_complete: extras.scriptOutcome.complete, last_segment_index: extras.scriptOutcome.lastSegmentIndex }
+          : {}),
       }),
     );
 
@@ -213,6 +241,7 @@ export class RecordingSession {
       [`sidecar-${this.id}.jsonl`, new Blob([lines.join("\n") + "\n"], { type: "application/x-ndjson" })],
     ];
     if (rawBlob) files.push([`raw-${this.id}.webm`, rawBlob]);
+    if (extras.labelsCsv !== undefined) files.push([`sidecar-${this.id}.labels.csv`, new Blob([extras.labelsCsv], { type: "text/csv" })]);
     for (const [name, blob] of files) {
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);

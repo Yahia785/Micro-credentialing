@@ -27,6 +27,8 @@ import { evaluateSetup, faceBoxFromLandmarks, lumaStats, type Check } from "./se
 import { IrisOffsetSmoother, ReadingSmoother, type Readings } from "./smoothing";
 import { SWEEP_PLAN, speedLabel, summarizeSweep, unavailable, type SweepResult, type SweepSample } from "./sweep";
 import { Tracker, type DelegateRequest } from "./tracker";
+import { ScriptRunner } from "./scriptRunner";
+import { buildLabelsCsv, loadBundledScripts, validateSession, type ScriptSession } from "./scripted";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const out = $<HTMLCanvasElement>("out");
@@ -433,8 +435,39 @@ $("btnRecal").addEventListener("click", () => {
 });
 
 // ---- Recording --------------------------------------------------------------------------
+// ---- Scripted sessions (optional; "none" keeps the page exactly as before) --------------------------------------
+const scriptSel = $<HTMLSelectElement>("selScript");
+const bundled = loadBundledScripts();
+let runner: ScriptRunner | null = null;
+let runningScript: ScriptSession | null = null;
+scriptSel.add(new Option("none", ""));
+for (const s of bundled.sessions) scriptSel.add(new Option(`${s.id}${s.kind || s.split ? ` (${[s.kind, s.split].filter(Boolean).join(", ")})` : ""}`, s.id));
+if (!bundled.found) setText("scriptMsg", "No scripted-sessions.json found in client/src: only \"none\" is available.");
+else if (bundled.errors.length) setText("scriptMsg", bundled.errors.join(" "), "warn");
+const chosenScript = (): ScriptSession | null => bundled.sessions.find((s) => s.id === scriptSel.value) ?? null;
+function checkScript(): string[] {
+  const s = chosenScript();
+  return s ? validateSession(s) : [];
+}
+scriptSel.addEventListener("change", () => {
+  const s = chosenScript();
+  scenarioEl.disabled = s !== null;
+  if (!s) return setText("scriptMsg", "");
+  const problems = checkScript();
+  if (problems.length) setText("scriptMsg", problems.join(" "), "warn");
+  else setText("scriptMsg", `Script ${s.id}: ${s.segments.length} segments, ${Math.round(s.segments[s.segments.length - 1].end_s)} s. File names will use script-${s.id}.`, "ok");
+});
+
 btnRecord.addEventListener("click", () => {
   if (!stream || !tracker || !calibration) return;
+  const script = chosenScript();
+  if (script) {
+    const problems = checkScript();
+    if (problems.length) {
+      setText("scriptMsg", "Cannot start: " + problems.join(" "), "warn");
+      return;
+    }
+  }
   try {
     localStorage.setItem("laptop", laptopEl.value);
   } catch {
@@ -443,7 +476,7 @@ btnRecord.addEventListener("click", () => {
   session = new RecordingSession(
     {
       laptop: laptopEl.value || "laptop",
-      scenario: scenarioEl.value,
+      scenario: script ? `script-${script.id}` : scenarioEl.value,
       width: video.videoWidth,
       height: video.videoHeight,
       delegate: tracker.delegate,
@@ -452,14 +485,21 @@ btnRecord.addEventListener("click", () => {
       maskOptions: { ...maskOptions },
       setup: setupInfo,
       calibration,
+      ...(script ? { script: { id: script.id, split: script.split, kind: script.kind, version: script.version } } : {}),
     },
     out,
     stream,
     saveRawEl.checked,
   );
   setPhase("recording");
-  laptopEl.disabled = scenarioEl.disabled = saveRawEl.disabled = true;
+  laptopEl.disabled = scenarioEl.disabled = saveRawEl.disabled = scriptSel.disabled = true;
   setText("vRec", session.id);
+  if (script) {
+    const sess = session;
+    runningScript = script;
+    runner = new ScriptRunner(script, () => sess.now(), (c) => sess.addCue(c)); // same clock as the sidecar frame t
+    runner.start();
+  }
 });
 
 btnStop.addEventListener("click", async () => {
@@ -468,8 +508,20 @@ btnStop.addEventListener("click", async () => {
   btnStop.disabled = true;
   setText("vStatus", "saving...");
   const s = session;
+  const stopS = s.now() / 1000; // the stop time, measured at the click, on the sidecar clock
+  let extras = {};
+  if (runner && runningScript) {
+    runner.stop();
+    const o = runner.outcome();
+    extras = {
+      scriptOutcome: { complete: o.complete, lastSegmentIndex: o.lastSegmentIndex },
+      labelsCsv: buildLabelsCsv(runningScript.segments, o.cues, stopS, o.endS),
+    };
+    runner = null;
+    runningScript = null;
+  }
   try {
-    await s.stopAndDownload();
+    await s.stopAndDownload(extras);
     setText("vRec", "saved " + s.id);
   } catch (e) {
     console.error(e);
@@ -478,7 +530,8 @@ btnStop.addEventListener("click", async () => {
   session = null;
   stopping = false;
   setPhase("ready");
-  laptopEl.disabled = scenarioEl.disabled = saveRawEl.disabled = false;
+  laptopEl.disabled = saveRawEl.disabled = scriptSel.disabled = false;
+  scenarioEl.disabled = chosenScript() !== null;
 });
 
 // Key presses: only the TIME and a CATEGORY (char, backspace, delete, enter, space, other) are recorded, and only while

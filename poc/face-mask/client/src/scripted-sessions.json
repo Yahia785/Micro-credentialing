@@ -1,0 +1,812 @@
+{
+ "version": 2,
+ "note": "Scripted PoC sessions. Times in seconds from Start recording. No personal data.",
+ "sessions": {
+  "H1": {
+   "split": "tuning",
+   "kind": "honest",
+   "segments": [
+    {
+     "start_s": 0.0,
+     "end_s": 20.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 20.0,
+     "end_s": 35.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 35.0,
+     "end_s": 55.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 55.0,
+     "end_s": 60.0,
+     "label": "honest-think",
+     "direction": "up",
+     "say": "Stop typing. Look UP and think. Then back to the screen"
+    },
+    {
+     "start_s": 60.0,
+     "end_s": 80.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 80.0,
+     "end_s": 88.0,
+     "label": "honest-break",
+     "direction": "",
+     "say": "Sit back, stretch or drink, glance around the room"
+    },
+    {
+     "start_s": 88.0,
+     "end_s": 108.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 108.0,
+     "end_s": 123.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 123.0,
+     "end_s": 133.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 133.0,
+     "end_s": 153.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 153.0,
+     "end_s": 158.0,
+     "label": "honest-think-side",
+     "direction": "left",
+     "say": "Stop typing. Look to the LEFT (not at the notes) and think"
+    },
+    {
+     "start_s": 158.0,
+     "end_s": 178.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 178.0,
+     "end_s": 193.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 193.0,
+     "end_s": 198.0,
+     "label": "honest-think",
+     "direction": "up",
+     "say": "Stop typing. Look UP and think. Then back to the screen"
+    },
+    {
+     "start_s": 198.0,
+     "end_s": 218.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 218.0,
+     "end_s": 228.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 228.0,
+     "end_s": 243.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    }
+   ]
+  },
+  "H2": {
+   "split": "heldout",
+   "kind": "honest",
+   "segments": [
+    {
+     "start_s": 0.0,
+     "end_s": 15.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 15.0,
+     "end_s": 30.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 30.0,
+     "end_s": 35.0,
+     "label": "honest-think",
+     "direction": "up",
+     "say": "Stop typing. Look UP and think. Then back to the screen"
+    },
+    {
+     "start_s": 35.0,
+     "end_s": 60.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 60.0,
+     "end_s": 70.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 70.0,
+     "end_s": 90.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 90.0,
+     "end_s": 105.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 105.0,
+     "end_s": 113.0,
+     "label": "honest-break",
+     "direction": "",
+     "say": "Sit back, stretch or drink, glance around the room"
+    },
+    {
+     "start_s": 113.0,
+     "end_s": 133.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 133.0,
+     "end_s": 138.0,
+     "label": "honest-think-side",
+     "direction": "left",
+     "say": "Stop typing. Look to the LEFT (not at the notes) and think"
+    },
+    {
+     "start_s": 138.0,
+     "end_s": 158.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 158.0,
+     "end_s": 173.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 173.0,
+     "end_s": 188.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 188.0,
+     "end_s": 193.0,
+     "label": "honest-think",
+     "direction": "up",
+     "say": "Stop typing. Look UP and think. Then back to the screen"
+    },
+    {
+     "start_s": 193.0,
+     "end_s": 213.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 213.0,
+     "end_s": 225.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 225.0,
+     "end_s": 240.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    }
+   ]
+  },
+  "C1": {
+   "split": "tuning",
+   "kind": "cheat",
+   "segments": [
+    {
+     "start_s": 0.0,
+     "end_s": 10.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 10.0,
+     "end_s": 25.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 25.0,
+     "end_s": 40.0,
+     "label": "copy-phone-desk",
+     "direction": "down",
+     "say": "COPY from the PHONE lying flat by the keyboard. Glance, type, repeat"
+    },
+    {
+     "start_s": 40.0,
+     "end_s": 50.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 50.0,
+     "end_s": 60.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 60.0,
+     "end_s": 75.0,
+     "label": "copy-screen",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN (turn your head as you normally would). Glance, type, repeat"
+    },
+    {
+     "start_s": 75.0,
+     "end_s": 90.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 90.0,
+     "end_s": 95.0,
+     "label": "honest-think",
+     "direction": "up",
+     "say": "Stop typing. Look UP and think. Then back to the screen"
+    },
+    {
+     "start_s": 95.0,
+     "end_s": 100.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 100.0,
+     "end_s": 115.0,
+     "label": "copy-phone-lap",
+     "direction": "down",
+     "say": "COPY from the PHONE in your LAP. Glance, type, repeat"
+    },
+    {
+     "start_s": 115.0,
+     "end_s": 125.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 125.0,
+     "end_s": 135.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 135.0,
+     "end_s": 150.0,
+     "label": "copy-screen-eyes",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN using EYES ONLY, keep your head still. Glance, type, repeat"
+    },
+    {
+     "start_s": 150.0,
+     "end_s": 170.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 170.0,
+     "end_s": 185.0,
+     "label": "copy-phone-desk",
+     "direction": "down",
+     "say": "COPY from the PHONE lying flat by the keyboard. Glance, type, repeat"
+    },
+    {
+     "start_s": 185.0,
+     "end_s": 195.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 195.0,
+     "end_s": 205.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 205.0,
+     "end_s": 220.0,
+     "label": "copy-screen",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN (turn your head as you normally would). Glance, type, repeat"
+    },
+    {
+     "start_s": 220.0,
+     "end_s": 235.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    }
+   ]
+  },
+  "C2": {
+   "split": "tuning",
+   "kind": "cheat",
+   "segments": [
+    {
+     "start_s": 0.0,
+     "end_s": 10.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 10.0,
+     "end_s": 20.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 20.0,
+     "end_s": 30.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 30.0,
+     "end_s": 45.0,
+     "label": "copy-screen-eyes",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN using EYES ONLY, keep your head still. Glance, type, repeat"
+    },
+    {
+     "start_s": 45.0,
+     "end_s": 65.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 65.0,
+     "end_s": 80.0,
+     "label": "copy-phone-lap",
+     "direction": "down",
+     "say": "COPY from the PHONE in your LAP. Glance, type, repeat"
+    },
+    {
+     "start_s": 80.0,
+     "end_s": 90.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 90.0,
+     "end_s": 95.0,
+     "label": "honest-think",
+     "direction": "up",
+     "say": "Stop typing. Look UP and think. Then back to the screen"
+    },
+    {
+     "start_s": 95.0,
+     "end_s": 100.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 100.0,
+     "end_s": 115.0,
+     "label": "copy-screen",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN (turn your head as you normally would). Glance, type, repeat"
+    },
+    {
+     "start_s": 115.0,
+     "end_s": 125.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 125.0,
+     "end_s": 135.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 135.0,
+     "end_s": 150.0,
+     "label": "copy-phone-desk",
+     "direction": "down",
+     "say": "COPY from the PHONE lying flat by the keyboard. Glance, type, repeat"
+    },
+    {
+     "start_s": 150.0,
+     "end_s": 165.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 165.0,
+     "end_s": 180.0,
+     "label": "copy-screen-eyes",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN using EYES ONLY, keep your head still. Glance, type, repeat"
+    },
+    {
+     "start_s": 180.0,
+     "end_s": 190.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 190.0,
+     "end_s": 200.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 200.0,
+     "end_s": 215.0,
+     "label": "copy-phone-lap",
+     "direction": "down",
+     "say": "COPY from the PHONE in your LAP. Glance, type, repeat"
+    },
+    {
+     "start_s": 215.0,
+     "end_s": 230.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    }
+   ]
+  },
+  "C3": {
+   "split": "heldout",
+   "kind": "cheat",
+   "segments": [
+    {
+     "start_s": 0.0,
+     "end_s": 10.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 10.0,
+     "end_s": 20.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 20.0,
+     "end_s": 30.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 30.0,
+     "end_s": 45.0,
+     "label": "copy-phone-lap",
+     "direction": "down",
+     "say": "COPY from the PHONE in your LAP. Glance, type, repeat"
+    },
+    {
+     "start_s": 45.0,
+     "end_s": 65.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 65.0,
+     "end_s": 80.0,
+     "label": "copy-screen-eyes",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN using EYES ONLY, keep your head still. Glance, type, repeat"
+    },
+    {
+     "start_s": 80.0,
+     "end_s": 90.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 90.0,
+     "end_s": 95.0,
+     "label": "honest-think",
+     "direction": "up",
+     "say": "Stop typing. Look UP and think. Then back to the screen"
+    },
+    {
+     "start_s": 95.0,
+     "end_s": 100.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 100.0,
+     "end_s": 115.0,
+     "label": "copy-phone-desk",
+     "direction": "down",
+     "say": "COPY from the PHONE lying flat by the keyboard. Glance, type, repeat"
+    },
+    {
+     "start_s": 115.0,
+     "end_s": 125.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 125.0,
+     "end_s": 135.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 135.0,
+     "end_s": 150.0,
+     "label": "copy-screen",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN (turn your head as you normally would). Glance, type, repeat"
+    },
+    {
+     "start_s": 150.0,
+     "end_s": 165.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 165.0,
+     "end_s": 180.0,
+     "label": "copy-phone-lap",
+     "direction": "down",
+     "say": "COPY from the PHONE in your LAP. Glance, type, repeat"
+    },
+    {
+     "start_s": 180.0,
+     "end_s": 190.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 190.0,
+     "end_s": 200.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 200.0,
+     "end_s": 215.0,
+     "label": "copy-screen-eyes",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN using EYES ONLY, keep your head still. Glance, type, repeat"
+    },
+    {
+     "start_s": 215.0,
+     "end_s": 230.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    }
+   ]
+  },
+  "C4": {
+   "split": "heldout",
+   "kind": "cheat",
+   "segments": [
+    {
+     "start_s": 0.0,
+     "end_s": 10.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 10.0,
+     "end_s": 25.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 25.0,
+     "end_s": 40.0,
+     "label": "copy-screen",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN (turn your head as you normally would). Glance, type, repeat"
+    },
+    {
+     "start_s": 40.0,
+     "end_s": 50.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 50.0,
+     "end_s": 60.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 60.0,
+     "end_s": 75.0,
+     "label": "copy-phone-desk",
+     "direction": "down",
+     "say": "COPY from the PHONE lying flat by the keyboard. Glance, type, repeat"
+    },
+    {
+     "start_s": 75.0,
+     "end_s": 90.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 90.0,
+     "end_s": 95.0,
+     "label": "honest-think",
+     "direction": "up",
+     "say": "Stop typing. Look UP and think. Then back to the screen"
+    },
+    {
+     "start_s": 95.0,
+     "end_s": 100.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 100.0,
+     "end_s": 115.0,
+     "label": "copy-screen-eyes",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN using EYES ONLY, keep your head still. Glance, type, repeat"
+    },
+    {
+     "start_s": 115.0,
+     "end_s": 125.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 125.0,
+     "end_s": 135.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 135.0,
+     "end_s": 150.0,
+     "label": "copy-phone-lap",
+     "direction": "down",
+     "say": "COPY from the PHONE in your LAP. Glance, type, repeat"
+    },
+    {
+     "start_s": 150.0,
+     "end_s": 170.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 170.0,
+     "end_s": 185.0,
+     "label": "copy-screen",
+     "direction": "right",
+     "say": "COPY from the SECOND SCREEN (turn your head as you normally would). Glance, type, repeat"
+    },
+    {
+     "start_s": 185.0,
+     "end_s": 195.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    },
+    {
+     "start_s": 195.0,
+     "end_s": 205.0,
+     "label": "honest-keyboard",
+     "direction": "",
+     "say": "Type your own code, looking down at the KEYBOARD"
+    },
+    {
+     "start_s": 205.0,
+     "end_s": 220.0,
+     "label": "copy-phone-desk",
+     "direction": "down",
+     "say": "COPY from the PHONE lying flat by the keyboard. Glance, type, repeat"
+    },
+    {
+     "start_s": 220.0,
+     "end_s": 235.0,
+     "label": "honest-type",
+     "direction": "",
+     "say": "Type your OWN code, eyes on the screen"
+    }
+   ]
+  }
+ }
+}
