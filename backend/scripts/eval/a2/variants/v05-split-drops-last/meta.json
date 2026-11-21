@@ -1,0 +1,11 @@
+{
+  "id": "v05-split-drops-last",
+  "summary": "splitString never adds the text after the last delimiter.",
+  "bugs": [
+    {
+      "function": "splitString",
+      "kind": "missing-final-piece",
+      "description": "The final piece is not pushed after the loop. \"a,b,c\" gives a, b. With no delimiter in the string the result is empty instead of one element."
+    }
+  ]
+}

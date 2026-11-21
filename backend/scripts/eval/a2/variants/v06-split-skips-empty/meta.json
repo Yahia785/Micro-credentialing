@@ -1,0 +1,11 @@
+{
+  "id": "v06-split-skips-empty",
+  "summary": "splitString skips empty pieces.",
+  "bugs": [
+    {
+      "function": "splitString",
+      "kind": "drops-empty-parts",
+      "description": "Empty pieces are not added: \",apple,banana,orange\" loses the leading \"\" (and a trailing delimiter adds nothing)."
+    }
+  ]
+}

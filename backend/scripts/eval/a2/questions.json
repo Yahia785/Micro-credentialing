@@ -1,0 +1,541 @@
+{
+  "version": 1,
+  "about": "Question templates for the Assignment 02 pilot (ECE 2514). Every \"spec\" field is filled by run-all.js, by running the reference (predict), a one-line mutant of it (whatIf, see \"mutant\") or an instrumented copy of it (tracing, see \"trace\"). Do not edit spec fields by hand.",
+  "placeholders": "{input} = the input's \"display\" text, {kth} = the input's \"kth\" text, {change} / {pausePoint} / {variables} = the template's own fields.",
+  "functions": {
+    "reverseList": {
+      "primary": true,
+      "templates": [
+        {
+          "id": "reverseList.predict",
+          "type": "predict",
+          "question": "What would the vector hold after your reverseList runs on {input}?",
+          "standardInputs": [
+            {
+              "cmd": "reverseList 10 20 30 40 50",
+              "display": "the vector {10, 20, 30, 40, 50}",
+              "spec": "[50, 40, 30, 20, 10]"
+            },
+            {
+              "cmd": "reverseList 1 2 3 4",
+              "display": "the vector {1, 2, 3, 4}",
+              "spec": "[4, 3, 2, 1]"
+            },
+            {
+              "cmd": "reverseList 7",
+              "display": "the vector {7}",
+              "spec": "[7]"
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v03",
+              "cmd": "reverseList 3 5 8",
+              "display": "the vector {3, 5, 8}",
+              "spec": "[8, 5, 3]"
+            },
+            {
+              "bug": "v04",
+              "cmd": "reverseList",
+              "display": "an empty vector",
+              "spec": "[]"
+            }
+          ]
+        },
+        {
+          "id": "reverseList.whatIf",
+          "type": "whatIf",
+          "question": "If {change}, what would the vector hold after your reverseList runs on {input}?",
+          "change": "your loop did one fewer swap than it does now",
+          "mutant": "reference/whatif/reverseList-one-fewer-swap.cpp",
+          "standardInputs": [
+            {
+              "cmd": "reverseList 10 20 30 40 50",
+              "display": "the vector {10, 20, 30, 40, 50}",
+              "spec": "[50, 20, 30, 40, 10]",
+              "changesAnswer": true
+            },
+            {
+              "cmd": "reverseList 1 2",
+              "display": "the vector {1, 2}",
+              "spec": "[1, 2]",
+              "changesAnswer": true
+            },
+            {
+              "cmd": "reverseList",
+              "display": "an empty vector",
+              "spec": "[]",
+              "changesAnswer": false
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v03",
+              "cmd": "reverseList 3 5 8",
+              "display": "the vector {3, 5, 8}",
+              "spec": "[3, 5, 8]",
+              "changesAnswer": true
+            },
+            {
+              "bug": "v04",
+              "cmd": "reverseList",
+              "display": "an empty vector",
+              "spec": "[]",
+              "changesAnswer": false
+            }
+          ]
+        },
+        {
+          "id": "reverseList.tracing",
+          "type": "tracing",
+          "question": "If you paused your program at {pausePoint} while running reverseList on {input}, what would {variables} hold the {kth} time it stops?",
+          "pausePoint": "the start of a swap (just before two numbers are exchanged)",
+          "variables": "the two positions being swapped (the left one and the right one)",
+          "trace": "reference/trace/reverseList.cpp",
+          "standardInputs": [
+            {
+              "cmd": "reverseList 10 20 30 40 50",
+              "display": "the vector {10, 20, 30, 40, 50}",
+              "k": 2,
+              "kth": "2nd",
+              "stops": 2,
+              "spec": "left=1 right=3"
+            },
+            {
+              "cmd": "reverseList 1 2 3 4",
+              "display": "the vector {1, 2, 3, 4}",
+              "k": 1,
+              "kth": "1st",
+              "stops": 2,
+              "spec": "left=0 right=3\r"
+            },
+            {
+              "cmd": "reverseList 1 2 3 4 5 6",
+              "display": "the vector {1, 2, 3, 4, 5, 6}",
+              "k": 3,
+              "kth": "3rd",
+              "stops": 3,
+              "spec": "left=2 right=3"
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v03",
+              "cmd": "reverseList 1 2 3 4",
+              "display": "the vector {1, 2, 3, 4}",
+              "k": 3,
+              "kth": "3rd",
+              "stops": 2,
+              "spec": "it never stops a 3rd time (it stops 2 times)"
+            },
+            {
+              "bug": "v04",
+              "cmd": "reverseList",
+              "display": "an empty vector",
+              "k": 1,
+              "kth": "1st",
+              "stops": 0,
+              "spec": "it never stops a 1st time (it stops 0 times)"
+            }
+          ]
+        }
+      ]
+    },
+    "splitString": {
+      "primary": true,
+      "templates": [
+        {
+          "id": "splitString.predict",
+          "type": "predict",
+          "question": "What does your splitString return for {input}?",
+          "standardInputs": [
+            {
+              "cmd": "splitString , a,b,c",
+              "display": "the string \"a,b,c\" with delimiter ','",
+              "spec": "[\"a\", \"b\", \"c\"]"
+            },
+            {
+              "cmd": "splitString , ,apple,banana,orange",
+              "display": "the string \",apple,banana,orange\" with delimiter ','",
+              "spec": "[\"\", \"apple\", \"banana\", \"orange\"]"
+            },
+            {
+              "cmd": "splitString , abc",
+              "display": "the string \"abc\" with delimiter ','",
+              "spec": "[\"abc\"]"
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v05",
+              "cmd": "splitString , a,b,c",
+              "display": "the string \"a,b,c\" with delimiter ','",
+              "spec": "[\"a\", \"b\", \"c\"]"
+            },
+            {
+              "bug": "v06",
+              "cmd": "splitString , ,apple,banana,orange",
+              "display": "the string \",apple,banana,orange\" with delimiter ','",
+              "spec": "[\"\", \"apple\", \"banana\", \"orange\"]"
+            },
+            {
+              "bug": "v10",
+              "cmd": "splitString , a,b,c",
+              "display": "the string \"a,b,c\" with delimiter ','",
+              "spec": "[\"a\", \"b\", \"c\"]"
+            }
+          ]
+        },
+        {
+          "id": "splitString.whatIf",
+          "type": "whatIf",
+          "question": "If {change}, what would your splitString return for {input}?",
+          "change": "every piece also kept the delimiter that ended it",
+          "mutant": "reference/whatif/splitString-keep-delimiter.cpp",
+          "standardInputs": [
+            {
+              "cmd": "splitString , a,b,c",
+              "display": "the string \"a,b,c\" with delimiter ','",
+              "spec": "[\"a,\", \"b,\", \"c\"]",
+              "changesAnswer": true
+            },
+            {
+              "cmd": "splitString , abc",
+              "display": "the string \"abc\" with delimiter ','",
+              "spec": "[\"abc\"]",
+              "changesAnswer": false
+            },
+            {
+              "cmd": "splitString , ",
+              "display": "an empty string with delimiter ','",
+              "spec": "[]",
+              "changesAnswer": false
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v05",
+              "cmd": "splitString , a,b,c",
+              "display": "the string \"a,b,c\" with delimiter ','",
+              "spec": "[\"a,\", \"b,\", \"c\"]",
+              "changesAnswer": true
+            },
+            {
+              "bug": "v06",
+              "cmd": "splitString , ,apple,banana,orange",
+              "display": "the string \",apple,banana,orange\" with delimiter ','",
+              "spec": "[\",\", \"apple,\", \"banana,\", \"orange\"]",
+              "changesAnswer": true
+            },
+            {
+              "bug": "v10",
+              "cmd": "splitString , a,b,c",
+              "display": "the string \"a,b,c\" with delimiter ','",
+              "spec": "[\"a,\", \"b,\", \"c\"]",
+              "changesAnswer": true
+            }
+          ]
+        },
+        {
+          "id": "splitString.tracing",
+          "type": "tracing",
+          "question": "If you paused your program at {pausePoint} while running splitString on {input}, what would {variables} hold the {kth} time it stops?",
+          "pausePoint": "the moment a piece has just been added to the result (including the last piece)",
+          "variables": "the piece that was just added",
+          "trace": "reference/trace/splitString.cpp",
+          "standardInputs": [
+            {
+              "cmd": "splitString , a,b,c",
+              "display": "the string \"a,b,c\" with delimiter ','",
+              "k": 2,
+              "kth": "2nd",
+              "stops": 3,
+              "spec": "piece=\"b\"\r"
+            },
+            {
+              "cmd": "splitString , ,apple,banana,orange",
+              "display": "the string \",apple,banana,orange\" with delimiter ','",
+              "k": 1,
+              "kth": "1st",
+              "stops": 4,
+              "spec": "piece=\"\"\r"
+            },
+            {
+              "cmd": "splitString , abc",
+              "display": "the string \"abc\" with delimiter ','",
+              "k": 1,
+              "kth": "1st",
+              "stops": 1,
+              "spec": "piece=\"abc\""
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v05",
+              "cmd": "splitString , a,b,c",
+              "display": "the string \"a,b,c\" with delimiter ','",
+              "k": 3,
+              "kth": "3rd",
+              "stops": 3,
+              "spec": "piece=\"c\""
+            },
+            {
+              "bug": "v06",
+              "cmd": "splitString , ,apple,banana,orange",
+              "display": "the string \",apple,banana,orange\" with delimiter ','",
+              "k": 1,
+              "kth": "1st",
+              "stops": 4,
+              "spec": "piece=\"\"\r"
+            },
+            {
+              "bug": "v10",
+              "cmd": "splitString , a,b,c",
+              "display": "the string \"a,b,c\" with delimiter ','",
+              "k": 1,
+              "kth": "1st",
+              "stops": 3,
+              "spec": "piece=\"a\"\r"
+            }
+          ]
+        }
+      ]
+    },
+    "playCraps": {
+      "primary": true,
+      "templates": [
+        {
+          "id": "playCraps.predict",
+          "type": "predict",
+          "question": "What does your playCraps return for {input}?",
+          "standardInputs": [
+            {
+              "cmd": "playCraps 2 2 1 2 3 4",
+              "display": "the dice values {2, 2, 1, 2, 3, 4}",
+              "spec": "1"
+            },
+            {
+              "cmd": "playCraps 5 6",
+              "display": "the dice values {5, 6}",
+              "spec": "0"
+            },
+            {
+              "cmd": "playCraps 0 3",
+              "display": "the dice values {0, 3}",
+              "spec": "-1"
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v07",
+              "cmd": "playCraps 3 4 7 1",
+              "display": "the dice values {3, 4, 7, 1}",
+              "spec": "-1"
+            },
+            {
+              "bug": "v08",
+              "cmd": "playCraps 2 2 1 2",
+              "display": "the dice values {2, 2, 1, 2}",
+              "spec": "2"
+            }
+          ]
+        },
+        {
+          "id": "playCraps.whatIf",
+          "type": "whatIf",
+          "question": "If {change}, what would your playCraps return for {input}?",
+          "change": "a first roll that adds up to 11 were no longer an instant win for the player",
+          "mutant": "reference/whatif/playCraps-eleven-not-instant-win.cpp",
+          "standardInputs": [
+            {
+              "cmd": "playCraps 5 6",
+              "display": "the dice values {5, 6}",
+              "spec": "2",
+              "changesAnswer": true
+            },
+            {
+              "cmd": "playCraps 5 6 5 6",
+              "display": "the dice values {5, 6, 5, 6}",
+              "spec": "0",
+              "changesAnswer": false
+            },
+            {
+              "cmd": "playCraps 3 4",
+              "display": "the dice values {3, 4}",
+              "spec": "0",
+              "changesAnswer": false
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v07",
+              "cmd": "playCraps 3 4 7 1",
+              "display": "the dice values {3, 4, 7, 1}",
+              "spec": "-1",
+              "changesAnswer": false
+            },
+            {
+              "bug": "v08",
+              "cmd": "playCraps 2 2 1 2",
+              "display": "the dice values {2, 2, 1, 2}",
+              "spec": "2",
+              "changesAnswer": false
+            }
+          ]
+        },
+        {
+          "id": "playCraps.tracing",
+          "type": "tracing",
+          "question": "If you paused your program at {pausePoint} while running playCraps on {input}, what would {variables} hold the {kth} time it stops?",
+          "pausePoint": "the moment the sum of one roll (two dice) has just been worked out",
+          "variables": "that sum",
+          "trace": "reference/trace/playCraps.cpp",
+          "standardInputs": [
+            {
+              "cmd": "playCraps 2 2 1 2 3 4",
+              "display": "the dice values {2, 2, 1, 2, 3, 4}",
+              "k": 2,
+              "kth": "2nd",
+              "stops": 3,
+              "spec": "sum=3\r"
+            },
+            {
+              "cmd": "playCraps 5 6",
+              "display": "the dice values {5, 6}",
+              "k": 1,
+              "kth": "1st",
+              "stops": 1,
+              "spec": "sum=11"
+            },
+            {
+              "cmd": "playCraps 4 4 3 3 6 2",
+              "display": "the dice values {4, 4, 3, 3, 6, 2}",
+              "k": 3,
+              "kth": "3rd",
+              "stops": 3,
+              "spec": "sum=8"
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v07",
+              "cmd": "playCraps 3 4 7 1",
+              "display": "the dice values {3, 4, 7, 1}",
+              "k": 1,
+              "kth": "1st",
+              "stops": 0,
+              "spec": "it never stops a 1st time (it stops 0 times)"
+            }
+          ]
+        }
+      ]
+    },
+    "mode": {
+      "primary": false,
+      "templates": [
+        {
+          "id": "mode.predict",
+          "type": "predict",
+          "question": "What does your mode return for {input}?",
+          "standardInputs": [
+            {
+              "cmd": "mode 5",
+              "display": "the vector {5}",
+              "spec": "5"
+            },
+            {
+              "cmd": "mode 9 2 9 4",
+              "display": "the vector {9, 2, 9, 4}",
+              "spec": "9"
+            },
+            {
+              "cmd": "mode 1 1 2 2 2 3",
+              "display": "the vector {1, 1, 2, 2, 2, 3}",
+              "spec": "2"
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v09",
+              "cmd": "mode 3 1 3 1",
+              "display": "the vector {3, 1, 3, 1}",
+              "spec": "1"
+            }
+          ]
+        },
+        {
+          "id": "mode.whatIf",
+          "type": "whatIf",
+          "question": "If {change}, what would your mode return for {input}?",
+          "change": "a tie went to the number that appears first in the vector instead of the smallest number",
+          "mutant": "reference/whatif/mode-ties-to-first.cpp",
+          "standardInputs": [
+            {
+              "cmd": "mode 3 1 3 1",
+              "display": "the vector {3, 1, 3, 1}",
+              "spec": "3",
+              "changesAnswer": true
+            },
+            {
+              "cmd": "mode 9 2 9 4",
+              "display": "the vector {9, 2, 9, 4}",
+              "spec": "9",
+              "changesAnswer": false
+            },
+            {
+              "cmd": "mode 5",
+              "display": "the vector {5}",
+              "spec": "5",
+              "changesAnswer": false
+            }
+          ],
+          "targetInputs": [
+            {
+              "bug": "v09",
+              "cmd": "mode 8 2 2 8",
+              "display": "the vector {8, 2, 2, 8}",
+              "spec": "8",
+              "changesAnswer": true
+            }
+          ]
+        },
+        {
+          "id": "mode.tracing",
+          "type": "tracing",
+          "question": "If you paused your program at {pausePoint} while running mode on {input}, what would {variables} hold the {kth} time it stops?",
+          "pausePoint": "the moment it has just finished counting how often one particular value occurs",
+          "variables": "that value and its count",
+          "trace": "reference/trace/mode.cpp",
+          "note": "Style dependent: the reference counts each DISTINCT value once, in ascending order. A student who counts per element or per index stops more often.",
+          "standardInputs": [
+            {
+              "cmd": "mode 3 1 3 1",
+              "display": "the vector {3, 1, 3, 1}",
+              "k": 1,
+              "kth": "1st",
+              "stops": 2,
+              "spec": "value=1 count=2\r"
+            },
+            {
+              "cmd": "mode 5",
+              "display": "the vector {5}",
+              "k": 1,
+              "kth": "1st",
+              "stops": 1,
+              "spec": "value=5 count=1"
+            },
+            {
+              "cmd": "mode 4 4 7",
+              "display": "the vector {4, 4, 7}",
+              "k": 2,
+              "kth": "2nd",
+              "stops": 2,
+              "spec": "value=7 count=1"
+            }
+          ],
+          "targetInputs": []
+        }
+      ]
+    }
+  }
+}

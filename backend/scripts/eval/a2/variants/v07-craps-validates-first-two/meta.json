@@ -1,0 +1,11 @@
+{
+  "id": "v07-craps-validates-first-two",
+  "summary": "playCraps only validates the first two values.",
+  "bugs": [
+    {
+      "function": "playCraps",
+      "kind": "partial-validation",
+      "description": "Only rolls[0] and rolls[1] are checked for 1 to 6. A bad value in a later roll (or after an instant win) is not reported as -1."
+    }
+  ]
+}

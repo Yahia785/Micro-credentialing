@@ -1,0 +1,11 @@
+{
+  "id": "v03-reverse-loop-to-end",
+  "summary": "reverseList loop runs to vec.size() instead of the middle.",
+  "bugs": [
+    {
+      "function": "reverseList",
+      "kind": "loop-bound",
+      "description": "Loop goes to vec.size(), so every pair is swapped twice and the vector ends unchanged (size 1 and 0 are fine)."
+    }
+  ]
+}

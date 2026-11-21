@@ -1,0 +1,11 @@
+{
+  "id": "v09-mode-ties-larger",
+  "summary": "mode breaks ties toward the larger number.",
+  "bugs": [
+    {
+      "function": "mode",
+      "kind": "tie-break",
+      "description": "Uses >= when scanning the sorted vector, so on a tie the last (largest) value wins."
+    }
+  ]
+}

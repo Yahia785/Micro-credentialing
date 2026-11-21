@@ -1,0 +1,11 @@
+{
+  "id": "v10-split-stub",
+  "summary": "splitString is an unfinished stub returning {}.",
+  "bugs": [
+    {
+      "function": "splitString",
+      "kind": "stub",
+      "description": "Body is \"return {};\". Only correct for the empty string."
+    }
+  ]
+}

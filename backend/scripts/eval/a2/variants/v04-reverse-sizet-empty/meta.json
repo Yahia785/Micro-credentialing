@@ -1,0 +1,11 @@
+{
+  "id": "v04-reverse-sizet-empty",
+  "summary": "reverseList uses size_t for the right index.",
+  "bugs": [
+    {
+      "function": "reverseList",
+      "kind": "unsigned-underflow",
+      "description": "size_t right = vec.size() - 1 wraps around on an empty vector, the loop runs and vec[0] is read from an empty vector (crash)."
+    }
+  ]
+}

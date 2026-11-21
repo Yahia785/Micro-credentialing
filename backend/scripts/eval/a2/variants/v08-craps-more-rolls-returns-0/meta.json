@@ -1,0 +1,11 @@
+{
+  "id": "v08-craps-more-rolls-returns-0",
+  "summary": "playCraps returns 0 when more rolls are needed.",
+  "bugs": [
+    {
+      "function": "playCraps",
+      "kind": "wrong-return-code",
+      "description": "The final return is 0 instead of 2, so \"game not finished\" (including an empty vector) is reported as a player win."
+    }
+  ]
+}
