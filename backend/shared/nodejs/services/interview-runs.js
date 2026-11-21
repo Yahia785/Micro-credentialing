@@ -97,6 +97,7 @@ async function runAllQuestions({ code, questions, userId, interviewId, limits = 
         inputs.splice(i, 1);
       } else {
         inputs[i].source = built.source;
+        inputs[i].marker = built.marker;
       }
     }
     if (inputs.length === 0) return out;
@@ -143,7 +144,7 @@ async function runAllQuestions({ code, questions, userId, interviewId, limits = 
     return out;
   }
 
-  allowed.forEach(({ q, run }, i) => {
+  allowed.forEach(({ q, run, marker }, i) => {
     const result = results[i];
     if (brokenRun(result)) {
       addError(q, run, 'runner', detailOf('internal_error', result && result.message));
@@ -162,7 +163,7 @@ async function runAllQuestions({ code, questions, userId, interviewId, limits = 
       if (program.kind !== 'plain' && result.status === 'compile_error') addError(q, run, 'compile', compileReason(program.kind, result.compileOutput));
       else if (program.kind !== 'plain' && result.status !== 'accepted') addError(q, run, 'run', result.status);
       else if (program.kind === 'trace') {
-        const stops = harnessBuilder.parseAllStops(result.stderr);
+        const stops = harnessBuilder.parseAllStops(result.stderr, marker);
         entry.trace = { total: stops.length, stops: stops.slice(0, MAX_TRACE_STOPS_KEPT) };
         if (typeof program.expectStdout === 'string' && program.expectStdout.slice(0, MAX_STDOUT_CHARS) !== entry.stdout) {
           addError(q, run, 'check', 'instrumentation changed behavior');

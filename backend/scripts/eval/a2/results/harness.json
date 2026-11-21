@@ -34,6 +34,7 @@
               "left number=10, right number=50",
               "left number=20, right number=40"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -73,6 +74,7 @@
               "piece=\"a\"",
               "piece=\"b\""
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -113,6 +115,7 @@
               "sum=3",
               "sum=7"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -152,6 +155,7 @@
             "allStops": [
               "value=5, count=1"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -279,6 +283,7 @@
               "left number=10, right number=50",
               "left number=20, right number=40"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -318,6 +323,7 @@
               "piece=\"a\"",
               "piece=\"b\""
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -357,6 +363,7 @@
               "sum=3",
               "sum=7"
             ],
+            "differsFromReference": true,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -396,6 +403,7 @@
             "allStops": [
               "value=5, count=1"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -523,6 +531,7 @@
               "left number=10, right number=50",
               "left number=20, right number=40"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -562,6 +571,7 @@
               "piece=\"a\"",
               "piece=\"b\""
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -602,6 +612,7 @@
               "sum=3",
               "sum=7"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -641,6 +652,7 @@
             "allStops": [
               "value=5, count=1"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -769,6 +781,7 @@
               "left number=5, right number=5",
               "left number=3, right number=8"
             ],
+            "differsFromReference": true,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -808,6 +821,7 @@
               "piece=\"a\"",
               "piece=\"b\""
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -847,6 +861,7 @@
               "sum=3",
               "sum=7"
             ],
+            "differsFromReference": true,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -886,6 +901,7 @@
             "allStops": [
               "value=5, count=1"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1018,6 +1034,7 @@
               "left number=10, right number=50",
               "left number=20, right number=40"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1057,6 +1074,7 @@
               "piece=\"a\"",
               "piece=\"b\""
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1097,6 +1115,7 @@
               "sum=3",
               "sum=7"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1136,6 +1155,7 @@
             "allStops": [
               "value=5, count=1"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1263,6 +1283,7 @@
               "left number=10, right number=50",
               "left number=20, right number=40"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1302,6 +1323,7 @@
               "piece=\"a\"",
               "piece=\"b\""
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1341,6 +1363,7 @@
               "sum=3",
               "sum=7"
             ],
+            "differsFromReference": true,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1380,6 +1403,7 @@
             "allStops": [
               "value=5, count=1"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1507,6 +1531,7 @@
               "left number=10, right number=50",
               "left number=20, right number=40"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1546,6 +1571,7 @@
               "piece=\"apple\"",
               "piece=\"banana\""
             ],
+            "differsFromReference": true,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1586,6 +1612,7 @@
               "sum=3",
               "sum=7"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1625,6 +1652,7 @@
             "allStops": [
               "value=5, count=1"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1752,6 +1780,7 @@
               "left number=10, right number=50",
               "left number=20, right number=40"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1791,6 +1820,7 @@
               "piece=\"a\"",
               "piece=\"b\""
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1831,6 +1861,7 @@
               "sum=3",
               "sum=12"
             ],
+            "differsFromReference": true,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1870,6 +1901,7 @@
             "allStops": [
               "value=5, count=1"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1997,6 +2029,7 @@
               "left number=10, right number=50",
               "left number=20, right number=40"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2036,6 +2069,7 @@
               "piece=\"a\"",
               "piece=\"b\""
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2075,6 +2109,7 @@
               "sum=4",
               "sum=3"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2114,6 +2149,7 @@
             "allStops": [
               "value=5, count=1"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2241,6 +2277,7 @@
               "left number=10, right number=50",
               "left number=20, right number=40"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2280,6 +2317,7 @@
               "piece=\"a\"",
               "piece=\"b\""
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2319,6 +2357,7 @@
               "sum=3",
               "sum=7"
             ],
+            "differsFromReference": true,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2359,6 +2398,7 @@
               "value=1, count=2",
               "value=3, count=2"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2486,6 +2526,7 @@
               "left number=10, right number=50",
               "left number=20, right number=40"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2554,6 +2595,7 @@
               "sum=3",
               "sum=7"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2593,6 +2635,7 @@
             "allStops": [
               "value=5, count=1"
             ],
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "about": "Question design for the Assignment 02 pilot (ECE 2514). Main questions are predict and tracing only, one per function, the type rotating by form. what-if is a follow-up prepared for every function (see followUp). Fields \"spec\" (predict answers) and \"refStops\" (the reference's trace stops, used only to choose a K for targeted inputs) are filled by run-all.js by running code. Do not edit them by hand. There is no spec answer for tracing: the answer is the student's own trace.",
-  "placeholders": "{input} = the input's \"display\" text, {kth} = \"1st\", \"2nd\", ... (chosen per student from their own trace), {line}, {find}, {replace} = the prepared what-if change.",
+  "placeholders": "Main questions: {input} = the input's \"display\" text; tracing also {line} (the student's breakpoint line, pauseLine in meta.json), {function}, {kth} (\"1st\", \"2nd\", ..., chosen per student from their own trace) and {what} (per function, tracing.what). Follow-up: {line}, {find}, {replace}, {function}, {input}.",
   "forms": {
     "A": {
       "reverseList": "predict",
@@ -14,6 +14,7 @@
       "playCraps": "tracing"
     }
   },
+  "tracingQuestion": "You put a breakpoint on line {line} and run {function} on {input}. When it stops for the {kth} time, {what}?",
   "backup": "mode is the backup. It replaces a function that cannot be asked (for example a tracing question when the function has no line to put a breakpoint on) and takes the type of the function it replaces.",
   "followUp": {
     "question": "If you changed line {line} of your code from `{find}` to `{replace}`, what would your {function} return for {input}?",
@@ -37,7 +38,7 @@
         "question": "What would the vector hold after your reverseList runs on {input}?"
       },
       "tracing": {
-        "question": "You put a breakpoint on the line that swaps two numbers and run reverseList on {input}. When it stops for the {kth} time, which two numbers are about to be swapped?",
+        "what": "which two numbers are about to be swapped",
         "preferredK": 2
       },
       "standardInputs": [
@@ -91,7 +92,7 @@
         "question": "What does your splitString return for {input}?"
       },
       "tracing": {
-        "question": "You put a breakpoint on the line that adds a piece to the result and run splitString on {input}. When it stops for the {kth} time, what piece is about to be added?",
+        "what": "what piece is about to be added",
         "preferredK": 2
       },
       "standardInputs": [
@@ -161,7 +162,7 @@
         "question": "What does your playCraps return for {input}?"
       },
       "tracing": {
-        "question": "You put a breakpoint on the line right after a roll's sum is worked out and run playCraps on {input}. When it stops for the {kth} time, what is that sum?",
+        "what": "what is the sum",
         "preferredK": 2
       },
       "standardInputs": [
@@ -225,7 +226,7 @@
         "question": "What does your mode return for {input}?"
       },
       "tracing": {
-        "question": "You put a breakpoint on the line that checks whether the value just counted beats the best so far and run mode on {input}. When it stops for the {kth} time, what are the value and its count that are about to be checked?",
+        "what": "what are the value and its count that are about to be checked",
         "preferredK": 2
       },
       "standardInputs": [

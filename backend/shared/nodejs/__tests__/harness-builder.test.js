@@ -95,6 +95,7 @@ describe('buildTraceProgram', () => {
     expect(part[4]).toBe('    harness_trace::emit("y", (y)); int y = x;');
     expect(part.filter((l) => l.includes('harness_trace')).length).toBe(1);
     expect(r.source).toContain('namespace harness_trace');
+    expect(r.source).toContain(`"${r.marker}"`); // the marker the program prints is the one returned
     expect(r.source.indexOf('namespace harness_trace')).toBeLessThan(r.source.indexOf('#line 1 "functions.cpp"'));
   });
 
@@ -249,52 +250,54 @@ describe('buildWhatIfProgram', () => {
 });
 
 describe('parseTrace', () => {
+  const MARKER = '@@TRACE-0123456789abcdef01234567@@';
   const stderr = [
-    `${hb.MARKER}\t1\tleft=10\tright=50`,
+    `${MARKER}\t1\tleft=10\tright=50`,
     'some student output',
-    `${hb.MARKER}\t2\tleft=20\tright=40`,
-    `text without newline${hb.MARKER}\t3\tleft=30\tright=30`,
+    `${MARKER}\t2\tleft=20\tright=40`,
+    `text without newline${MARKER}\t3\tleft=30\tright=30`,
   ].join('\n');
 
   test('returns the variables at the k-th stop', () => {
-    const second = hb.parseTrace(stderr, 2);
+    const second = hb.parseTrace(stderr, 2, MARKER);
     expect(second.values).toEqual({ left: '20', right: '40' });
     expect(second.text).toBe('left=20, right=40');
     expect(second.stop).toBe(2);
   });
 
   test('finds a stop that follows other output on the same line', () => {
-    expect(hb.parseTrace(stderr, 3).values).toEqual({ left: '30', right: '30' });
+    expect(hb.parseTrace(stderr, 3, MARKER).values).toEqual({ left: '30', right: '30' });
   });
 
   test('a stop that never happens is { noStop: true } with the number of stops there were', () => {
-    expect(hb.parseTrace(stderr, 4)).toEqual({ noStop: true, stops: 3 });
-    expect(hb.parseTrace('', 1)).toEqual({ noStop: true, stops: 0 });
-    expect(hb.parseTrace(undefined, 1)).toEqual({ noStop: true, stops: 0 });
-    expect(hb.parseTrace(stderr, 0)).toEqual({ noStop: true, stops: 3 });
-    expect(hb.parseTrace(stderr, 'two')).toEqual({ noStop: true, stops: 3 });
+    expect(hb.parseTrace(stderr, 4, MARKER)).toEqual({ noStop: true, stops: 3 });
+    expect(hb.parseTrace('', 1, MARKER)).toEqual({ noStop: true, stops: 0 });
+    expect(hb.parseTrace(undefined, 1, MARKER)).toEqual({ noStop: true, stops: 0 });
+    expect(hb.parseTrace(stderr, 0, MARKER)).toEqual({ noStop: true, stops: 3 });
+    expect(hb.parseTrace(stderr, 'two', MARKER)).toEqual({ noStop: true, stops: 3 });
   });
 
   test('keeps values with spaces, equals signs, quotes and empty values as written', () => {
-    const line = `${hb.MARKER}\t1\tpiece=""\tlist=[]\tword="a b=c"\tneg=-5`;
-    expect(hb.parseTrace(line, 1).values).toEqual({ piece: '""', list: '[]', word: '"a b=c"', neg: '-5' });
-    expect(hb.parseTrace(line, 1).text).toBe('piece="", list=[], word="a b=c", neg=-5');
+    const line = `${MARKER}\t1\tpiece=""\tlist=[]\tword="a b=c"\tneg=-5`;
+    expect(hb.parseTrace(line, 1, MARKER).values).toEqual({ piece: '""', list: '[]', word: '"a b=c"', neg: '-5' });
+    expect(hb.parseTrace(line, 1, MARKER).text).toBe('piece="", list=[], word="a b=c", neg=-5');
   });
 
   test('ignores a marker line that is damaged', () => {
-    expect(hb.parseTrace(`${hb.MARKER}\tx\ta=1`, 1)).toEqual({ noStop: true, stops: 0 });
+    expect(hb.parseTrace(`${MARKER}\tx\ta=1`, 1)).toEqual({ noStop: true, stops: 0 });
   });
 });
 
 describe('value formatting in the prelude', () => {
+  const PRELUDE = hb.tracePrelude('@@TRACE-fedcba9876543210@@');
   test('quotes strings and chars, prints bool as true/false, and has no generic overload', () => {
-    expect(hb.TRACE_PRELUDE).toContain('quote(o, v)');
-    expect(hb.TRACE_PRELUDE).toContain('"true" : "false"');
-    expect(hb.TRACE_PRELUDE).toContain('std::vector<int>');
-    expect(hb.TRACE_PRELUDE).toContain('std::vector<std::string>');
-    expect(hb.TRACE_PRELUDE).toContain('std::vector<char>');
-    expect(hb.TRACE_PRELUDE).toContain('std::vector<double>');
-    expect(hb.TRACE_PRELUDE).not.toMatch(/template <class T> void put\(/); // an unsupported type must not compile
+    expect(PRELUDE).toContain('quote(o, v)');
+    expect(PRELUDE).toContain('"true" : "false"');
+    expect(PRELUDE).toContain('std::vector<int>');
+    expect(PRELUDE).toContain('std::vector<std::string>');
+    expect(PRELUDE).toContain('std::vector<char>');
+    expect(PRELUDE).toContain('std::vector<double>');
+    expect(PRELUDE).not.toMatch(/template <class T> void put\(/); // an unsupported type must not compile
   });
 
   // Needs a C++ compiler: run with GXX=/path/to/g++ (the test is skipped when there is none).
@@ -312,10 +315,10 @@ describe('value formatting in the prelude', () => {
       const exe = path.join(dir, process.platform === 'win32' ? 'a.exe' : 'a');
       const c = spawnSync(gxx, ['-std=c++17', '-o', exe, src], { encoding: 'utf8', env });
       if (c.status !== 0) return { compileError: c.stderr };
-      return { stderr: spawnSync(exe, [], { encoding: 'utf8', env }).stderr };
+      return { stderr: spawnSync(exe, [], { encoding: 'utf8', env }).stderr, marker: built.marker };
     };
     const ok = run('    string e = ""; vector<int> v; vector<string> w = {"a", ""}; char c = \'x\'; bool b = true;', [{ name: 'e', expr: 'e' }, { name: 'v', expr: 'v' }, { name: 'w', expr: 'w' }, { name: 'c', expr: 'c' }, { name: 'b', expr: 'b' }]);
-    expect(hb.parseTrace(ok.stderr, 1).values).toEqual({ e: '""', v: '[]', w: '["a", ""]', c: '"x"', b: 'true' });
+    expect(hb.parseTrace(ok.stderr, 1, ok.marker).values).toEqual({ e: '""', v: '[]', w: '["a", ""]', c: '"x"', b: 'true' });
     const bad = run('    int a = 1; int* p = &a;', ['p']);
     expect(bad.compileError).toContain('harness_trace');
     const nested = run('    vector<vector<int>> m = {{1}};', ['m']);
@@ -323,3 +326,61 @@ describe('value formatting in the prelude', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('the trace marker is random per build', () => {
+  const OLD_MARKER = '@@HARNESS_TRACE@@'; // the fixed marker of the first version
+
+  test('every trace build has its own marker, returned with the program', () => {
+    const a = trace();
+    const b = trace();
+    expect(a.marker).toMatch(/^@@TRACE-[0-9a-f]{24}@@$/);
+    expect(b.marker).not.toBe(a.marker);
+    expect(a.source).toContain(`"${a.marker}"`); // the program prints the marker that is returned
+    expect(a.source).not.toContain(b.marker);
+    expect(a.source).not.toContain(OLD_MARKER);
+  });
+
+  test('without the marker of the build nothing is parsed', () => {
+    const line = `${hb.newMarker()}\t1\ty=5`;
+    expect(hb.parseTrace(line, 1)).toEqual({ noStop: true, stops: 0 });
+    expect(hb.parseTrace(line, 1, '')).toEqual({ noStop: true, stops: 0 });
+    expect(hb.parseTrace(line, 1, hb.newMarker())).toEqual({ noStop: true, stops: 0 });
+  });
+
+  test('lines with the old fixed marker (or any other) are not stops', () => {
+    const marker = hb.newMarker();
+    const stderr = [`${OLD_MARKER}\t1\ty=99`, `${marker}\t1\ty=5`, `${OLD_MARKER}\t2\ty=98`, `${marker}\t2\ty=6`].join('\n');
+    expect(hb.parseAllStops(stderr, marker).map((s) => s.text)).toEqual(['y=5', 'y=6']);
+    expect(hb.parseTrace(stderr, 3, marker)).toEqual({ noStop: true, stops: 2 });
+  });
+
+  // Needs a C++ compiler: run with GXX=/path/to/g++ (skipped when there is none).
+  const gxx = process.env.GXX || 'g++';
+  const env = { ...process.env, PATH: gxx.includes('/') || gxx.includes('\\') ? `${path.dirname(gxx)}${path.delimiter}${process.env.PATH}` : process.env.PATH };
+  const hasCompiler = !spawnSync(gxx, ['--version'], { env }).error;
+  (hasCompiler ? test : test.skip)('student code that prints the old fixed marker does not change the stop count', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-forge-'));
+    const student = [
+      '#include "functions.h"', // 1
+      'int f(int x) {', // 2
+      '    int y = 0;', // 3
+      '    for (int i = 0; i < 3; i++) {', // 4
+      `        std::cerr << "${OLD_MARKER}\\t1\\ty=99\\n";`, // 5 forged stop
+      '        y += i;', // 6 <- breakpoint
+      '    }', // 7
+      '    return y + x;', // 8
+      '}', // 9
+    ].join('\n');
+    const built = hb.buildTraceProgram({ header: HEADER, studentSource: student, driver: DRIVER, pauseLine: 6, variables: ['y'] });
+    const src = path.join(dir, 'a.cpp');
+    fs.writeFileSync(src, built.source);
+    const exe = path.join(dir, process.platform === 'win32' ? 'a.exe' : 'a');
+    expect(spawnSync(gxx, ['-std=c++17', '-o', exe, src], { encoding: 'utf8', env }).status).toBe(0);
+    const stderr = spawnSync(exe, [], { encoding: 'utf8', env }).stderr;
+    expect(stderr.split('\n').filter((l) => l.startsWith(OLD_MARKER)).length).toBe(3); // the forged lines are really there
+    expect(hb.parseAllStops(stderr, built.marker).map((s) => s.text)).toEqual(['y=0', 'y=0', 'y=1']);
+    expect(hb.parseTrace(stderr, 4, built.marker)).toEqual({ noStop: true, stops: 3 });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+

@@ -14,8 +14,13 @@
  * Nothing here throws. Every function returns { ok: true, ... } or { ok: false, reason }. Student code is never logged here.
  */
 
-/** Every trace line starts with this text, then a tab, the stop number, and one tab-separated name=value per variable. */
-const MARKER = '@@HARNESS_TRACE@@';
+const crypto = require('crypto');
+
+/**
+ * Every trace line starts with a marker, then a tab, the stop number, and one tab-separated name=value per variable. The marker is a new
+ * random string for every trace build (returned with the program), so student code cannot forge a stop by printing it.
+ */
+const newMarker = () => `@@TRACE-${crypto.randomBytes(12).toString('hex')}@@`;
 const MAX_VARIABLES = 6;
 const MAX_EXPRESSION_CHARS = 80;
 const MAX_STOPS = 500;
@@ -26,7 +31,7 @@ const MAX_STOPS = 500;
  * double, std::string or char. Strings and chars are quoted so that an empty string is visible. Anything else does not compile
  * (there is deliberately no generic overload), and the caller reports that as "unsupported variable type".
  */
-const TRACE_PRELUDE = `#include <iostream>
+const tracePrelude = (marker) => `#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -67,7 +72,7 @@ template <class T, class... R> void fields(std::ostream& o, const char* name, co
 }
 template <class... A> void emit(const A&... a) {
   std::ostringstream o;
-  o << "${MARKER}" << '\\t' << ++counter();
+  o << "${marker}" << '\\t' << ++counter();
   fields(o, a...);
   o << '\\n';
   std::cerr << o.str() << std::flush;
@@ -268,7 +273,7 @@ function normalizeVariables(variables) {
 }
 
 /**
- * The trace copy: before line `pauseLine` of the student's file, one statement writes `MARKER<TAB>stop<TAB>name=value...` to stderr.
+ * The trace copy: before line `pauseLine` of the student's file, one statement writes `marker<TAB>stop<TAB>name=value...` to stderr.
  * An unbraced if/else/for/while body is wrapped in braces together with the print. The statement goes on the same physical line, so no
  * line number moves. A variable that is not in scope, or has an unsupported type, is a compile error (the caller reports it).
  */
@@ -282,6 +287,7 @@ function buildTraceProgram({ header, studentSource, driver, pauseLine, variables
     const check = checkPauseLine(student, pauseLine);
     if (!check.ok) return check;
 
+    const marker = newMarker();
     const statement = `harness_trace::emit(${vars.variables.map(({ name, expr }) => `"${name}", (${expr})`).join(', ')});`;
     const lines = student.split('\n');
     const raw = lines[pauseLine - 1];
@@ -291,7 +297,7 @@ function buildTraceProgram({ header, studentSource, driver, pauseLine, variables
     lines[pauseLine - 1] = check.wrap
       ? `${indent}{ ${statement} ${body.slice(0, codeEnd)} }${body.slice(codeEnd)}`
       : `${indent}${statement} ${body}`;
-    return { ok: true, source: assemble({ header, prelude: TRACE_PRELUDE, student: lines.join('\n'), driver }), wrapped: check.wrap };
+    return { ok: true, source: assemble({ header, prelude: tracePrelude(marker), student: lines.join('\n'), driver }), wrapped: check.wrap, marker };
   } catch (error) {
     return { ok: false, reason: `build failed: ${error.message}` };
   }
@@ -320,14 +326,18 @@ function buildWhatIfProgram({ header, studentSource, driver, line, find, replace
   }
 }
 
-/** Every stop found in stderr, in order: [{ stop, values: { name: text }, names: [...], text: 'name=value, name=value' }]. */
-function parseAllStops(stderr) {
+/**
+ * Every stop found in stderr, in order: [{ stop, values: { name: text }, names: [...], text: 'name=value, name=value' }]. `marker` is the
+ * one buildTraceProgram returned; lines with any other marker (for example one the student's code printed) are ignored.
+ */
+function parseAllStops(stderr, marker) {
   const stops = [];
+  if (typeof marker !== 'string' || marker.length < 8) return stops;
   const lines = toText(stderr).split('\n');
   for (const line of lines) {
-    const at = line.indexOf(`${MARKER}\t`);
+    const at = line.indexOf(`${marker}\t`);
     if (at < 0) continue;
-    const parts = line.slice(at + MARKER.length + 1).split('\t');
+    const parts = line.slice(at + marker.length + 1).split('\t');
     const stop = Number(parts[0]);
     if (!Number.isInteger(stop) || stop < 1) continue;
     const values = {};
@@ -345,15 +355,15 @@ function parseAllStops(stderr) {
 }
 
 /** The variables at the k-th stop ({ stop, values, names, text }), or { noStop: true, stops: how many there were }. */
-function parseTrace(stderr, k) {
-  const stops = parseAllStops(stderr);
+function parseTrace(stderr, k, marker) {
+  const stops = parseAllStops(stderr, marker);
   const found = Number.isInteger(k) ? stops.find((s) => s.stop === k) : null;
   return found || { noStop: true, stops: stops.length };
 }
 
 module.exports = {
-  MARKER,
-  TRACE_PRELUDE,
+  newMarker,
+  tracePrelude,
   maskSource,
   removeHeaderInclude,
   checkPauseLine,

@@ -144,6 +144,7 @@ async function evaluate(sub, runBatch, counters) {
       const k = chooseK({ stops, refStops: input.refStops, preferredK: f.tracing.preferredK, targeted: sel.targeted });
       out.trace = {
         available: true, pauseLine: t.pauseLine, variables: t.variables.map((v) => v.name), total: traceRun.trace.total, k, kth: ordinal(k), answer: stops[k - 1], allStops: stops,
+        differsFromReference: stops[k - 1] !== (input.refStops || [])[k - 1],
         stdoutEqualsPlain: trimOut(traceRun.stdout) === trimOut(plain.stdout),
       };
     }
@@ -244,6 +245,7 @@ function report(results, env) {
   lines.push('| check | result |', '|---|---|');
   lines.push(`| plain outputs match the M1 matrix | ${plainOk} of ${plainTotal} cells${plainBad.length ? ` (${plainBad.length} differ)` : ''} |`);
   lines.push(`| trace copy built, compiled, stdout equals plain stdout, chosen K-th stop exists | ${traceOk.length} of ${traceRows.length - traceExpected.length} (${traceExpected.length} not applicable: no line to put a breakpoint on) |`);
+  lines.push(`| tracing K-th stop differs from the reference's | ${traceOk.filter((x) => x.trace.differsFromReference).length} of ${traceOk.length} (targeted inputs: ${traceOk.filter((x) => x.targeted && x.trace.differsFromReference).length} of ${traceOk.filter((x) => x.targeted).length}) |`);
   lines.push(`| what-if passes both rules | ${whatOk.length} of ${traceRows.length}; ${whatSkipped.length} skipped with a reason |`);
   lines.push(`| system errors | ${sysErrors.length} |`);
   lines.push(`| agent runs in one A2 interview (limit ${LIMIT_PER_INTERVIEW}) | most: ${maxRuns} (form A: ${Math.max(...formRuns.map((x) => x.A.runs))}, form B: ${Math.max(...formRuns.map((x) => x.B.runs))}) |`, '');
@@ -265,7 +267,7 @@ function report(results, env) {
   lines.push('## Per submission and function', '');
   lines.push('| submission | function | input (targeted?) | breakpoint line → K-th stop | what-if (line: change) → output |', '|---|---|---|---|---|');
   for (const x of traceRows) {
-    const t = x.trace.available ? `line ${x.trace.pauseLine}, ${x.trace.kth} of ${x.trace.total}: ${x.trace.answer}` : `not available: ${x.trace.reason}`;
+    const t = x.trace.available ? `line ${x.trace.pauseLine}, ${x.trace.kth} of ${x.trace.total}: ${x.trace.answer} (differs from reference: ${x.trace.differsFromReference ? 'yes' : 'no'})` : `not available: ${x.trace.reason}`;
     const w = x.whatIf.prepared ? `${x.whatIf.line}: \`${x.whatIf.find}\` → \`${x.whatIf.replace}\` → \`${x.whatIf.output}\`` : `skipped: ${x.whatIf.reason}`;
     lines.push(`| ${x.sub} | ${x.fn} | ${x.input ? `\`${x.input}\` (${x.targeted ? 'targeted' : 'standard'})` : 'none'} | ${String(t).replace(/\|/g, '\\|')} | ${w.replace(/\|/g, '\\|')} |`);
   }

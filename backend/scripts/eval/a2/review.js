@@ -17,17 +17,17 @@ const whatIfText = (fn, x) => {
 };
 const askedAs = (fn, type, x) => {
   const t = questions.functions[fn][type];
-  return type === 'predict' ? fill(t.question, { input: x.display }) : fill(t.question, { input: x.display, kth: x.trace.kth });
+  return type === 'predict' ? fill(t.question, { input: x.display }) : fill(questions.tracingQuestion, { line: x.trace.pauseLine, function: fn, input: x.display, kth: x.trace.kth, what: t.what });
 };
 
 let md = '# A2 question review\n\nGenerated from `questions.json` and `results/harness.json` (the local run, GCC 14.2). No scripted student answers.\n\n';
 md += '## Part 1. The questions as a student sees them\n\n';
-md += 'Each student gets one main question per function. The type rotates by form: **form A** = reverseList predict, splitString tracing, playCraps predict. **form B** = reverseList tracing, splitString predict, playCraps tracing. mode is the backup: it replaces a function that cannot be asked and takes that function\'s type. [INPUT] and [K] are filled per student.\n\n';
+md += 'Each student gets one main question per function. The type rotates by form: **form A** = reverseList predict, splitString tracing, playCraps predict. **form B** = reverseList tracing, splitString predict, playCraps tracing. mode is the backup: it replaces a function that cannot be asked and takes that function\'s type. [INPUT], [K] and [LINE] (the student\'s own breakpoint line) are filled per student.\n\n';
 for (const fn of Object.keys(questions.functions)) {
   const f = questions.functions[fn];
   md += `### ${fn}${f.primary ? '' : ' (backup)'}\n\n`;
   md += `**Predict:** ${fill(f.predict.question, { input: '[INPUT]' })}\n\n`;
-  md += `**Tracing:** ${fill(f.tracing.question, { input: '[INPUT]', kth: '[K]th' })}\n\n`;
+  md += `**Tracing:** ${fill(questions.tracingQuestion, { line: '[LINE]', function: fn, input: '[INPUT]', kth: '[K]th', what: f.tracing.what })}\n\n`;
 }
 md += '### What-if follow-up (all functions)\n\n';
 md += `${fill(questions.followUp.question, { line: '[LINE]', find: '[FIND]', replace: '[REPLACE]', function: '[FUNCTION]', input: '[INPUT]' })}\n\n`;
@@ -40,7 +40,7 @@ for (const form of ['A', 'B']) {
   const types = questions.forms[form];
   md += `### Form ${form}\n\n`;
   md += `${primary.map((fn) => `${fn} ${types[fn]}`).join(', ')}.\n\n`;
-  md += '| submission | function | question | targeted? | answer from the code | spec answer | what-if follow-up |\n|---|---|---|---|---|---|---|\n';
+  md += '| submission | function | question | targeted? | trace differs from reference? | answer from the code | spec answer | what-if follow-up |\n|---|---|---|---|---|---|---|---|\n';
   for (const r of harness.results) {
     const sub = r.id === 'reference' ? 'reference' : r.short;
     for (const fn of primary) {
@@ -48,16 +48,21 @@ for (const form of ['A', 'B']) {
       const x = r.functions[fn];
       const replaced = (type === 'tracing' && !x.trace.available) || (type === 'predict' && !x.input);
       if (replaced) {
-        md += `| ${sub} | ${fn} | not asked: ${esc(type === 'tracing' ? x.trace.reason : x.reason)} (replaced by mode below) | | | | |\n`;
+        md += `| ${sub} | ${fn} | not asked: ${esc(type === 'tracing' ? x.trace.reason : x.reason)} (replaced by mode below) | | | | | |\n`;
         const m = r.functions.mode;
-        md += `| ${sub} | mode (replaces ${fn}) | ${esc(`${type}: ${m.input ? askedAs('mode', type, m) : 'no input runs cleanly'}`)} | ${m.targeted ? `yes (${m.bug})` : `no: ${esc(m.reason)}`} | ${type === 'predict' ? `\`${esc(m.plainOutput)}\`` : m.trace.available ? `\`${esc(m.trace.answer)}\`` : 'no trace'} | ${type === 'predict' ? `\`${esc(m.spec)}\`` : 'none'} | ${whatIfCell('mode', m)} |\n`;
+        md += `| ${sub} | mode (replaces ${fn}) | ${esc(`${type}: ${m.input ? askedAs('mode', type, m) : 'no input runs cleanly'}`)} | ${m.targeted ? `yes (${m.bug})` : `no: ${esc(m.reason)}`} | ${differsCell(type, m)} | ${type === 'predict' ? `\`${esc(m.plainOutput)}\`` : m.trace.available ? `\`${esc(m.trace.answer)}\`` : 'no trace'} | ${type === 'predict' ? `\`${esc(m.spec)}\`` : 'none'} | ${whatIfCell('mode', m)} |\n`;
         continue;
       }
       const answer = type === 'predict' ? `\`${esc(x.plainOutput)}\`${x.plainOutput === x.spec ? '' : ' (wrong)'}` : `\`${esc(x.trace.answer)}\``;
-      md += `| ${sub} | ${fn} | ${esc(`${type}: ${askedAs(fn, type, x)}`)} | ${x.targeted ? `yes (${x.bug})` : `no: ${esc(x.reason.replace(/^standard input: /, ''))}`} | ${answer} | ${type === 'predict' ? `\`${esc(x.spec)}\`` : 'none'} | ${whatIfCell(fn, x)} |\n`;
+      md += `| ${sub} | ${fn} | ${esc(`${type}: ${askedAs(fn, type, x)}`)} | ${x.targeted ? `yes (${x.bug})` : `no: ${esc(x.reason.replace(/^standard input: /, ''))}`} | ${differsCell(type, x)} | ${answer} | ${type === 'predict' ? `\`${esc(x.spec)}\`` : 'none'} | ${whatIfCell(fn, x)} |\n`;
     }
   }
   md += '\n';
+}
+
+function differsCell(type, x) {
+  if (type !== 'tracing') return 'n/a';
+  return x.trace.available ? (x.trace.differsFromReference ? 'yes' : 'no') : 'n/a';
 }
 
 function whatIfCell(fn, x) {

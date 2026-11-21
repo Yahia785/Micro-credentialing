@@ -1,5 +1,4 @@
 const { runAllQuestions } = require('../services/interview-runs');
-const { MARKER } = require('../services/harness-builder');
 const engine = require('../agent/interview-engine');
 
 const HEADER = '#include <vector>\nusing namespace std;\nint f(int x);\n';
@@ -7,6 +6,8 @@ const DRIVER = '#include "functions.h"\nint main() { return 0; }\n';
 const harness = { header: HEADER, driver: DRIVER };
 const CODE = '#include "functions.h"\nint f(int x) {\n    int y = x;\n    return y;\n}\n';
 
+// The marker is random per build: a fake runner reads it from the source it is given, as the real program would print it.
+const markerOf = (source) => (/@@TRACE-[0-9a-f]+@@/.exec(source) || [])[0];
 const ok = (over = {}) => ({ status: 'accepted', stdout: '3\n', stderr: '', compileOutput: '', timeMs: 5, ...over });
 const plain = (stdin = 'a') => ({ label: stdin, stdin, program: { kind: 'plain' } });
 const trace = (over = {}) => ({ label: 'trace', stdin: 'a', program: { kind: 'trace', pauseLine: 3, variables: ['y'], ...over } });
@@ -28,7 +29,7 @@ describe('runAllQuestions with program specs', () => {
   });
 
   test('each program kind runs its own copy; runs that share a source are the same source string', async () => {
-    const runBatch = jest.fn(async (runs) => runs.map((r) => ok({ stderr: r.source.includes('harness_trace::emit(') ? `${MARKER}\t1\ty=5\n${MARKER}\t2\ty=6\n` : '' })));
+    const runBatch = jest.fn(async (runs) => runs.map((r) => ok({ stderr: markerOf(r.source) ? `${markerOf(r.source)}\t1\ty=5\n${markerOf(r.source)}\t2\ty=6\n` : '' })));
     const { out, counted } = await run([[plain('a'), plain('b')], [trace()], [whatIf()]], runBatch);
     const sent = runBatch.mock.calls[0][0];
     expect(sent).toHaveLength(4);
@@ -80,12 +81,18 @@ describe('runAllQuestions with program specs', () => {
   });
 
   test('trace stdout that differs from the plain run is "instrumentation changed behavior"', async () => {
-    const runBatch = jest.fn(async () => [ok({ stdout: 'changed\n', stderr: `${MARKER}\t1\ty=5\n` })]);
+    const runBatch = jest.fn(async (runs) => [ok({ stdout: 'changed\n', stderr: `${markerOf(runs[0].source)}\t1\ty=5\n` })]);
     const { out } = await run([[trace({ expectStdout: '3\n' })]], runBatch);
     expect(out[0].errors).toEqual([{ label: 'trace', kind: 'trace', stage: 'check', reason: 'instrumentation changed behavior' }]);
     expect(out[0].runs[0].trace.rejected).toBe(true);
-    const same = await run([[trace({ expectStdout: '3\n' })]], async () => [ok({ stderr: `${MARKER}\t1\ty=5\n` })]);
+    const same = await run([[trace({ expectStdout: '3\n' })]], async (runs) => [ok({ stderr: `${markerOf(runs[0].source)}\t1\ty=5\n` })]);
     expect(same.out[0].errors).toBeUndefined();
+  });
+
+  test('a stop line printed with the old fixed marker is not counted', async () => {
+    const { out } = await run([[trace()]], async (runs) => [ok({ stderr: ['@@HARNESS_TRACE@@\t1\ty=99', `${markerOf(runs[0].source)}\t1\ty=5`].join('\n') })]);
+    expect(out[0].runs[0].trace.total).toBe(1);
+    expect(out[0].runs[0].trace.stops[0].text).toBe('y=5');
   });
 
   test('a trace that never stops is still a result (total 0): the caller decides', async () => {

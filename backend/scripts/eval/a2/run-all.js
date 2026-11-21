@@ -128,7 +128,7 @@ for (const fn of fnNames) {
   const list = allInputs(fn).map((i) => i.cmd);
   const res = runBuild(`reference-trace-${fn}`, built.source, list);
   allInputs(fn).forEach((input, k) => {
-    input.refStops = harness.parseAllStops(res[k].err).map((s) => s.text);
+    input.refStops = harness.parseAllStops(res[k].err, built.marker).map((s) => s.text);
   });
 }
 fs.writeFileSync(path.join(ROOT, 'questions.json'), JSON.stringify(questions, null, 2) + '\n');
