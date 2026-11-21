@@ -7,5 +7,79 @@
       "kind": "tie-break",
       "description": "Uses >= when scanning the sorted vector, so on a tie the last (largest) value wins."
     }
-  ]
+  ],
+  "interview": {
+    "reverseList": {
+      "tracing": {
+        "pauseLine": 6,
+        "variables": [
+          {
+            "name": "left number",
+            "expr": "vec[i]"
+          },
+          {
+            "name": "right number",
+            "expr": "vec[vec.size() - 1 - i]"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 5,
+        "find": "/ 2",
+        "replace": "/ 3"
+      }
+    },
+    "splitString": {
+      "tracing": {
+        "pauseLine": 18,
+        "variables": [
+          {
+            "name": "piece",
+            "expr": "current"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 17,
+        "find": "str[i] == delim",
+        "replace": "str[i] == ' '"
+      }
+    },
+    "playCraps": {
+      "tracing": {
+        "pauseLine": 47,
+        "variables": [
+          {
+            "name": "sum",
+            "expr": "sum"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 50,
+        "find": "7",
+        "replace": "6"
+      }
+    },
+    "mode": {
+      "tracing": {
+        "pauseLine": 69,
+        "variables": [
+          {
+            "name": "value",
+            "expr": "sorted[i]"
+          },
+          {
+            "name": "count",
+            "expr": "count"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 70,
+        "find": "sorted[i]",
+        "replace": "0"
+      }
+    }
+  }
 }

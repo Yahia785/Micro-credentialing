@@ -1,5 +1,79 @@
 {
   "id": "v01-correct-a",
   "summary": "Correct. While loop with two indexes, character loop, separate first roll, nested counting loops.",
-  "bugs": []
+  "bugs": [],
+  "interview": {
+    "reverseList": {
+      "tracing": {
+        "pauseLine": 7,
+        "variables": [
+          {
+            "name": "left number",
+            "expr": "vec[left]"
+          },
+          {
+            "name": "right number",
+            "expr": "vec[right]"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 5,
+        "find": "- 1",
+        "replace": "- 2"
+      }
+    },
+    "splitString": {
+      "tracing": {
+        "pauseLine": 23,
+        "variables": [
+          {
+            "name": "piece",
+            "expr": "current"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 22,
+        "find": "str[i] == delim",
+        "replace": "str[i] == ' '"
+      }
+    },
+    "playCraps": {
+      "tracing": {
+        "pauseLine": 52,
+        "variables": [
+          {
+            "name": "sum",
+            "expr": "sum"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 55,
+        "find": "7",
+        "replace": "6"
+      }
+    },
+    "mode": {
+      "tracing": {
+        "pauseLine": 72,
+        "variables": [
+          {
+            "name": "value",
+            "expr": "vec[i]"
+          },
+          {
+            "name": "count",
+            "expr": "c"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 73,
+        "find": "vec[i]",
+        "replace": "0"
+      }
+    }
+  }
 }

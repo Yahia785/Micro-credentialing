@@ -1,0 +1,79 @@
+{
+  "id": "reference",
+  "summary": "The correct reference solution (while loop with two indexes, character loop, one loop over the rolls, sort and scan).",
+  "bugs": [],
+  "interview": {
+    "reverseList": {
+      "tracing": {
+        "pauseLine": 7,
+        "variables": [
+          {
+            "name": "left number",
+            "expr": "vec[left]"
+          },
+          {
+            "name": "right number",
+            "expr": "vec[right]"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 5,
+        "find": "- 1",
+        "replace": "- 2"
+      }
+    },
+    "splitString": {
+      "tracing": {
+        "pauseLine": 23,
+        "variables": [
+          {
+            "name": "piece",
+            "expr": "current"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 22,
+        "find": "str[i] == delim",
+        "replace": "str[i] == ' '"
+      }
+    },
+    "playCraps": {
+      "tracing": {
+        "pauseLine": 42,
+        "variables": [
+          {
+            "name": "sum",
+            "expr": "sum"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 54,
+        "find": "7",
+        "replace": "6"
+      }
+    },
+    "mode": {
+      "tracing": {
+        "pauseLine": 74,
+        "variables": [
+          {
+            "name": "value",
+            "expr": "sorted[i]"
+          },
+          {
+            "name": "count",
+            "expr": "count"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 75,
+        "find": "sorted[i]",
+        "replace": "0"
+      }
+    }
+  }
+}

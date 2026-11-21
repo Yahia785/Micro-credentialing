@@ -1,5 +1,79 @@
 {
   "id": "v02-correct-b",
   "summary": "Correct. For loop with swap(), find/substr, roll counter with a point variable, sort and scan.",
-  "bugs": []
+  "bugs": [],
+  "interview": {
+    "reverseList": {
+      "tracing": {
+        "pauseLine": 6,
+        "variables": [
+          {
+            "name": "left number",
+            "expr": "vec[i]"
+          },
+          {
+            "name": "right number",
+            "expr": "vec[vec.size() - 1 - i]"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 5,
+        "find": "/ 2",
+        "replace": "/ 3"
+      }
+    },
+    "splitString": {
+      "tracing": {
+        "pauseLine": 18,
+        "variables": [
+          {
+            "name": "piece",
+            "expr": "str.substr(start, pos - start)"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 19,
+        "find": "+ 1",
+        "replace": "+ 2"
+      }
+    },
+    "playCraps": {
+      "tracing": {
+        "pauseLine": 36,
+        "variables": [
+          {
+            "name": "sum",
+            "expr": "sum"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 47,
+        "find": "7",
+        "replace": "6"
+      }
+    },
+    "mode": {
+      "tracing": {
+        "pauseLine": 67,
+        "variables": [
+          {
+            "name": "value",
+            "expr": "sorted[i]"
+          },
+          {
+            "name": "count",
+            "expr": "count"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 68,
+        "find": "sorted[i]",
+        "replace": "0"
+      }
+    }
+  }
 }

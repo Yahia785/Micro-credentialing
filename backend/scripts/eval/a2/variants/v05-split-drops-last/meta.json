@@ -7,5 +7,79 @@
       "kind": "missing-final-piece",
       "description": "The final piece is not pushed after the loop. \"a,b,c\" gives a, b. With no delimiter in the string the result is empty instead of one element."
     }
-  ]
+  ],
+  "interview": {
+    "reverseList": {
+      "tracing": {
+        "pauseLine": 7,
+        "variables": [
+          {
+            "name": "left number",
+            "expr": "vec[left]"
+          },
+          {
+            "name": "right number",
+            "expr": "vec[right]"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 5,
+        "find": "- 1",
+        "replace": "- 2"
+      }
+    },
+    "splitString": {
+      "tracing": {
+        "pauseLine": 20,
+        "variables": [
+          {
+            "name": "piece",
+            "expr": "current"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 19,
+        "find": "str[i] == delim",
+        "replace": "str[i] == ' '"
+      }
+    },
+    "playCraps": {
+      "tracing": {
+        "pauseLine": 49,
+        "variables": [
+          {
+            "name": "sum",
+            "expr": "sum"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 52,
+        "find": "7",
+        "replace": "6"
+      }
+    },
+    "mode": {
+      "tracing": {
+        "pauseLine": 71,
+        "variables": [
+          {
+            "name": "value",
+            "expr": "sorted[i]"
+          },
+          {
+            "name": "count",
+            "expr": "count"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 72,
+        "find": "sorted[i]",
+        "replace": "0"
+      }
+    }
+  }
 }

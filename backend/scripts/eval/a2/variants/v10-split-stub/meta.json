@@ -7,5 +7,73 @@
       "kind": "stub",
       "description": "Body is \"return {};\". Only correct for the empty string."
     }
-  ]
+  ],
+  "interview": {
+    "reverseList": {
+      "tracing": {
+        "pauseLine": 7,
+        "variables": [
+          {
+            "name": "left number",
+            "expr": "vec[left]"
+          },
+          {
+            "name": "right number",
+            "expr": "vec[right]"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 5,
+        "find": "- 1",
+        "replace": "- 2"
+      }
+    },
+    "splitString": {
+      "tracing": {
+        "unavailable": "the function has no line that adds a piece to the result (it is an unfinished stub)"
+      },
+      "whatIf": {
+        "line": 17,
+        "find": "{}",
+        "replace": "{str}"
+      }
+    },
+    "playCraps": {
+      "tracing": {
+        "pauseLine": 30,
+        "variables": [
+          {
+            "name": "sum",
+            "expr": "sum"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 41,
+        "find": "7",
+        "replace": "6"
+      }
+    },
+    "mode": {
+      "tracing": {
+        "pauseLine": 61,
+        "variables": [
+          {
+            "name": "value",
+            "expr": "sorted[i]"
+          },
+          {
+            "name": "count",
+            "expr": "count"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 62,
+        "find": "sorted[i]",
+        "replace": "0"
+      }
+    }
+  }
 }

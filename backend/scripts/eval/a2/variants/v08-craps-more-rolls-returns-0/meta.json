@@ -7,5 +7,79 @@
       "kind": "wrong-return-code",
       "description": "The final return is 0 instead of 2, so \"game not finished\" (including an empty vector) is reported as a player win."
     }
-  ]
+  ],
+  "interview": {
+    "reverseList": {
+      "tracing": {
+        "pauseLine": 7,
+        "variables": [
+          {
+            "name": "left number",
+            "expr": "vec[left]"
+          },
+          {
+            "name": "right number",
+            "expr": "vec[right]"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 5,
+        "find": "- 1",
+        "replace": "- 2"
+      }
+    },
+    "splitString": {
+      "tracing": {
+        "pauseLine": 23,
+        "variables": [
+          {
+            "name": "piece",
+            "expr": "str.substr(start, pos - start)"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 24,
+        "find": "+ 1",
+        "replace": "+ 2"
+      }
+    },
+    "playCraps": {
+      "tracing": {
+        "pauseLine": 41,
+        "variables": [
+          {
+            "name": "sum",
+            "expr": "sum"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 57,
+        "find": "return 0;",
+        "replace": "return 1;"
+      }
+    },
+    "mode": {
+      "tracing": {
+        "pauseLine": 70,
+        "variables": [
+          {
+            "name": "value",
+            "expr": "vec[i]"
+          },
+          {
+            "name": "count",
+            "expr": "c"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 71,
+        "find": "vec[i]",
+        "replace": "0"
+      }
+    }
+  }
 }

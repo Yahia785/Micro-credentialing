@@ -7,5 +7,79 @@
       "kind": "partial-validation",
       "description": "Only rolls[0] and rolls[1] are checked for 1 to 6. A bad value in a later roll (or after an instant win) is not reported as -1."
     }
-  ]
+  ],
+  "interview": {
+    "reverseList": {
+      "tracing": {
+        "pauseLine": 6,
+        "variables": [
+          {
+            "name": "left number",
+            "expr": "vec[i]"
+          },
+          {
+            "name": "right number",
+            "expr": "vec[vec.size() - 1 - i]"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 5,
+        "find": "/ 2",
+        "replace": "/ 3"
+      }
+    },
+    "splitString": {
+      "tracing": {
+        "pauseLine": 18,
+        "variables": [
+          {
+            "name": "piece",
+            "expr": "current"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 17,
+        "find": "str[i] == delim",
+        "replace": "str[i] == ' '"
+      }
+    },
+    "playCraps": {
+      "tracing": {
+        "pauseLine": 38,
+        "variables": [
+          {
+            "name": "sum",
+            "expr": "sum"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 47,
+        "find": "sum == point",
+        "replace": "sum == 3"
+      }
+    },
+    "mode": {
+      "tracing": {
+        "pauseLine": 69,
+        "variables": [
+          {
+            "name": "value",
+            "expr": "sorted[i]"
+          },
+          {
+            "name": "count",
+            "expr": "count"
+          }
+        ]
+      },
+      "whatIf": {
+        "line": 70,
+        "find": "sorted[i]",
+        "replace": "0"
+      }
+    }
+  }
 }

@@ -1,0 +1,2691 @@
+{
+  "runner": "micro-credentialing-runner-dev-recycle",
+  "results": [
+    {
+      "id": "reference",
+      "short": "ref",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 10 20 30 40 50",
+          "display": "the vector {10, 20, 30, 40, 50}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[50, 40, 30, 20, 10]",
+          "plainOutput": "[50, 40, 30, 20, 10]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 7,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=20, right number=40",
+            "allStops": [
+              "left number=10, right number=50",
+              "left number=20, right number=40"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 5,
+            "find": "- 1",
+            "replace": "- 2",
+            "output": "[40, 30, 20, 10, 50]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , a,b,c",
+          "display": "the string \"a,b,c\" with delimiter ','",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[\"a\", \"b\", \"c\"]",
+          "plainOutput": "[\"a\", \"b\", \"c\"]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 23,
+            "variables": [
+              "piece"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "piece=\"b\"",
+            "allStops": [
+              "piece=\"a\"",
+              "piece=\"b\""
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 22,
+            "find": "str[i] == delim",
+            "replace": "str[i] == ' '",
+            "output": "[\"a,b,c\"]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2 3 4",
+          "display": "the dice values {2, 2, 1, 2, 3, 4}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "1",
+          "plainOutput": "1",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 42,
+            "variables": [
+              "sum"
+            ],
+            "total": 3,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "sum=3",
+            "allStops": [
+              "sum=4",
+              "sum=3",
+              "sum=7"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 54,
+            "find": "7",
+            "replace": "6",
+            "output": "2"
+          }
+        },
+        "mode": {
+          "input": "mode 5",
+          "display": "the vector {5}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "5",
+          "plainOutput": "5",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 74,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 1,
+            "k": 1,
+            "kth": "1st",
+            "answer": "value=5, count=1",
+            "allStops": [
+              "value=5, count=1"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 75,
+            "find": "sorted[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[50, 40, 30, 20, 10]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[4, 3, 2, 1]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[8, 5, 3]"
+        },
+        "reverseList": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[\"a\", \"b\", \"c\"]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[\"\", \"apple\", \"banana\", \"orange\"]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[\"abc\"]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "1"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 8
+      },
+      "runnerGroups": [],
+      "runnerCalls": 10
+    },
+    {
+      "id": "v01-correct-a",
+      "short": "v01",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 10 20 30 40 50",
+          "display": "the vector {10, 20, 30, 40, 50}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[50, 40, 30, 20, 10]",
+          "plainOutput": "[50, 40, 30, 20, 10]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 7,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=20, right number=40",
+            "allStops": [
+              "left number=10, right number=50",
+              "left number=20, right number=40"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 5,
+            "find": "- 1",
+            "replace": "- 2",
+            "output": "[40, 30, 20, 10, 50]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , a,b,c",
+          "display": "the string \"a,b,c\" with delimiter ','",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[\"a\", \"b\", \"c\"]",
+          "plainOutput": "[\"a\", \"b\", \"c\"]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 23,
+            "variables": [
+              "piece"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "piece=\"b\"",
+            "allStops": [
+              "piece=\"a\"",
+              "piece=\"b\""
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 22,
+            "find": "str[i] == delim",
+            "replace": "str[i] == ' '",
+            "output": "[\"a,b,c\"]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2 3 4",
+          "display": "the dice values {2, 2, 1, 2, 3, 4}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "1",
+          "plainOutput": "1",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 52,
+            "variables": [
+              "sum"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "sum=7",
+            "allStops": [
+              "sum=3",
+              "sum=7"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 55,
+            "find": "7",
+            "replace": "6",
+            "output": "2"
+          }
+        },
+        "mode": {
+          "input": "mode 5",
+          "display": "the vector {5}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "5",
+          "plainOutput": "5",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 72,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 1,
+            "k": 1,
+            "kth": "1st",
+            "answer": "value=5, count=1",
+            "allStops": [
+              "value=5, count=1"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 73,
+            "find": "vec[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[50, 40, 30, 20, 10]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[4, 3, 2, 1]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[8, 5, 3]"
+        },
+        "reverseList": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[\"a\", \"b\", \"c\"]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[\"\", \"apple\", \"banana\", \"orange\"]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[\"abc\"]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "1"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 8
+      },
+      "runnerGroups": [],
+      "runnerCalls": 10
+    },
+    {
+      "id": "v02-correct-b",
+      "short": "v02",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 10 20 30 40 50",
+          "display": "the vector {10, 20, 30, 40, 50}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[50, 40, 30, 20, 10]",
+          "plainOutput": "[50, 40, 30, 20, 10]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 6,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=20, right number=40",
+            "allStops": [
+              "left number=10, right number=50",
+              "left number=20, right number=40"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 5,
+            "find": "/ 2",
+            "replace": "/ 3",
+            "output": "[50, 20, 30, 40, 10]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , a,b,c",
+          "display": "the string \"a,b,c\" with delimiter ','",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[\"a\", \"b\", \"c\"]",
+          "plainOutput": "[\"a\", \"b\", \"c\"]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 18,
+            "variables": [
+              "piece"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "piece=\"b\"",
+            "allStops": [
+              "piece=\"a\"",
+              "piece=\"b\""
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 19,
+            "find": "+ 1",
+            "replace": "+ 2",
+            "output": "[\"a\", \"\", \"\"]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2 3 4",
+          "display": "the dice values {2, 2, 1, 2, 3, 4}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "1",
+          "plainOutput": "1",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 36,
+            "variables": [
+              "sum"
+            ],
+            "total": 3,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "sum=3",
+            "allStops": [
+              "sum=4",
+              "sum=3",
+              "sum=7"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 47,
+            "find": "7",
+            "replace": "6",
+            "output": "2"
+          }
+        },
+        "mode": {
+          "input": "mode 5",
+          "display": "the vector {5}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "5",
+          "plainOutput": "5",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 67,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 1,
+            "k": 1,
+            "kth": "1st",
+            "answer": "value=5, count=1",
+            "allStops": [
+              "value=5, count=1"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 68,
+            "find": "sorted[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[50, 40, 30, 20, 10]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[4, 3, 2, 1]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[8, 5, 3]"
+        },
+        "reverseList": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[\"a\", \"b\", \"c\"]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[\"\", \"apple\", \"banana\", \"orange\"]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[\"abc\"]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "1"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 8
+      },
+      "runnerGroups": [],
+      "runnerCalls": 10
+    },
+    {
+      "id": "v03-reverse-loop-to-end",
+      "short": "v03",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 3 5 8",
+          "display": "the vector {3, 5, 8}",
+          "targeted": true,
+          "bug": "v03",
+          "reason": "separates this code from the spec (v03)",
+          "skippedInputs": [],
+          "spec": "[8, 5, 3]",
+          "plainOutput": "[3, 5, 8]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 6,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 3,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=5, right number=5",
+            "allStops": [
+              "left number=3, right number=8",
+              "left number=5, right number=5",
+              "left number=3, right number=8"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 7,
+            "find": "vec[vec.size() - 1 - i]",
+            "replace": "vec[0]",
+            "output": "[3, 5, 3]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , a,b,c",
+          "display": "the string \"a,b,c\" with delimiter ','",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[\"a\", \"b\", \"c\"]",
+          "plainOutput": "[\"a\", \"b\", \"c\"]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 20,
+            "variables": [
+              "piece"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "piece=\"b\"",
+            "allStops": [
+              "piece=\"a\"",
+              "piece=\"b\""
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 21,
+            "find": "+ 1",
+            "replace": "+ 2",
+            "output": "[\"a\", \"\", \"\"]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2 3 4",
+          "display": "the dice values {2, 2, 1, 2, 3, 4}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "1",
+          "plainOutput": "1",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 47,
+            "variables": [
+              "sum"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "sum=7",
+            "allStops": [
+              "sum=3",
+              "sum=7"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 50,
+            "find": "7",
+            "replace": "6",
+            "output": "2"
+          }
+        },
+        "mode": {
+          "input": "mode 5",
+          "display": "the vector {5}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "5",
+          "plainOutput": "5",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 69,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 1,
+            "k": 1,
+            "kth": "1st",
+            "answer": "value=5, count=1",
+            "allStops": [
+              "value=5, count=1"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 70,
+            "find": "sorted[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[10, 20, 30, 40, 50]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[1, 2, 3, 4]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[3, 5, 8]"
+        },
+        "reverseList": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[\"a\", \"b\", \"c\"]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[\"\", \"apple\", \"banana\", \"orange\"]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[\"abc\"]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "1"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 8
+      },
+      "runnerGroups": [],
+      "runnerCalls": 10
+    },
+    {
+      "id": "v04-reverse-sizet-empty",
+      "short": "v04",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 10 20 30 40 50",
+          "display": "the vector {10, 20, 30, 40, 50}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no usable target input (empty input: the code crashes on this input)",
+          "skippedInputs": [
+            {
+              "cmd": "reverseList",
+              "why": "the code crashes on this input"
+            }
+          ],
+          "spec": "[50, 40, 30, 20, 10]",
+          "plainOutput": "[50, 40, 30, 20, 10]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 7,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=20, right number=40",
+            "allStops": [
+              "left number=10, right number=50",
+              "left number=20, right number=40"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 5,
+            "find": "- 1",
+            "replace": "- 2",
+            "output": "[40, 30, 20, 10, 50]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , a,b,c",
+          "display": "the string \"a,b,c\" with delimiter ','",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[\"a\", \"b\", \"c\"]",
+          "plainOutput": "[\"a\", \"b\", \"c\"]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 23,
+            "variables": [
+              "piece"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "piece=\"b\"",
+            "allStops": [
+              "piece=\"a\"",
+              "piece=\"b\""
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 22,
+            "find": "str[i] == delim",
+            "replace": "str[i] == ' '",
+            "output": "[\"a,b,c\"]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2 3 4",
+          "display": "the dice values {2, 2, 1, 2, 3, 4}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "1",
+          "plainOutput": "1",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 43,
+            "variables": [
+              "sum"
+            ],
+            "total": 3,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "sum=3",
+            "allStops": [
+              "sum=4",
+              "sum=3",
+              "sum=7"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 54,
+            "find": "7",
+            "replace": "6",
+            "output": "2"
+          }
+        },
+        "mode": {
+          "input": "mode 5",
+          "display": "the vector {5}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "5",
+          "plainOutput": "5",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 72,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 1,
+            "k": 1,
+            "kth": "1st",
+            "answer": "value=5, count=1",
+            "allStops": [
+              "value=5, count=1"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 73,
+            "find": "vec[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[50, 40, 30, 20, 10]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[4, 3, 2, 1]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[8, 5, 3]"
+        },
+        "reverseList": {
+          "status": "runtime_error",
+          "stdout": ""
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[\"a\", \"b\", \"c\"]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[\"\", \"apple\", \"banana\", \"orange\"]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[\"abc\"]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "1"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 8
+      },
+      "runnerGroups": [],
+      "runnerCalls": 10
+    },
+    {
+      "id": "v05-split-drops-last",
+      "short": "v05",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 10 20 30 40 50",
+          "display": "the vector {10, 20, 30, 40, 50}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[50, 40, 30, 20, 10]",
+          "plainOutput": "[50, 40, 30, 20, 10]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 7,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=20, right number=40",
+            "allStops": [
+              "left number=10, right number=50",
+              "left number=20, right number=40"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 5,
+            "find": "- 1",
+            "replace": "- 2",
+            "output": "[40, 30, 20, 10, 50]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , a,b,c",
+          "display": "the string \"a,b,c\" with delimiter ','",
+          "targeted": true,
+          "bug": "v05",
+          "reason": "separates this code from the spec (v05)",
+          "skippedInputs": [],
+          "spec": "[\"a\", \"b\", \"c\"]",
+          "plainOutput": "[\"a\", \"b\"]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 20,
+            "variables": [
+              "piece"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "piece=\"b\"",
+            "allStops": [
+              "piece=\"a\"",
+              "piece=\"b\""
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 19,
+            "find": "str[i] == delim",
+            "replace": "str[i] == ' '",
+            "output": "[]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2 3 4",
+          "display": "the dice values {2, 2, 1, 2, 3, 4}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "1",
+          "plainOutput": "1",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 49,
+            "variables": [
+              "sum"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "sum=7",
+            "allStops": [
+              "sum=3",
+              "sum=7"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 52,
+            "find": "7",
+            "replace": "6",
+            "output": "2"
+          }
+        },
+        "mode": {
+          "input": "mode 5",
+          "display": "the vector {5}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "5",
+          "plainOutput": "5",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 71,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 1,
+            "k": 1,
+            "kth": "1st",
+            "answer": "value=5, count=1",
+            "allStops": [
+              "value=5, count=1"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 72,
+            "find": "sorted[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[50, 40, 30, 20, 10]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[4, 3, 2, 1]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[8, 5, 3]"
+        },
+        "reverseList": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[\"a\", \"b\"]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[\"\", \"apple\", \"banana\"]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "1"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 8
+      },
+      "runnerGroups": [],
+      "runnerCalls": 10
+    },
+    {
+      "id": "v06-split-skips-empty",
+      "short": "v06",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 10 20 30 40 50",
+          "display": "the vector {10, 20, 30, 40, 50}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[50, 40, 30, 20, 10]",
+          "plainOutput": "[50, 40, 30, 20, 10]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 6,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=20, right number=40",
+            "allStops": [
+              "left number=10, right number=50",
+              "left number=20, right number=40"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 5,
+            "find": "/ 2",
+            "replace": "/ 3",
+            "output": "[50, 20, 30, 40, 10]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , ,apple,banana,orange",
+          "display": "the string \",apple,banana,orange\" with delimiter ','",
+          "targeted": true,
+          "bug": "v06",
+          "reason": "separates this code from the spec (v06)",
+          "skippedInputs": [],
+          "spec": "[\"\", \"apple\", \"banana\", \"orange\"]",
+          "plainOutput": "[\"apple\", \"banana\", \"orange\"]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 17,
+            "variables": [
+              "piece"
+            ],
+            "total": 2,
+            "k": 1,
+            "kth": "1st",
+            "answer": "piece=\"apple\"",
+            "allStops": [
+              "piece=\"apple\"",
+              "piece=\"banana\""
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 16,
+            "find": "!=",
+            "replace": "==",
+            "output": "[\"\", \"orange\"]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2 3 4",
+          "display": "the dice values {2, 2, 1, 2, 3, 4}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "1",
+          "plainOutput": "1",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 39,
+            "variables": [
+              "sum"
+            ],
+            "total": 3,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "sum=3",
+            "allStops": [
+              "sum=4",
+              "sum=3",
+              "sum=7"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 50,
+            "find": "7",
+            "replace": "6",
+            "output": "2"
+          }
+        },
+        "mode": {
+          "input": "mode 5",
+          "display": "the vector {5}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "5",
+          "plainOutput": "5",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 68,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 1,
+            "k": 1,
+            "kth": "1st",
+            "answer": "value=5, count=1",
+            "allStops": [
+              "value=5, count=1"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 69,
+            "find": "vec[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[50, 40, 30, 20, 10]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[4, 3, 2, 1]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[8, 5, 3]"
+        },
+        "reverseList": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[\"a\", \"b\", \"c\"]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[\"apple\", \"banana\", \"orange\"]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[\"abc\"]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "1"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 8
+      },
+      "runnerGroups": [],
+      "runnerCalls": 10
+    },
+    {
+      "id": "v07-craps-validates-first-two",
+      "short": "v07",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 10 20 30 40 50",
+          "display": "the vector {10, 20, 30, 40, 50}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[50, 40, 30, 20, 10]",
+          "plainOutput": "[50, 40, 30, 20, 10]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 6,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=20, right number=40",
+            "allStops": [
+              "left number=10, right number=50",
+              "left number=20, right number=40"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 5,
+            "find": "/ 2",
+            "replace": "/ 3",
+            "output": "[50, 20, 30, 40, 10]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , a,b,c",
+          "display": "the string \"a,b,c\" with delimiter ','",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[\"a\", \"b\", \"c\"]",
+          "plainOutput": "[\"a\", \"b\", \"c\"]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 18,
+            "variables": [
+              "piece"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "piece=\"b\"",
+            "allStops": [
+              "piece=\"a\"",
+              "piece=\"b\""
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 17,
+            "find": "str[i] == delim",
+            "replace": "str[i] == ' '",
+            "output": "[\"a,b,c\"]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2 7 5",
+          "display": "the dice values {2, 2, 1, 2, 7, 5}",
+          "targeted": true,
+          "bug": "v07",
+          "reason": "separates this code from the spec (v07)",
+          "skippedInputs": [],
+          "spec": "-1",
+          "plainOutput": "2",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 38,
+            "variables": [
+              "sum"
+            ],
+            "total": 3,
+            "k": 1,
+            "kth": "1st",
+            "answer": "sum=4",
+            "allStops": [
+              "sum=4",
+              "sum=3",
+              "sum=12"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 47,
+            "find": "sum == point",
+            "replace": "sum == 3",
+            "output": "0"
+          }
+        },
+        "mode": {
+          "input": "mode 5",
+          "display": "the vector {5}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "5",
+          "plainOutput": "5",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 69,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 1,
+            "k": 1,
+            "kth": "1st",
+            "answer": "value=5, count=1",
+            "allStops": [
+              "value=5, count=1"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 70,
+            "find": "sorted[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[50, 40, 30, 20, 10]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[4, 3, 2, 1]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[8, 5, 3]"
+        },
+        "reverseList": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[\"a\", \"b\", \"c\"]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[\"\", \"apple\", \"banana\", \"orange\"]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[\"abc\"]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "1"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 8
+      },
+      "runnerGroups": [],
+      "runnerCalls": 10
+    },
+    {
+      "id": "v08-craps-more-rolls-returns-0",
+      "short": "v08",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 10 20 30 40 50",
+          "display": "the vector {10, 20, 30, 40, 50}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[50, 40, 30, 20, 10]",
+          "plainOutput": "[50, 40, 30, 20, 10]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 7,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=20, right number=40",
+            "allStops": [
+              "left number=10, right number=50",
+              "left number=20, right number=40"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 5,
+            "find": "- 1",
+            "replace": "- 2",
+            "output": "[40, 30, 20, 10, 50]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , a,b,c",
+          "display": "the string \"a,b,c\" with delimiter ','",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[\"a\", \"b\", \"c\"]",
+          "plainOutput": "[\"a\", \"b\", \"c\"]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 23,
+            "variables": [
+              "piece"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "piece=\"b\"",
+            "allStops": [
+              "piece=\"a\"",
+              "piece=\"b\""
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 24,
+            "find": "+ 1",
+            "replace": "+ 2",
+            "output": "[\"a\", \"\", \"\"]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2",
+          "display": "the dice values {2, 2, 1, 2}",
+          "targeted": true,
+          "bug": "v08",
+          "reason": "separates this code from the spec (v08)",
+          "skippedInputs": [],
+          "spec": "2",
+          "plainOutput": "0",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 41,
+            "variables": [
+              "sum"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "sum=3",
+            "allStops": [
+              "sum=4",
+              "sum=3"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 57,
+            "find": "return 0;",
+            "replace": "return 1;",
+            "output": "1"
+          }
+        },
+        "mode": {
+          "input": "mode 5",
+          "display": "the vector {5}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "5",
+          "plainOutput": "5",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 70,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 1,
+            "k": 1,
+            "kth": "1st",
+            "answer": "value=5, count=1",
+            "allStops": [
+              "value=5, count=1"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 71,
+            "find": "vec[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[50, 40, 30, 20, 10]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[4, 3, 2, 1]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[8, 5, 3]"
+        },
+        "reverseList": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[\"a\", \"b\", \"c\"]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[\"\", \"apple\", \"banana\", \"orange\"]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[\"abc\"]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "1"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 8
+      },
+      "runnerGroups": [],
+      "runnerCalls": 10
+    },
+    {
+      "id": "v09-mode-ties-larger",
+      "short": "v09",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 10 20 30 40 50",
+          "display": "the vector {10, 20, 30, 40, 50}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[50, 40, 30, 20, 10]",
+          "plainOutput": "[50, 40, 30, 20, 10]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 6,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=20, right number=40",
+            "allStops": [
+              "left number=10, right number=50",
+              "left number=20, right number=40"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 5,
+            "find": "/ 2",
+            "replace": "/ 3",
+            "output": "[50, 20, 30, 40, 10]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , a,b,c",
+          "display": "the string \"a,b,c\" with delimiter ','",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[\"a\", \"b\", \"c\"]",
+          "plainOutput": "[\"a\", \"b\", \"c\"]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 18,
+            "variables": [
+              "piece"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "piece=\"b\"",
+            "allStops": [
+              "piece=\"a\"",
+              "piece=\"b\""
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 17,
+            "find": "str[i] == delim",
+            "replace": "str[i] == ' '",
+            "output": "[\"a,b,c\"]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2 3 4",
+          "display": "the dice values {2, 2, 1, 2, 3, 4}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "1",
+          "plainOutput": "1",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 47,
+            "variables": [
+              "sum"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "sum=7",
+            "allStops": [
+              "sum=3",
+              "sum=7"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 50,
+            "find": "7",
+            "replace": "6",
+            "output": "2"
+          }
+        },
+        "mode": {
+          "input": "mode 3 1 3 1",
+          "display": "the vector {3, 1, 3, 1}",
+          "targeted": true,
+          "bug": "v09",
+          "reason": "separates this code from the spec (v09)",
+          "skippedInputs": [],
+          "spec": "1",
+          "plainOutput": "3",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 69,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "value=3, count=2",
+            "allStops": [
+              "value=1, count=2",
+              "value=3, count=2"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 70,
+            "find": "sorted[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[50, 40, 30, 20, 10]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[4, 3, 2, 1]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[8, 5, 3]"
+        },
+        "reverseList": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[\"a\", \"b\", \"c\"]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[\"\", \"apple\", \"banana\", \"orange\"]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[\"abc\"]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "3"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 8
+      },
+      "runnerGroups": [],
+      "runnerCalls": 10
+    },
+    {
+      "id": "v10-split-stub",
+      "short": "v10",
+      "functions": {
+        "reverseList": {
+          "input": "reverseList 10 20 30 40 50",
+          "display": "the vector {10, 20, 30, 40, 50}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "[50, 40, 30, 20, 10]",
+          "plainOutput": "[50, 40, 30, 20, 10]",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 7,
+            "variables": [
+              "left number",
+              "right number"
+            ],
+            "total": 2,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "left number=20, right number=40",
+            "allStops": [
+              "left number=10, right number=50",
+              "left number=20, right number=40"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 5,
+            "find": "- 1",
+            "replace": "- 2",
+            "output": "[40, 30, 20, 10, 50]"
+          }
+        },
+        "splitString": {
+          "input": "splitString , a,b,c",
+          "display": "the string \"a,b,c\" with delimiter ','",
+          "targeted": true,
+          "bug": "v05",
+          "reason": "separates this code from the spec (v05)",
+          "skippedInputs": [],
+          "spec": "[\"a\", \"b\", \"c\"]",
+          "plainOutput": "[]",
+          "plainStatus": "accepted",
+          "candidateRuns": 4,
+          "traceRuns": 0,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": false,
+            "reason": "the function has no line that adds a piece to the result (it is an unfinished stub)",
+            "expected": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 17,
+            "find": "{}",
+            "replace": "{str}",
+            "output": "[\"a,b,c\"]"
+          }
+        },
+        "playCraps": {
+          "input": "playCraps 2 2 1 2 3 4",
+          "display": "the dice values {2, 2, 1, 2, 3, 4}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "1",
+          "plainOutput": "1",
+          "plainStatus": "accepted",
+          "candidateRuns": 3,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 30,
+            "variables": [
+              "sum"
+            ],
+            "total": 3,
+            "k": 2,
+            "kth": "2nd",
+            "answer": "sum=3",
+            "allStops": [
+              "sum=4",
+              "sum=3",
+              "sum=7"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 41,
+            "find": "7",
+            "replace": "6",
+            "output": "2"
+          }
+        },
+        "mode": {
+          "input": "mode 5",
+          "display": "the vector {5}",
+          "targeted": false,
+          "bug": null,
+          "reason": "standard input: no target input separates this code from the spec",
+          "skippedInputs": [],
+          "spec": "5",
+          "plainOutput": "5",
+          "plainStatus": "accepted",
+          "candidateRuns": 2,
+          "traceRuns": 1,
+          "whatIfRuns": 1,
+          "errors": [],
+          "trace": {
+            "available": true,
+            "pauseLine": 61,
+            "variables": [
+              "value",
+              "count"
+            ],
+            "total": 1,
+            "k": 1,
+            "kth": "1st",
+            "answer": "value=5, count=1",
+            "allStops": [
+              "value=5, count=1"
+            ],
+            "stdoutEqualsPlain": true
+          },
+          "whatIf": {
+            "prepared": true,
+            "reason": null,
+            "line": 62,
+            "find": "sorted[i]",
+            "replace": "0",
+            "output": "0"
+          }
+        }
+      },
+      "systemErrors": [],
+      "plainAll": {
+        "reverseList 10 20 30 40 50": {
+          "status": "accepted",
+          "stdout": "[50, 40, 30, 20, 10]"
+        },
+        "reverseList 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "[4, 3, 2, 1]"
+        },
+        "reverseList 7": {
+          "status": "accepted",
+          "stdout": "[7]"
+        },
+        "reverseList 3 5 8": {
+          "status": "accepted",
+          "stdout": "[8, 5, 3]"
+        },
+        "reverseList": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , a,b,c": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , ,apple,banana,orange": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "splitString , abc": {
+          "status": "accepted",
+          "stdout": "[]"
+        },
+        "playCraps 2 2 1 2 3 4": {
+          "status": "accepted",
+          "stdout": "1"
+        },
+        "playCraps 5 6": {
+          "status": "accepted",
+          "stdout": "0"
+        },
+        "playCraps 0 3": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2 7 5": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 3 4 7 1": {
+          "status": "accepted",
+          "stdout": "-1"
+        },
+        "playCraps 2 2 1 2": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 5": {
+          "status": "accepted",
+          "stdout": "5"
+        },
+        "mode 9 2 9 4": {
+          "status": "accepted",
+          "stdout": "9"
+        },
+        "mode 1 1 2 2 2 3": {
+          "status": "accepted",
+          "stdout": "2"
+        },
+        "mode 3 1 3 1": {
+          "status": "accepted",
+          "stdout": "1"
+        }
+      },
+      "runs": {
+        "phase1": 12,
+        "phase2": 7
+      },
+      "runnerGroups": [],
+      "runnerCalls": 9
+    }
+  ]
+}

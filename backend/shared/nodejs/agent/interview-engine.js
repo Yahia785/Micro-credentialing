@@ -128,11 +128,20 @@ function rubricFor(config, state) {
   return (theme.criteria || []).map((text, i) => ({ id: `r${i + 1}`, text }));
 }
 
-/** The runs the instructor set for a main question, as [{ label, stdin }]: theme.runs[mainIndex]. Empty when none. */
+/**
+ * The runs the instructor set for a main question, as [{ label, stdin }]: theme.runs[mainIndex]. Empty when none. A run may also carry
+ * a `program` (a plain object: which copy of the student's code to run, see services/interview-runs.js); it is passed on as it is.
+ */
 function runsAt(config, { themeIndex, mainIndex }) {
   const theme = config.themes[themeIndex] || {};
   const own = Array.isArray(theme.runs) ? theme.runs[mainIndex] : null;
-  return Array.isArray(own) ? own.map((run) => ({ label: String(run.label), stdin: String(run.stdin) })) : [];
+  return Array.isArray(own)
+    ? own.map((run) => ({
+      label: String(run.label),
+      stdin: String(run.stdin),
+      ...(run.program && typeof run.program === 'object' && !Array.isArray(run.program) ? { program: run.program } : {}),
+    }))
+    : [];
 }
 
 /**
