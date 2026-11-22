@@ -75,6 +75,30 @@ function makeDocker({ image = IMAGE } = {}) {
     };
   }
 
+  /**
+   * Compile `source` with the runner's flags and run every command (no sanitizers). Returns
+   * { compile: { ok, errors }, runs: [{ code, stdout, stderr }] } aligned with `cmds`; code 124 is the time limit.
+   */
+  async function runPlain({ source, cmds, timeoutS = RUN_TIMEOUT_S }) {
+    fs.writeFileSync(path.join(workDir, 'main.cpp'), source);
+    fs.writeFileSync(path.join(workDir, 'inputs.txt'), `${cmds.join('\n')}\n`);
+    for (const f of fs.readdirSync(workDir)) if (/^rp\./.test(f)) fs.rmSync(path.join(workDir, f), { force: true });
+    const script = [
+      `g++ ${RUNNER_FLAGS} -fmax-errors=30 -o rp.bin main.cpp > rp.log 2>&1; echo $? > rp.build`,
+      'i=0',
+      'while IFS= read -r line; do',
+      `  if [ "$(cat rp.build)" = "0" ]; then printf '%s\\n' "$line" | timeout ${timeoutS} ./rp.bin > rp.out.$i 2> rp.err.$i; echo $? > rp.code.$i; fi`,
+      '  i=$((i+1))',
+      'done < inputs.txt',
+    ].join('\n');
+    exec(script, 60000 + cmds.length * (timeoutS + 5) * 1000);
+    const num = (f) => { const t = read(f).trim(); return t === '' ? null : Number(t); };
+    return {
+      compile: { ok: read('rp.build').trim() === '0', errors: read('rp.log').slice(0, 8000) },
+      runs: cmds.map((_, i) => ({ code: num(`rp.code.${i}`), stdout: read(`rp.out.${i}`).slice(0, 5000), stderr: read(`rp.err.${i}`).slice(0, 20000) })),
+    };
+  }
+
   /** Remove the container and the work folder (student copies). */
   function cleanup() {
     if (container) docker(['rm', '-f', container]);
@@ -82,7 +106,7 @@ function makeDocker({ image = IMAGE } = {}) {
     fs.rmSync(workDir, { recursive: true, force: true });
   }
 
-  return { compile, runInputs, cleanup, workDir };
+  return { compile, runInputs, runPlain, cleanup, workDir };
 }
 
 module.exports = { makeDocker, dockerAvailable, IMAGE, RUNNER_FLAGS, SANITIZER_FLAGS };

@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "about": "Question design for the Assignment 02 pilot (ECE 2514). Main questions are predict and tracing only, one per function, the type rotating by form. what-if is a follow-up prepared for every function (see followUp). Fields \"spec\" (predict answers) and \"refStops\" (the reference's trace stops, used only to choose a K for targeted inputs) are filled by run-all.js by running code. Do not edit them by hand. There is no spec answer for tracing: the answer is the student's own trace.",
-  "placeholders": "Main questions: {input} = the input's \"display\" text; tracing also {line} (the student's breakpoint line, pauseLine in meta.json), {function}, {kth} (\"1st\", \"2nd\", ..., chosen per student from their own trace) and {what} (per function, tracing.what). Follow-up: {line}, {find}, {replace}, {function}, {input}.",
+  "about": "Question design for the Assignment 02 pilot (ECE 2514). Main questions are predict and tracing only, one per function, the type rotating by form. After a correct main answer the student gets a fixed follow-up per function (see fixedFollowUps). Fields \"spec\" (predict answers) and \"refStops\" (the reference's trace stops, used only to choose a K for targeted inputs) are filled by run-all.js by running code. Do not edit them by hand. There is no spec answer for tracing: the answer is the student's own trace.",
+  "placeholders": "Main questions: {input} = the input's \"display\" text; tracing also {line} (the student's breakpoint line, pauseLine in meta.json), {function}, {kth} (\"1st\", \"2nd\", ..., chosen per student from their own trace) and {what} (per function, tracing.what).",
   "forms": {
     "A": {
       "reverseList": "predict",
@@ -15,16 +15,28 @@
     }
   },
   "tracingQuestion": "You put a breakpoint on line {line} and run {function} on {input}. When it stops for the {kth} time, {what}?",
+  "compileErrorQuestion": "Your {function} doesn't compile. The compiler points to line {line}. What is wrong on that line, and how would you fix it?",
+  "compileErrorOutsideQuestion": "Your code doesn't compile. The compiler points to line {line}. What is wrong on that line, and how would you fix it?",
+  "logicQuestion": "Walk me through what your {function} would do with {input}, step by step.",
   "backup": "mode is the backup. It replaces a function that cannot be asked (for example a tracing question when the function has no line to put a breakpoint on) and takes the type of the function it replaces.",
-  "followUp": {
-    "question": "If you changed line {line} of your code from `{find}` to `{replace}`, what would your {function} return for {input}?",
-    "questionReverseList": "If you changed line {line} of your code from `{find}` to `{replace}`, what would the vector hold after reverseList runs on {input}?",
-    "when": "Asked only after a correct main answer (engine rule comes in M4). The answer comes from running the student's changed copy.",
-    "rules": [
-      "The what-if output must differ from the student's plain output on the chosen input.",
-      "If the student's plain output differs from the spec answer, the what-if output must not equal the spec answer (the change must never be the fix).",
-      "If no line passes both checks, the what-if is skipped for that function and the reason is logged."
-    ]
+  "fixedFollowUps": {
+    "note": "The same question and the same answer key for every student, no code run. Asked only after a correct main answer (the engine rule is M4b). Stored in the plan as fixedFollowUp. Compile-error and logic questions have none.",
+    "reverseList": {
+      "question": "Why does reversing in place only need to go through half of the vector? What would happen if the swapping continued all the way to the end?",
+      "answerKey": "Each swap places two numbers; going all the way swaps everything back, so the vector ends up unchanged."
+    },
+    "splitString": {
+      "question": "Why does splitting \"apple,banana,orange\" with '|' give one piece instead of none?",
+      "answerKey": "There is no delimiter, so the whole string is the one piece."
+    },
+    "playCraps": {
+      "question": "Why does {4, 3} end the game right away, but {2, 2} needs more rolls?",
+      "answerKey": "7 on the first roll is an instant win; 4 becomes the number to roll again."
+    },
+    "mode": {
+      "question": "In {3, 1, 3, 1} both numbers appear twice. Which one should mode return, and why?",
+      "answerKey": "1, because a tie goes to the smallest number."
+    }
   },
   "inputRules": [
     "An input where the code crashes, gives a runtime error or hits the time limit is never used (undefined behavior). The next separating input is used; if none, a standard input with targeted = false.",

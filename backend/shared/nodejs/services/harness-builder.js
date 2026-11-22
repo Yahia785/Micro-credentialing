@@ -367,6 +367,7 @@ module.exports = {
   maskSource,
   removeHeaderInclude,
   checkPauseLine,
+  normalizeVariables,
   buildProgram,
   buildTraceProgram,
   buildWhatIfProgram,

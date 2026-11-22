@@ -74,6 +74,24 @@ function makeStore({ table, bucket = DEFAULT_BUCKET, region = DEFAULT_REGION, sd
       return items;
     },
 
+    /** The text of one stored file. */
+    async getFile(key) {
+      const r = await s3Client.send(new commands.GetObjectCommand({ Bucket: bucket, Key: safeKey(key) }));
+      return r.Body.transformToString('utf-8');
+    },
+
+    /** Set the plan field of a record. Nothing else in the record is changed. */
+    async setPlan(importId, plan) {
+      await ddbClient.send(new commands.UpdateCommand({
+        TableName: table,
+        Key: { importId },
+        UpdateExpression: 'SET #plan = :plan',
+        ConditionExpression: 'attribute_exists(importId)',
+        ExpressionAttributeNames: { '#plan': 'plan' },
+        ExpressionAttributeValues: { ':plan': plan },
+      }));
+    },
+
     async deleteObject(key) {
       await s3Client.send(new commands.DeleteObjectCommand({ Bucket: bucket, Key: safeKey(key) }));
     },
