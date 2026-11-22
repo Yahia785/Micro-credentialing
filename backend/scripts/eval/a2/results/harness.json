@@ -363,7 +363,7 @@
               "sum=3",
               "sum=7"
             ],
-            "differsFromReference": true,
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -861,7 +861,7 @@
               "sum=3",
               "sum=7"
             ],
-            "differsFromReference": true,
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1363,7 +1363,7 @@
               "sum=3",
               "sum=7"
             ],
-            "differsFromReference": true,
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -1564,14 +1564,14 @@
               "piece"
             ],
             "total": 2,
-            "k": 1,
-            "kth": "1st",
-            "answer": "piece=\"apple\"",
+            "k": 2,
+            "kth": "2nd",
+            "answer": "piece=\"banana\"",
             "allStops": [
               "piece=\"apple\"",
               "piece=\"banana\""
             ],
-            "differsFromReference": true,
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {
@@ -2357,7 +2357,7 @@
               "sum=3",
               "sum=7"
             ],
-            "differsFromReference": true,
+            "differsFromReference": false,
             "stdoutEqualsPlain": true
           },
           "whatIf": {

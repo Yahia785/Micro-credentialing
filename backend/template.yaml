@@ -2070,6 +2070,34 @@ Resources:
         AttributeName: expiresAt
         Enabled: true
 
+  # ------------------------------------------
+  # TABLE: ImportedSubmissions (A2 pilot: records of imported GitHub Classroom submissions; no code, no grades, no names, no emails)
+  # ------------------------------------------
+  # One item per imported repo (importId is random). The code itself is in S3 under a2-pilot/<importId>/ in the recordings bucket;
+  # s3Keys points there. githubUsername is personal data: GithubUsernameIndex exists so one student's data can be found and deleted
+  # (scripts/a2-import/delete.js). linkedUserId stays empty until the student is matched to an account; consent starts as "unknown".
+  # Not given to any Lambda yet: only the import and delete scripts (run with a person's own AWS credentials) use it.
+  ImportedSubmissionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "ImportedSubmissions-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: importId
+          AttributeType: S
+        - AttributeName: githubUsername
+          AttributeType: S
+      KeySchema:
+        - AttributeName: importId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: GithubUsernameIndex
+          KeySchema:
+            - AttributeName: githubUsername
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
 # ==========================================
 # OUTPUTS
 # ==========================================
@@ -2107,6 +2135,10 @@ Outputs:
   RunUsageTableName:
     Description: "DynamoDB table with the Run usage counters"
     Value: !Ref RunUsageTable
+
+  ImportedSubmissionsTableName:
+    Description: "DynamoDB table with the imported A2 pilot submissions (records only)"
+    Value: !Ref ImportedSubmissionsTable
 
   SharedCodeLayerArn:
     Description: "ARN of the shared code layer"

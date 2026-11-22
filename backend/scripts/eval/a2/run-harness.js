@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { runAllQuestions } = require('../../../shared/nodejs/services/interview-runs');
-const { selectInput, chooseK, checkWhatIf, unusable, ordinal } = require('./selection');
+const { selectInput, alignStops, chooseK, checkWhatIf, unusable, ordinal } = require('./selection');
 const { findCompiler, makeLocalRunBatch } = require('./local-runner');
 
 // the shared logger prints JSON lines for every run; they would bury this script's own output
@@ -144,7 +144,7 @@ async function evaluate(sub, runBatch, counters) {
       const k = chooseK({ stops, refStops: input.refStops, preferredK: f.tracing.preferredK, targeted: sel.targeted });
       out.trace = {
         available: true, pauseLine: t.pauseLine, variables: t.variables.map((v) => v.name), total: traceRun.trace.total, k, kth: ordinal(k), answer: stops[k - 1], allStops: stops,
-        differsFromReference: stops[k - 1] !== (input.refStops || [])[k - 1],
+        differsFromReference: !alignStops(stops, input.refStops || []).contiguous,
         stdoutEqualsPlain: trimOut(traceRun.stdout) === trimOut(plain.stdout),
       };
     }
@@ -245,7 +245,7 @@ function report(results, env) {
   lines.push('| check | result |', '|---|---|');
   lines.push(`| plain outputs match the M1 matrix | ${plainOk} of ${plainTotal} cells${plainBad.length ? ` (${plainBad.length} differ)` : ''} |`);
   lines.push(`| trace copy built, compiled, stdout equals plain stdout, chosen K-th stop exists | ${traceOk.length} of ${traceRows.length - traceExpected.length} (${traceExpected.length} not applicable: no line to put a breakpoint on) |`);
-  lines.push(`| tracing K-th stop differs from the reference's | ${traceOk.filter((x) => x.trace.differsFromReference).length} of ${traceOk.length} (targeted inputs: ${traceOk.filter((x) => x.targeted && x.trace.differsFromReference).length} of ${traceOk.filter((x) => x.targeted).length}) |`);
+  lines.push(`| tracing stops are not a contiguous part of the reference's stops | ${traceOk.filter((x) => x.trace.differsFromReference).length} of ${traceOk.length} (targeted inputs: ${traceOk.filter((x) => x.targeted && x.trace.differsFromReference).length} of ${traceOk.filter((x) => x.targeted).length}) |`);
   lines.push(`| what-if passes both rules | ${whatOk.length} of ${traceRows.length}; ${whatSkipped.length} skipped with a reason |`);
   lines.push(`| system errors | ${sysErrors.length} |`);
   lines.push(`| agent runs in one A2 interview (limit ${LIMIT_PER_INTERVIEW}) | most: ${maxRuns} (form A: ${Math.max(...formRuns.map((x) => x.A.runs))}, form B: ${Math.max(...formRuns.map((x) => x.B.runs))}) |`, '');

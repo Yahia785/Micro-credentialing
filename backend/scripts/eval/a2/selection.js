@@ -60,14 +60,34 @@ function selectInput({ fn, standardInputs, targetInputs, runs }) {
 }
 
 /**
+ * Compare the student's whole list of stops (array of text) with the reference's list on the same input. The student's list is
+ * "part of" the reference's when it equals a contiguous part of it (so code that skips the first roll is part of it). The alignment is
+ * the offset into the reference's list where the most stops, counted from the student's first stop, agree. Returns
+ * { contiguous, firstExtra }: firstExtra is the 1-based number of the first student stop that is not part of the reference's list
+ * (null when the whole list is).
+ */
+function alignStops(stops, refStops) {
+  const ref = Array.isArray(refStops) ? refStops : [];
+  let best = 0;
+  for (let offset = 0; offset < ref.length; offset += 1) {
+    let n = 0;
+    while (n < stops.length && offset + n < ref.length && stops[n] === ref[offset + n]) n += 1;
+    if (n > best) best = n;
+  }
+  return best === stops.length ? { contiguous: true, firstExtra: null } : { contiguous: false, firstExtra: best + 1 };
+}
+
+/**
  * Choose K for a tracing question from the student's own stops (array of text, in order). Never a K that does not happen. For a
- * targeted input the first K where the student's stop differs from the reference's stop (or the reference has none) is preferred,
- * because that is where this student's code behaves differently. Otherwise preferredK, or the last stop when there are fewer.
+ * targeted input K is the first stop that is not part of the reference's list of stops (see alignStops), because that is where this
+ * student's code behaves differently. When every stop is part of it (or the input is not targeted): preferredK, or the last stop when
+ * there are fewer.
  */
 function chooseK({ stops, refStops, preferredK, targeted }) {
   if (!Array.isArray(stops) || stops.length === 0) return null;
-  if (targeted && Array.isArray(refStops)) {
-    for (let k = 1; k <= stops.length; k += 1) if (refStops[k - 1] !== stops[k - 1]) return k;
+  if (targeted) {
+    const { firstExtra } = alignStops(stops, refStops);
+    if (firstExtra) return firstExtra;
   }
   return Math.min(preferredK || 1, stops.length);
 }
@@ -84,4 +104,4 @@ function checkWhatIf({ plain, whatIf, spec }) {
 
 const ordinal = (k) => `${k}${k % 100 >= 11 && k % 100 <= 13 ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[k % 10] || 'th'}`;
 
-module.exports = { NOT_OK_STATUSES, undefinedInput, unusable, selectInput, chooseK, checkWhatIf, ordinal };
+module.exports = { NOT_OK_STATUSES, undefinedInput, unusable, selectInput, alignStops, chooseK, checkWhatIf, ordinal };
