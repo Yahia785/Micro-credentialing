@@ -25,6 +25,7 @@ const { assignForms, PLANNABLE } = require('./lib/plan-rules');
 const { buildPlan } = require('./lib/plan-build');
 const { computeReference } = require('./lib/reference');
 const { renderReview } = require('./lib/plan-review');
+const { outcomeFor, summaryLines } = require('./lib/plan-report');
 
 const A2 = path.join(__dirname, '..', 'eval', 'a2');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -87,15 +88,23 @@ async function main() {
   if (Object.keys(overridesAll).length) console.log(`overrides for ${Object.keys(overridesAll).length} students from ${overridesPath}`);
 
   let loaded = await loadRecords(args, store);
-  const forms = assignForms(loaded.map((l) => l.record)); // forms are assigned over everyone, so --only does not change them
-  if (args.only) loaded = loaded.filter((l) => l.record.githubUsername === normalizeUsername(args.only));
+  const everyone = loaded.map((l) => l.record);
+  const forms = assignForms(everyone); // forms are assigned over everyone, so --only does not change them
+  const outcomes = [];
+  if (args.only) {
+    const wanted = normalizeUsername(args.only);
+    everyone.filter((r) => r.githubUsername !== wanted).forEach((r) => outcomes.push(outcomeFor(r, null, { selected: false })));
+    loaded = loaded.filter((l) => l.record.githubUsername === wanted);
+    if (loaded.length === 0) console.log(`No record for "${wanted}" among the ${everyone.length} records read.`);
+  }
+  console.log(`${everyone.length} records read${store ? ` from ${store.table}` : ''}`);
   loaded.sort((a, b) => (a.record.importId < b.record.importId ? -1 : 1));
 
   const plans = [];
   const records = {};
   for (const { record } of loaded) {
     records[record.importId] = record;
-    process.stdout.write(`  ${record.githubUsername} (${record.status}) ... `);
+    const prefix = `  ${record.githubUsername} (${record.status}) ... `;
     let plan;
     if (!PLANNABLE.has(record.status)) plan = { version: 1, importId: record.importId, githubUsername: record.githubUsername, status: record.status, noPlan: `status ${record.status}: there is no code to ask about`, questions: [], notes: [], log: [] };
     else {
@@ -107,12 +116,15 @@ async function main() {
       } finally { docker.cleanup(); }
     }
     fs.writeFileSync(path.join(args.out, `${record.importId}.json`), JSON.stringify(plan, null, 2));
-    if (store && !plan.noPlan) await store.setPlan(record.importId, planForRecord(plan));
+    const written = Boolean(store && !plan.noPlan);
+    if (written) await store.setPlan(record.importId, planForRecord(plan));
     plans.push(plan);
-    console.log(plan.noPlan ? 'no plan' : `form ${plan.form}, ${plan.questions.length} questions${plan.log.length ? `, ${plan.log.length} log lines` : ''}`);
+    outcomes.push(outcomeFor(record, plan, { written }));
+    console.log(prefix + (plan.noPlan ? `NO PLAN: ${plan.noPlan}` : `form ${plan.form}, ${plan.questions.length} questions${written ? ', plan written' : ''}${plan.log.length ? `, ${plan.log.length} log lines` : ''}`));
   }
   plans.sort((a, b) => (a.githubUsername < b.githubUsername ? -1 : 1));
   fs.writeFileSync(path.join(args.out, 'plan-review.md'), renderReview(plans, { records }));
+  console.log(`\n${summaryLines(everyone, outcomes).join('\n')}`);
   console.log(`\nplans and plan-review.md in ${args.out}${store ? `; plan written to the ${args.env} records` : ' (local only)'}`);
 }
 
