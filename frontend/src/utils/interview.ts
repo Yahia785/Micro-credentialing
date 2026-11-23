@@ -146,6 +146,16 @@ export function practicePath(submissionId: string, interviewId: string) {
   return `${reviewPath(submissionId)}/practice/${encodeURIComponent(interviewId)}`;
 }
 
+/** The practice interview screen of an interview-only assessment (no submission). */
+export function importedPracticePath(interviewId: string) {
+  return `/admin/practice/${encodeURIComponent(interviewId)}`;
+}
+
+/** The review page of one interview-only interview. */
+export function importedReviewPath(interviewId: string) {
+  return `/admin/interviews/${encodeURIComponent(interviewId)}`;
+}
+
 /** A rubric item with the instructor's draft decision applied on top of the agent's finding. */
 export interface ReviewedItem extends RubricSummaryItem {
   /** What counts now: the draft decision when there is one, otherwise the agent's finding. */

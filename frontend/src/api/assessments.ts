@@ -22,6 +22,7 @@ interface MilestoneRow {
   isHidden?: boolean;
   /** Students and admins both get this boolean; the interview setup itself is admin-only. */
   interviewEnabled?: boolean;
+  interviewOnly?: boolean;
   interviewTimeLimitMinutes?: number;
   interviewQuestionCount?: number;
   interview?: { timeLimitMinutes?: number };
@@ -65,6 +66,7 @@ export async function getAllAssessments(): Promise<LoadedAssessments> {
         testCaseCount: row.testCaseCount,
         isHidden: row.isHidden === true,
         interviewEnabled: row.interviewEnabled === true,
+        interviewOnly: row.interviewOnly === true,
         interviewTimeLimitMinutes: row.interviewTimeLimitMinutes ?? row.interview?.timeLimitMinutes,
         interviewQuestionCount: row.interviewQuestionCount,
         createdAt: row.createdAt,

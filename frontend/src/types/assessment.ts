@@ -26,6 +26,8 @@ export interface CodingAssessment extends AssessmentBase {
   isHidden?: boolean;
   /** True when finishing this problem is followed by the interview. The questions are never sent to students. */
   interviewEnabled?: boolean;
+  /** An interview-only assessment: no code is submitted; the questions come from an imported student's plan. */
+  interviewOnly?: boolean;
   /** Length of the interview in minutes, when enabled. */
   interviewTimeLimitMinutes?: number;
   /** How many questions the interview has, when enabled (the questions themselves are never sent to students). */

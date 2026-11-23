@@ -6,6 +6,7 @@ import { AdminReviewsPage } from '../pages/AdminReviewsPage';
 import { AssessmentsPage } from '../pages/AssessmentsPage';
 import { CredentialsPage } from '../pages/CredentialsPage';
 import { InterviewReviewPage } from '../pages/InterviewReviewPage';
+import { ImportedInterviewReviewPage } from '../pages/ImportedInterviewReviewPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { PracticeInterviewPage } from '../pages/PracticeInterviewPage';
 import { ProfilePage } from '../pages/ProfilePage';
@@ -77,6 +78,25 @@ export const router = createBrowserRouter([
           </RequireAdmin>
         ),
         handle: { title: 'Practice interview' } satisfies RouteHandle,
+      },
+      // Interview-only assessments (A2 pilot): practice on an imported record, and the review of that interview. No submission is involved.
+      {
+        path: 'admin/practice/:interviewId',
+        element: (
+          <RequireAdmin>
+            <PracticeInterviewPage />
+          </RequireAdmin>
+        ),
+        handle: { title: 'Practice interview' } satisfies RouteHandle,
+      },
+      {
+        path: 'admin/interviews/:interviewId',
+        element: (
+          <RequireAdmin>
+            <ImportedInterviewReviewPage />
+          </RequireAdmin>
+        ),
+        handle: { title: 'Interview review' } satisfies RouteHandle,
       },
       ...devRoutes,
       {

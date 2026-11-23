@@ -2,6 +2,7 @@ import { getAuthToken, API_BASE } from './config';
 import type {
   AdminInterview,
   AnswerResult,
+  ImportedRecord,
   ClientTiming,
   InterviewReview,
   InterviewReviewInput,
@@ -103,6 +104,17 @@ export async function listSubmissionInterviews(submissionId: string) {
 /** Admins only: start a practice interview on an existing submission's code. */
 export function startPracticeInterview(submissionId: string) {
   return request<StartInterviewResult>('/interviews/practice', { method: 'POST', body: { submissionId } });
+}
+
+/** Admins only: the imported records an interview-only assessment can be practised on. */
+export async function listImportedSubmissions() {
+  const data = await request<{ records: ImportedRecord[] }>('/interviews?imported=1');
+  return data.records;
+}
+
+/** Admins only: start a practice interview of an interview-only assessment on one imported record. */
+export function startImportedPractice(importId: string, milestoneId: string) {
+  return request<StartInterviewResult>('/interviews/practice', { method: 'POST', body: { importId, milestoneId } });
 }
 
 /** Admins only: save the instructor's overrides, grade and note. The agent's own checks are not changed. */

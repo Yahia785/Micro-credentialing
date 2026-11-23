@@ -8,7 +8,7 @@ import { Alert, Badge, Button, Spinner } from '../components/ui';
 import { WorkspaceShell } from '../components/workspace/WorkspaceShell';
 import { useInterviewController } from '../hooks/useInterviewController';
 import { useInterviewLeaveGuard } from '../hooks/useInterviewLeaveGuard';
-import { chatFromAdminView, progressLabel, reviewPath } from '../utils/interview';
+import { chatFromAdminView, importedReviewPath, progressLabel, reviewPath } from '../utils/interview';
 import styles from './PracticeInterviewPage.module.css';
 
 interface MilestoneWithInterview {
@@ -18,10 +18,12 @@ interface MilestoneWithInterview {
 
 /**
  * An instructor's practice interview, taken through the same full-window workspace a student sees. It ends by returning to the
- * review page with this practice interview selected.
+ * review page with this practice interview selected. For an interview-only assessment (A2 pilot) there is no submission: the route has
+ * no submissionId, the code panel shows the imported functions.cpp, and the review page is the interview-only one.
  */
 export function PracticeInterviewPage() {
   const { submissionId = '', interviewId = '' } = useParams();
+  const interviewOnly = submissionId === '';
   const navigate = useNavigate();
   const [code, setCode] = useState<string | null>(null);
   const [title, setTitle] = useState<string | null>(null);
@@ -38,6 +40,8 @@ export function PracticeInterviewPage() {
       const view = await getAdminInterview(interviewId);
       setCode(view.code);
       setMilestoneId(view.milestoneId);
+      // An interview-only interview has no questions in its assessment: the count is the number of questions of this student's plan.
+      if (view.a2) setQuestionCount(view.a2.questions.length || null);
       setPreparing(view.prepareStatus === 'preparing');
       return chatFromAdminView(view, null);
     },
@@ -57,7 +61,7 @@ export function PracticeInterviewPage() {
         if (cancelled) return;
         setTitle(data.milestone?.title ?? null);
         const themes = data.milestone?.interview?.themes;
-        if (Array.isArray(themes)) {
+        if (Array.isArray(themes) && themes.length > 0) {
           setQuestionCount(themes.reduce((total, theme) => total + (theme.mainQuestions?.length ?? 0), 0) || null);
         }
       })
@@ -82,10 +86,10 @@ export function PracticeInterviewPage() {
   // When the practice interview ends in front of the instructor, go back to the review with it selected.
   useEffect(() => {
     if (inProgress) sawInProgress.current = true;
-    else if (chat && sawInProgress.current) navigate(reviewPath(submissionId, interviewId), { replace: true });
-  }, [chat, inProgress, navigate, submissionId, interviewId]);
+    else if (chat && sawInProgress.current) navigate(interviewOnly ? importedReviewPath(interviewId) : reviewPath(submissionId, interviewId), { replace: true });
+  }, [chat, inProgress, navigate, submissionId, interviewId, interviewOnly]);
 
-  const back = () => navigate(reviewPath(submissionId, interviewId));
+  const back = () => navigate(interviewOnly ? importedReviewPath(interviewId) : reviewPath(submissionId, interviewId));
   const view = chat ? { ...chat, questionCount } : null;
   const progress = progressLabel(view);
 
@@ -122,6 +126,7 @@ export function PracticeInterviewPage() {
         <InterviewChat
           chat={view}
           code={code}
+          codeTitle={interviewOnly ? 'functions.cpp' : undefined}
           practice
           sending={sending}
           sendError={sendError}

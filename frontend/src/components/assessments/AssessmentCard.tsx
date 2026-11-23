@@ -4,6 +4,7 @@ import { CourseNotSavedError } from '../../api/assessments';
 import type { Assessment, CodingAssessment } from '../../types/assessment';
 import type { CompletedMilestone } from '../../types/user';
 import { getTypeLabel } from '../../utils/assessments';
+import { ImportedPracticePanel } from '../interview/ImportedPracticePanel';
 import { Alert, Badge, Button, Card, DifficultyBadge, FormField, Input, StatusBadge } from '../ui';
 import styles from './AssessmentCard.module.css';
 
@@ -72,7 +73,10 @@ export function AssessmentCard({
   const [courseDraft, setCourseDraft] = useState(assessment.course ?? '');
   const [saving, setSaving] = useState(false);
   const [courseError, setCourseError] = useState<string | null>(null);
+  const [practiceOpen, setPracticeOpen] = useState(false);
   const listId = useId();
+  // An interview-only assessment is not started by writing code: admins practise it on an imported student; students wait for their instructor.
+  const interviewOnly = assessment.kind === 'coding' && assessment.interviewOnly === true;
 
   const startEditingCourse = () => {
     setCourseDraft(assessment.course ?? '');
@@ -110,13 +114,21 @@ export function AssessmentCard({
           <small className={styles.added}>Added: {new Date(assessment.createdAt).toLocaleDateString()}</small>
 
           <div className={styles.actions}>
-            <Button
-              size="sm"
-              variant={isCompleted ? 'secondary' : 'primary'}
-              onClick={() => onOpen(assessment)}
-            >
-              {isCompleted ? 'View submission' : 'Start assessment'}
-            </Button>
+            {interviewOnly ? (
+              isAdmin && (
+                <Button size="sm" variant="primary" aria-expanded={practiceOpen} onClick={() => setPracticeOpen((open) => !open)}>
+                  {practiceOpen ? 'Hide practice list' : 'Practice as a student'}
+                </Button>
+              )
+            ) : (
+              <Button
+                size="sm"
+                variant={isCompleted ? 'secondary' : 'primary'}
+                onClick={() => onOpen(assessment)}
+              >
+                {isCompleted ? 'View submission' : 'Start assessment'}
+              </Button>
+            )}
 
             {assessment.kind === 'coding' &&
               assessment.interviewEnabled &&
@@ -159,6 +171,8 @@ export function AssessmentCard({
         {assessment.kind === 'embedded' && <Badge variant="neutral">{assessment.criteriaCount} criteria</Badge>}
         <StatusIndicator assessment={assessment} completed={completed} reviewStatus={reviewStatus} />
       </div>
+
+      {isAdmin && interviewOnly && practiceOpen && <ImportedPracticePanel milestoneId={assessment.milestoneId} />}
 
       {isAdmin && editingCourse && (
         <form className={styles.courseForm} onSubmit={saveCourse}>

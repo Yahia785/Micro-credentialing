@@ -21,6 +21,8 @@ interface InterviewChatProps {
   code: string | null;
   codeLoading?: boolean;
   codeError?: string | null;
+  /** The heading of the code panel (default "Your submitted code"). */
+  codeTitle?: string;
   /** Marks a practice interview taken by an instructor. */
   practice?: boolean;
   sending: boolean;
@@ -83,6 +85,7 @@ export function InterviewChat({
   code,
   codeLoading,
   codeError,
+  codeTitle,
   practice = false,
   sending,
   sendError,
@@ -178,8 +181,8 @@ export function InterviewChat({
   };
 
   const codePane = useMemo(
-    () => <CodePanel code={code} loading={codeLoading} error={codeError} fill collapsible={false} />,
-    [code, codeLoading, codeError],
+    () => <CodePanel title={codeTitle} code={code} loading={codeLoading} error={codeError} fill collapsible={false} />,
+    [code, codeLoading, codeError, codeTitle],
   );
 
   const chatPane = (

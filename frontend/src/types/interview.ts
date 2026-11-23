@@ -257,10 +257,72 @@ export interface AdminRawTurn {
   createdAt: string;
 }
 
+/** Interview-only (A2 pilot): how one question's answer was checked. */
+export interface A2Check {
+  verdict: 'correct' | 'wrong' | 'unclear';
+  /** The student's words the check relied on. */
+  quote?: string;
+  /** "compare": plain comparison with the code's answer. "model": the checker model decided. */
+  method: 'compare' | 'model';
+  modelUsed: boolean;
+  note?: string;
+}
+
+/** Interview-only: the follow-up of one question and how its answer was checked. */
+export interface A2FollowUp {
+  /** "fixed": the plan's follow-up (after a correct answer). "agent": written by the agent (after a wrong or unclear one). null: none was asked. */
+  source: 'fixed' | 'agent' | null;
+  text?: string;
+  answerKey?: string;
+  isHint?: boolean;
+  studentAnswer?: string | null;
+  check?: A2Check | null;
+  /** Why no follow-up was asked. */
+  skipped?: string;
+}
+
+/** Interview-only: what is logged for each main question. */
+export interface A2Question {
+  index: number;
+  function: string;
+  type: 'predict' | 'tracing' | 'compileError' | 'compileErrorOutside' | 'logic';
+  input: string | null;
+  k: number | null;
+  line: number | null;
+  targeted: boolean | null;
+  traceDiffersFromReference: boolean | null;
+  /** The answer the plan was built with (from the code at import time). */
+  planAnswer: string | null;
+  /** The answer from the code when the interview was prepared (the truth the student is checked against). */
+  answerFromCode: string | null;
+  answerSource: 'runtime' | 'plan' | null;
+  specAnswer: string | null;
+  /** Set when the run at the start differs from the plan's answer, or could not be made. */
+  mismatch: { kind: 'runtime_differs_from_plan' | 'runtime_unavailable'; planAnswer: string | null; runtimeAnswer: string | null } | null;
+  runtimeNote?: string;
+  studentAnswer: string | null;
+  check: A2Check | null;
+  followUp: A2FollowUp | null;
+}
+
+/** One row of GET /interviews?imported=1: an imported record an interview-only assessment can be practised on. */
+export interface ImportedRecord {
+  importId: string;
+  githubUsername: string;
+  status: string;
+  form: 'A' | 'B' | null;
+  hasPlan: boolean;
+}
+
 /** GET /interviews/{id} for an admin. */
 export interface AdminInterview {
   interviewId: string;
-  submissionId: string;
+  /** Absent for an interview-only interview: it is tied to an import, not to a submission. */
+  submissionId?: string;
+  importId?: string;
+  form?: string | null;
+  /** Interview-only: the per-question log. null for the other interviews. */
+  a2?: { importId: string | null; form: string | null; questions: A2Question[] } | null;
   userId: string;
   milestoneId: string;
   status: InterviewStatus;
