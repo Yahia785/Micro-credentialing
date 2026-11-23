@@ -42,6 +42,8 @@ function toAdminAssessment(assessment) {
   const view = { ...assessment };
   if (Array.isArray(assessment.rubric)) view.criteriaCount = assessment.rubric.length;
   if (assessment.interview) view.interviewEnabled = assessment.interview.enabled === true;
+  // An interview-only assessment is not taken by submitting code: admins practise it on an imported record (see services/a2-interview.js).
+  if (assessment.interview && assessment.interview.interviewOnly === true) view.interviewOnly = true;
   return view;
 }
 
@@ -54,6 +56,7 @@ function toStudentAssessment(assessment) {
   if (Array.isArray(rubric)) view.criteriaCount = rubric.length;
   if (interview && interview.enabled) {
     view.interviewEnabled = true;
+    if (interview.interviewOnly === true) view.interviewOnly = true;
     view.interviewTimeLimitMinutes = interview.timeLimitMinutes;
     // How many questions the interview has (a number only: the questions themselves stay private), for the waiting page.
     view.interviewQuestionCount = (interview.themes || []).reduce((n, theme) => n + ((theme.mainQuestions || []).length), 0);

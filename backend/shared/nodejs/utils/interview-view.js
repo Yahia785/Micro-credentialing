@@ -232,9 +232,11 @@ function toAdminInterview(meta, turns, { code = null, now = Date.now() } = {}) {
   });
 
   // The session key's hash is never given out.
-  const { sk, configSnapshot, sessionKeyHash, ...fields } = meta;
+  const { sk, configSnapshot, sessionKeyHash, a2Plan, a2Log, ...fields } = meta;
   return {
     ...fields,
+    // interview-only (A2 pilot): what was logged for every main question (the plan is not repeated here). null for the other interviews.
+    a2: Array.isArray(a2Log) ? { importId: meta.importId || null, form: meta.form || null, questions: a2Log } : null,
     prepareStatus: meta.prepareStatus || 'ready',
     // host.v7: what the analysis of the code found, the runs the agent chose (with its reasons) and what the calls cost; null for other versions
     analysis: meta.analysis || null,

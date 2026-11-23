@@ -15,6 +15,10 @@
  * `fixedFollowUps` (optional): one follow-up question per main question, in the order the main questions are asked. The Host (v6 and v7)
  * asks it when the follow-up it wrote was rejected even after one rewrite. Instructor-only until it is asked.
  *
+ * `interviewOnly` (optional, boolean) and `source` (optional, a short label such as "a2-pilot"): an interview-only assessment has no
+ * submission to interview about. Its questions come from a plan stored with each imported record (see services/a2-interview.js), so its
+ * own `themes` may be empty.
+ *
  * Older configs may carry `maxFollowUpsPerTheme` (0-5) instead. It still validates and is kept
  * as written; the interview engine converts it when it runs.
  *
@@ -35,6 +39,7 @@ const LIMITS = Object.freeze({
   maxMainQuestions: 8,
   maxCriteria: 10,
   maxIdLength: 40,
+  maxSourceLength: 40,
   maxTitleLength: 120,
   maxQuestionLength: 500,
   maxCriterionLength: 500,
@@ -276,6 +281,14 @@ function parseInterview(raw, assessment = {}) {
     }
   }
 
+  const interviewOnly = raw.interviewOnly === true;
+  if (raw.interviewOnly !== undefined && typeof raw.interviewOnly !== 'boolean') errors.push('interview.interviewOnly must be a boolean');
+  let source;
+  if (raw.source !== undefined && raw.source !== null) {
+    source = cleanString(raw.source, 'interview.source', LIMITS.maxSourceLength, errors);
+    if (source !== null && !ID_PATTERN.test(source)) errors.push('interview.source may only contain letters, digits, "-" and "_"');
+  }
+
   let fixedFollowUps;
   if (raw.fixedFollowUps !== undefined && raw.fixedFollowUps !== null) {
     const total = themes.reduce((n, theme) => n + theme.mainQuestions.length, 0);
@@ -284,7 +297,7 @@ function parseInterview(raw, assessment = {}) {
     if (list.length) fixedFollowUps = list;
   }
 
-  if (raw.enabled && themes.length === 0 && errors.length === 0) {
+  if (raw.enabled && !interviewOnly && themes.length === 0 && errors.length === 0) {
     errors.push('interview.themes must have at least one theme when the interview is enabled');
   }
   if (raw.enabled && assessment.language !== SUPPORTED_LANGUAGE) {
@@ -294,7 +307,10 @@ function parseInterview(raw, assessment = {}) {
 
   return {
     provided: true,
-    value: { enabled: raw.enabled, timeLimitMinutes, ...followUpLimit, ...(promptVersion && { promptVersion }), themes, ...(fixedFollowUps && { fixedFollowUps }) },
+    value: {
+      enabled: raw.enabled, timeLimitMinutes, ...followUpLimit, ...(promptVersion && { promptVersion }), themes, ...(fixedFollowUps && { fixedFollowUps }),
+      ...(interviewOnly && { interviewOnly: true }), ...(source && { source }),
+    },
     error: null,
   };
 }

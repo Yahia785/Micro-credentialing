@@ -35,6 +35,7 @@ const NOTES = Object.freeze({
  *   { kind: 'plain' }                                             the student's code with header and driver
  *   { kind: 'trace', pauseLine, variables, expectStdout? }        the trace copy; the run result has `trace: { total, stops }`
  *   { kind: 'whatIf', line, find, replace }                       the changed copy
+ * Any program may also carry `header` and `studentSource`, which replace the harness header and the submitted code for that run only.
  * A copy that cannot be built, does not compile, or does not run to the end is a system error for THAT question only: it is added to
  * that question's `errors` ([{ label, kind, stage, reason }], present only when there is one), and the other questions still run. A
  * copy that cannot be built is never sent to the runner and is not counted as an agent run. `expectStdout` is the output of the plain
@@ -88,8 +89,12 @@ async function runAllQuestions({ code, questions, userId, interviewId, limits = 
       if (!harness || !harness.header || !harness.driver) built = { ok: false, reason: 'no harness (header and driver) is configured' };
       else if (!builder) built = { ok: false, reason: `unknown program kind "${run.program.kind}"` };
       else {
-        const key = JSON.stringify([run.program.kind, run.program.pauseLine, run.program.variables, run.program.line, run.program.find, run.program.replace]);
-        if (!cache.has(key)) cache.set(key, builder(harness, code, run.program));
+        // A program may bring its own header and student source (the A2 pilot builds each function from its own parts).
+        const own = run.program;
+        const h = typeof own.header === 'string' ? { ...harness, header: own.header } : harness;
+        const source = typeof own.studentSource === 'string' ? own.studentSource : code;
+        const key = JSON.stringify([own.kind, own.pauseLine, own.variables, own.line, own.find, own.replace, own.header, own.studentSource]);
+        if (!cache.has(key)) cache.set(key, builder(h, source, own));
         built = cache.get(key);
       }
       if (!built.ok) {

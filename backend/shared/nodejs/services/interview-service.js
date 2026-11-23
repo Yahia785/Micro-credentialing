@@ -16,6 +16,9 @@ const { classifyCode, NOT_FINISHED_SENTENCE } = require('../agent/code-status');
 const { runAllQuestions } = require('./interview-runs');
 const { analyzeCode, buildContext } = require('./interview-analysis');
 const { launchPrepare } = require('./prepare-launcher');
+const a2 = require('./a2-interview');
+const importedStore = require('../a2/imported-store');
+const { runPlan } = require('../a2/runtime');
 const view = require('../utils/interview-view');
 const log = require('../utils/logger');
 const { END_REASONS } = require('../utils/submission-end-reason');
@@ -203,7 +206,9 @@ async function startInterview({ userId, submissionId, now = Date.now(), invokePr
  * per submission rule, and getInterviewBySubmission never returns it. It has no session key (the admin may leave and come back).
  * @returns {Promise<{ interviewId, question, deadline, serverNow, prepareStatus, isPractice: true }>}
  */
-async function startPracticeInterview({ userId, submissionId, now = Date.now(), invokePrepare }) {
+async function startPracticeInterview({ userId, submissionId, importId, milestoneId, now = Date.now(), invokePrepare }) {
+  // The A2 pilot: an interview-only assessment is tied to an imported record, not to a submission.
+  if (importId !== undefined && importId !== null) return startImportedPractice({ userId, importId, milestoneId, now, invokePrepare });
   if (!submissionId || typeof submissionId !== 'string') {
     throw new ValidationError('submissionId is required');
   }
@@ -221,6 +226,68 @@ async function startPracticeInterview({ userId, submissionId, now = Date.now(), 
 }
 
 /**
+ * Admin only (the handler enforces it): start a practice interview of an interview-only assessment on one imported record. The record and its
+ * plan come from the ImportedSubmissions table; the code is read from S3 when it is needed. The interview stores the importId, the form and the
+ * plan (without the GitHub username), never the username.
+ * @returns {Promise<{ interviewId, question, deadline, serverNow, prepareStatus, isPractice: true }>}
+ */
+async function startImportedPractice({ userId, importId, milestoneId, now = Date.now(), invokePrepare }) {
+  if (typeof importId !== 'string' || !importId) throw new ValidationError('importId is required');
+  if (typeof milestoneId !== 'string' || !milestoneId) throw new ValidationError('milestoneId is required');
+  const milestone = await getMilestone(milestoneId);
+  if (!milestone) throw new NotFoundError('Assessment');
+  a2.assertInterviewOnlyAssessment(milestone);
+  const record = await importedStore.getRecord(importId);
+  const runLimits = { timeLimitMs: milestone.timeLimit || 5000, memoryLimitKb: milestone.memoryLimit || 256000 };
+
+  const interviewId = interviews.practiceInterviewId();
+  const { meta, firstTurn, result } = a2.newImportedInterview({ interviewId, record, milestone, userId, isPractice: true, now, runLimits });
+  await interviews.createInterview(meta, firstTurn);
+  await launchPrepare({ interviewId, invokePrepare, prepare: prepareInterview });
+
+  log.info('Practice interview started', { interviewId, importId, milestoneId });
+  return { ...result, isPractice: true };
+}
+
+/**
+ * The prepare step of an interview-only interview: run the plan's programs once (plain, and trace where the plan has a breakpoint) on the
+ * student's own code. What they print is the truth the answers are checked against; a result that differs from the plan's own answer is
+ * logged as a mismatch flag on that question and the interview goes on with the runtime result.
+ */
+async function prepareImported({ meta, interviewId, runBatch, countRun, clock, now, deadlineAt }) {
+  const startedAt = clock();
+  const config = meta.configSnapshot;
+  const runLimits = meta.runLimits || { timeLimitMs: 5000, memoryLimitKb: 256000 };
+  const budget = deadlineAt || Date.now() + 100000;
+  const clockFields = meta.isPractice
+    ? { startedAt: new Date(now).toISOString(), deadline: new Date(now + config.timeLimitMinutes * 60000).toISOString() }
+    : {};
+  try {
+    const [record, files] = await Promise.all([importedStore.getRecord(meta.importId), importedStore.getCode(meta.importId)]);
+    if (files.code === null) throw new NotFoundError('Imported code');
+    const results = await runPlan({
+      plan: meta.a2Plan, record, code: files.code, studentHeader: files.header, userId: meta.userId, interviewId, limits: runLimits, runBatch, countRun, deadlineAt: budget,
+    });
+    const prepareMs = Math.max(0, Math.round(clock() - startedAt));
+    const applied = await interviews.finishPrepare(interviewId, {
+      metaUpdates: { prepareStatus: PREPARE_STATUS.READY, prepareMs, a2Log: a2.applyRuntime(meta.a2Log, results), ...clockFields },
+      firstTurnUpdates: {},
+      now,
+    });
+    log.info('Interview prepared', { interviewId, prepareMs, applied, mismatches: results.filter((r) => r.mismatch).length });
+    return { prepared: applied, prepareStatus: applied ? PREPARE_STATUS.READY : PREPARE_STATUS.SKIPPED };
+  } catch (error) {
+    log.error('Interview prepare failed', { interviewId, error: error.name });
+    try {
+      await interviews.finishPrepare(interviewId, { metaUpdates: { prepareStatus: PREPARE_STATUS.FAILED, ...clockFields }, firstTurnUpdates: {}, now });
+    } catch (again) {
+      log.error('Could not mark the interview prepare step as failed', { interviewId, error: again.name });
+    }
+    return { prepared: false, prepareStatus: PREPARE_STATUS.FAILED };
+  }
+}
+
+/**
  * The prepare step (its own Lambda, started by create; the eval and the tests call it directly). For host.v6 and host.v7 it classifies the
  * code and runs every run input once; for host.v7 it also analyzes the code (a plan call, the runs it chose, an analysis call). It stores
  * the results on the interview and marks it "ready", or "failed" when the step itself fails (the interview then goes on without them).
@@ -232,6 +299,7 @@ async function prepareInterview({ interviewId, converseFn = bedrock.converse, ru
   if (!meta || meta.prepareStatus !== PREPARE_STATUS.PREPARING || meta.status !== STATUS.IN_PROGRESS) {
     return { prepared: false, prepareStatus: meta ? meta.prepareStatus || PREPARE_STATUS.READY : 'missing' };
   }
+  if (a2.isInterviewOnly(meta)) return prepareImported({ meta, interviewId, runBatch, countRun, clock, now, deadlineAt });
   const startedAt = clock();
   const config = meta.configSnapshot;
   const runLimits = meta.runLimits || { timeLimitMs: 5000, memoryLimitKb: 256000 };
@@ -377,6 +445,8 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, session
   // deadline below, so the student's clock does not run while they wait.
   const workStartedAt = clock();
 
+  if (a2.isInterviewOnly(meta)) return submitImportedAnswer({ meta, interviewId, answer, clientTiming, now, converseFn, clock, workStartedAt });
+
   const [turns, submission] = await Promise.all([
     interviews.getInterviewTurns(interviewId),
     getSubmission(meta.submissionId),
@@ -488,6 +558,69 @@ async function submitAnswer({ userId, interviewId, answer, clientTiming, session
   return { question, deadline, serverNow: new Date().toISOString() };
 }
 
+/** Store the answer of an interview-only interview and return the next question (or end it). See a2-interview.js for what happens after an answer. */
+async function submitImportedAnswer({ meta, interviewId, answer, clientTiming, now, converseFn, clock, workStartedAt }) {
+  const [turns, files] = await Promise.all([interviews.getInterviewTurns(interviewId), importedStore.getCode(meta.importId)]);
+  if (turns.length !== meta.turnCount || turns[turns.length - 1].role !== 'host') {
+    throw new AppError('This interview is in an inconsistent state', 409);
+  }
+  const asked = turns[turns.length - 1];
+  const studentTurn = {
+    role: 'student',
+    text: answer.trim(),
+    themeId: asked.themeId,
+    kind: asked.kind,
+    createdAt: new Date(now).toISOString(),
+    clientTiming: sanitizeClientTiming(clientTiming),
+  };
+  const step = await a2.answerStep({ meta, turns: [...turns, studentTurn], answer, code: files.code || '', ...(converseFn && { converseFn }) });
+  const logFields = { interviewId, action: step.action, inputTokens: step.usage.inputTokens, outputTokens: step.usage.outputTokens, latencyMs: step.usage.latencyMs };
+
+  if (step.action === engine.ACTIONS.END) {
+    await interviews.appendTurns({
+      interviewId,
+      expectedTurnCount: meta.turnCount,
+      turns: [studentTurn],
+      metaUpdates: {
+        ...stateFields(step.state),
+        a2Log: step.log,
+        status: STATUS.COMPLETED,
+        endedAt: new Date(now).toISOString(),
+        endReason: 'completed',
+        endDetail: { reason: step.reason },
+      },
+      now,
+    });
+    log.info('Interview completed', logFields);
+    return { ended: true, status: STATUS.COMPLETED };
+  }
+
+  // The agent's working time is not the student's: the deadline moves by exactly that long.
+  const addedMs = Math.max(0, Math.round(clock() - workStartedAt));
+  const deadline = new Date(Date.parse(meta.deadline) + addedMs).toISOString();
+  const hostTurn = {
+    role: 'host',
+    text: step.question,
+    themeId: asked.themeId,
+    kind: step.kind,
+    reason: step.reason,
+    ...step.hostFields,
+    latencyMs: step.usage.latencyMs,
+    inputTokens: step.usage.inputTokens,
+    outputTokens: step.usage.outputTokens,
+    createdAt: new Date().toISOString(),
+  };
+  await interviews.appendTurns({
+    interviewId,
+    expectedTurnCount: meta.turnCount,
+    turns: [studentTurn, hostTurn],
+    metaUpdates: { ...stateFields(step.state), a2Log: step.log, deadline, extraTimeMs: (meta.extraTimeMs || 0) + addedMs },
+    now,
+  });
+  log.info('Interview answer processed', { ...logFields, addedMs });
+  return { question: step.question, deadline, serverNow: new Date().toISOString() };
+}
+
 const toStudentInterview = view.toStudentInterview;
 const toAdminInterview = view.toAdminInterview;
 
@@ -516,13 +649,17 @@ async function getInterview({ userId, interviewId, isAdmin, peek = false, sessio
   }
 
   const turns = await interviews.getInterviewTurns(interviewId);
-  const submission = await getSubmission(meta.submissionId);
-  if (!isAdmin) {
-    const code = current.status === STATUS.IN_PROGRESS && submission ? submission.code || '' : null;
-    return { interview: toStudentInterview(current, turns, { now, code }) };
+  // An interview-only interview has no submission: its code is the imported file in S3 (read only when it is going to be shown).
+  let sourceCode = null;
+  if (a2.isInterviewOnly(meta)) {
+    if (isAdmin || current.status === STATUS.IN_PROGRESS) sourceCode = (await importedStore.getCode(meta.importId)).code;
+  } else {
+    const submission = await getSubmission(meta.submissionId);
+    if (submission && (isAdmin || current.status === STATUS.IN_PROGRESS)) sourceCode = submission.code || '';
   }
+  if (!isAdmin) return { interview: toStudentInterview(current, turns, { now, code: sourceCode }) };
 
-  return { interview: toAdminInterview(current, turns, { code: submission ? submission.code || '' : null, now }) };
+  return { interview: toAdminInterview(current, turns, { code: sourceCode, now }) };
 }
 
 /**
@@ -545,6 +682,11 @@ async function listSubmissionInterviews({ submissionId }) {
   }
   const items = await interviews.listInterviewsBySubmission(submissionId);
   return { submissionId, interviews: items.map(view.toInterviewSummary) };
+}
+
+/** Admin only (the handler enforces it): the imported records an interview-only assessment can be practised on: { importId, githubUsername, status, form, hasPlan }. */
+async function listImportedSubmissions() {
+  return { records: await importedStore.listRecords() };
 }
 
 const MAX_REVIEW_NOTE_LENGTH = 4000;
@@ -611,6 +753,7 @@ module.exports = {
   MAX_REVIEW_NOTE_LENGTH,
   startInterview,
   startPracticeInterview,
+  listImportedSubmissions,
   prepareInterview,
   abandonInterview,
   listSubmissionInterviews,

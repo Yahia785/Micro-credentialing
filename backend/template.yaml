@@ -137,6 +137,7 @@ Globals:
         TESTCASES_TABLE: TestCases
         SUBMISSIONS_TABLE: Submissions
         INTERVIEWS_TABLE: !Sub "Interviews-${Environment}"
+        IMPORTED_SUBMISSIONS_TABLE: !Sub "ImportedSubmissions-${Environment}"
         AGENT_MODEL_ID: !Ref AgentModelId
         AGENT_CHECKER_MODEL_ID: !Ref AgentCheckerModelId
         AGENT_WRITER_MODEL_ID: !Ref AgentWriterModelId
@@ -1626,6 +1627,15 @@ Resources:
             TableName: Submissions
         - DynamoDBReadPolicy:
             TableName: Milestones
+        # A2 pilot (interview-only assessments): read the imported records, and read the imported code in S3. Nothing else of the bucket.
+        - DynamoDBReadPolicy:
+            TableName: !Ref ImportedSubmissionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource:
+                - "arn:aws:s3:::micro-credentialing-recordings/a2-pilot/*"
         - DynamoDBCrudPolicy:
             TableName: !Ref RunUsageTable
         # The analysis of host.v7 uses the checker model (Converse needs bedrock:InvokeModel, in us-east-1 only).
@@ -1713,6 +1723,15 @@ Resources:
             TableName: !Ref InterviewsTable
         - DynamoDBReadPolicy:
             TableName: Submissions
+        # A2 pilot (interview-only assessments): read the imported records, and read the imported code in S3. Nothing else of the bucket.
+        - DynamoDBReadPolicy:
+            TableName: !Ref ImportedSubmissionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource:
+                - "arn:aws:s3:::micro-credentialing-recordings/a2-pilot/*"
         # Converse needs bedrock:InvokeModel on these models, in us-east-1 only (the Host model, and the checker and writer of host.v5).
         - Statement:
             - Effect: Allow
@@ -1766,6 +1785,15 @@ Resources:
         # The admin view includes the submitted code.
         - DynamoDBReadPolicy:
             TableName: Submissions
+        # A2 pilot (interview-only assessments): read the imported records, and read the imported code in S3. Nothing else of the bucket.
+        - DynamoDBReadPolicy:
+            TableName: !Ref ImportedSubmissionsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource:
+                - "arn:aws:s3:::micro-credentialing-recordings/a2-pilot/*"
 
   # ------------------------------------------
   # LAMBDA: List the interviews of one submission (admin)
@@ -1775,7 +1803,7 @@ Resources:
     Properties:
       CodeUri: functions/interviews/list/
       Handler: index.handler
-      Description: Lists the interviews (real and practice) of one submission, admin only
+      Description: Lists the interviews (real and practice) of one submission, or the imported records (A2 pilot), admin only
       Events:
         ListSubmissionInterviews:
           Type: Api
@@ -1790,6 +1818,9 @@ Resources:
             TableName: !Ref InterviewsTable
         - DynamoDBReadPolicy:
             TableName: Users
+        # The list of imported records (GET /interviews?imported=1): the table only, no S3.
+        - DynamoDBReadPolicy:
+            TableName: !Ref ImportedSubmissionsTable
 
   # ------------------------------------------
   # LAMBDA: Start a practice interview (admin)
@@ -1831,6 +1862,9 @@ Resources:
             TableName: Milestones
         - DynamoDBReadPolicy:
             TableName: Users
+        # An interview-only practice interview reads its record (and plan) from the imported table; the code is read later, by Prepare, Answer and Get.
+        - DynamoDBReadPolicy:
+            TableName: !Ref ImportedSubmissionsTable
         - Statement:
             - Effect: Allow
               Action:
@@ -2076,7 +2110,8 @@ Resources:
   # One item per imported repo (importId is random). The code itself is in S3 under a2-pilot/<importId>/ in the recordings bucket;
   # s3Keys points there. githubUsername is personal data: GithubUsernameIndex exists so one student's data can be found and deleted
   # (scripts/a2-import/delete.js). linkedUserId stays empty until the student is matched to an account; consent starts as "unknown".
-  # Not given to any Lambda yet: only the import and delete scripts (run with a person's own AWS credentials) use it.
+  # Read only by the interview Lambdas of the A2 pilot (practice start, prepare, answer, get, list); the import and delete scripts (run with a
+  # person's own AWS credentials) write it. The Lambdas can read S3 under a2-pilot/* only.
   ImportedSubmissionsTable:
     Type: AWS::DynamoDB::Table
     Properties:
