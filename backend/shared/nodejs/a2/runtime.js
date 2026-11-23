@@ -1,12 +1,16 @@
 /**
  * Running the plan's programs once when an A2 interview is prepared, and reading what they printed. The runtime result is the truth the
- * student's answer is checked against; the plan's own answer (computed when the plan was built) is only compared with it. When the two
- * differ the question gets a mismatch flag and the interview goes on with the runtime result.
+ * student's CODE answers are checked against; the plan's own answer (computed when the plan was built) is only compared with it. When the two
+ * differ the item gets a mismatch flag and the interview goes on with the runtime result. When nothing could be run the plan's answer is used
+ * and the flag says so.
  *
- * A predict question runs one plain copy of the student's code on the question's input. A tracing question runs the plain copy and the
- * trace copy (the code with a breakpoint line that records the traced variables); the K-th stop is the answer. Compile-error and logic
- * questions run nothing. Each function is built from its own parts (the same rules as the plan: the whole file, or the one function
- * with its helpers when the file as a whole did not compile), so the program that runs is the one the plan was built from.
+ * Only what can be asked is run: for a student whose code is right (cases 1 and 3) the follow-ups of those two cases, for a student whose code
+ * is wrong or unknown (cases 2 and 4) the debug input. An item is one of:
+ *   case1.followUp1, case1.followUp2   predict (plain run), tracing (plain and trace run) or what-if (the changed copy)
+ *   case2.followUp1                    the debug input, plain run: their output
+ *   case3.followUp1                    their answer on the main input (plain run; for reverseList the swap count of the material)
+ *   material                           the trace of their function on the main input, every stop (the smaller code steps of cases 3 and 4)
+ * Each function is built from its own parts (the same rules as the plan), so the program that runs is the one the plan was built from.
  */
 const fs = require('fs');
 const path = require('path');
@@ -29,82 +33,128 @@ function loadAssets() {
 
 const trimmed = (text) => String(text === null || text === undefined ? '' : text).replace(/\r\n/g, '\n').trim();
 
+/** The items of one question that can be asked, as [{ id, f, mode }]; mode: plain | tracing | whatIf | swaps | material. */
+function itemsOf(q) {
+  if (q.kind !== 'logic' || !q.cases) return [];
+  const items = [];
+  const reachable = q.codeRight === true ? ['case1', 'case3'] : ['case2', 'case4'];
+  for (const name of reachable) {
+    const c = q.cases[name];
+    if (!c || !c.available) continue;
+    for (const key of ['followUp1', 'followUp2']) {
+      const f = c[key];
+      if (!f || f.unavailable) continue;
+      const id = `${name}.${key}`;
+      if (f.type === 'smallStep') { if (f.material && f.material.available && !items.some((i) => i.id === 'material')) items.push({ id: 'material', f: f.material, mode: 'material' }); continue; }
+      if (f.type === 'predict') items.push({ id, f, mode: name === 'case3' && q.function === 'reverseList' ? 'swaps' : 'plain' });
+      else if (f.type === 'debug') items.push({ id, f, mode: 'plain' });
+      else if (f.type === 'tracing') items.push({ id, f, mode: 'tracing' });
+      else if (f.type === 'whatIf') items.push({ id, f, mode: 'whatIf' });
+    }
+  }
+  return items;
+}
+
 /**
- * One list of runs per asked question (what runAllQuestions takes), plus per question why nothing is run when the function cannot be built.
- * @returns {{ questions: Array<Array<object>>, notes: Array<string|null> }}
+ * One list of runs per asked question (what runAllQuestions takes), the items each list serves, and per question why nothing is run when the
+ * function cannot be built.
  */
 function buildRunQuestions({ plan, record, code, studentHeader, assets = loadAssets() }) {
   const factory = programFactory({ record, code, studentHeader, officialHeader: assets.officialHeader });
   const questions = [];
+  const items = [];
   const notes = [];
   askable(plan).forEach((q) => {
-    if (q.kind !== 'predict' && q.kind !== 'tracing') { questions.push([]); notes.push(null); return; }
+    const list = itemsOf(q);
+    items.push(list);
+    if (list.length === 0) { questions.push([]); notes.push(null); return; }
     const parts = factory(q.function);
     if (parts.error) { questions.push([]); notes.push(parts.error); return; }
-    const stdin = `${q.input.cmd}\n`;
-    const runs = [{ label: 'plain', stdin, program: { kind: 'plain', header: parts.header, studentSource: parts.studentSource } }];
-    if (q.kind === 'tracing') {
-      runs.push({
-        label: 'trace',
-        stdin,
-        program: { kind: 'trace', pauseLine: q.line, variables: (q.variables || []).map((v) => ({ name: v.name, expr: v.expr })), header: parts.header, studentSource: parts.studentSource },
-      });
+    const own = { header: parts.header, studentSource: parts.studentSource };
+    const runs = [];
+    for (const { id, f, mode } of list) {
+      if (mode === 'plain') runs.push({ label: id, stdin: `${f.input.cmd}\n`, program: { kind: 'plain', ...own } });
+      else if (mode === 'tracing') {
+        runs.push({ label: `${id}:plain`, stdin: `${f.input.cmd}\n`, program: { kind: 'plain', ...own } });
+        runs.push({ label: `${id}:trace`, stdin: `${f.input.cmd}\n`, program: { kind: 'trace', pauseLine: f.line, variables: f.variables.map((v) => ({ name: v.name, expr: v.expr })), ...own } });
+      } else if (mode === 'whatIf') runs.push({ label: id, stdin: `${f.input.cmd}\n`, program: { kind: 'whatIf', line: f.line, find: f.find, replace: f.replace, ...own } });
+      else if (mode === 'material') {
+        runs.push({ label: 'material:plain', stdin: `${f.input.cmd}\n`, program: { kind: 'plain', ...own } });
+        runs.push({ label: 'material:trace', stdin: `${f.input.cmd}\n`, program: { kind: 'trace', pauseLine: f.line, variables: f.variables.map((v) => ({ name: v.name, expr: v.expr })), ...own } });
+      }
     }
     questions.push(runs);
     notes.push(null);
   });
-  return { questions, notes };
+  return { questions, items, notes };
+}
+
+const unavailable = (plan, why, extra = {}) => ({ source: 'plan', mismatch: { kind: 'runtime_unavailable', plan, runtime: null }, note: why, ...extra });
+
+/** The truth of one item from the run results of its question (runAllQuestions' entry). */
+function truthOfItem({ item, entry, materialTruth, buildNote }) {
+  const { id, f, mode } = item;
+  const runs = (entry && entry.runs) || [];
+  const errorOf = (label) => ((entry && entry.errors) || []).find((e) => e.label === label);
+  const run = (label) => runs.find((r) => r.label === label);
+  const why = (label) => { const e = errorOf(label); return buildNote || (e ? `${e.kind} ${e.stage}: ${e.reason}` : (entry && entry.note) || 'the program could not be run'); };
+  const planAnswer = f.type === 'debug' ? f.theirOutput : f.answer;
+  const compare = (answer, plan) => ({ answer, source: 'runtime', mismatch: plan !== null && plan !== undefined && trimmed(plan) !== trimmed(answer) ? { kind: 'runtime_differs_from_plan', plan: trimmed(plan), runtime: trimmed(answer) } : null });
+
+  if (mode === 'swaps') {
+    if (materialTruth && materialTruth.source === 'runtime' && Array.isArray(materialTruth.stops)) return compare(String(materialTruth.stops.length), f.answer);
+    return unavailable(f.answer, 'the swap line could not be traced', { answer: f.answer });
+  }
+  if (mode === 'plain') {
+    const r = run(id);
+    if (!r || r.status !== 'accepted') return unavailable(planAnswer, r ? `the program ended with status ${r.status}` : why(id), { answer: planAnswer });
+    return compare(trimmed(r.stdout), planAnswer);
+  }
+  if (mode === 'whatIf') {
+    const r = run(id);
+    if (!r || r.status !== 'accepted') return unavailable(planAnswer, r ? `the changed copy ended with status ${r.status}` : why(id), { answer: planAnswer });
+    return compare(trimmed(r.stdout), planAnswer);
+  }
+  if (mode === 'tracing') {
+    const plain = run(`${id}:plain`);
+    const trace = run(`${id}:trace`);
+    if (!plain || plain.status !== 'accepted' || !trace || !trace.trace) return unavailable(planAnswer, why(`${id}:trace`), { answer: planAnswer });
+    if (trimmed(trace.stdout) !== trimmed(plain.stdout)) return unavailable(planAnswer, 'instrumentation changed behavior', { answer: planAnswer });
+    const stop = trace.trace.stops[f.k - 1];
+    if (!stop) return unavailable(planAnswer, `the breakpoint stopped ${trace.trace.total} times, fewer than ${f.k}`, { answer: planAnswer });
+    return compare(stop.text, planAnswer);
+  }
+  // material: every stop of the trace
+  const plain = run('material:plain');
+  const trace = run('material:trace');
+  const planStops = f.stops;
+  if (!plain || plain.status !== 'accepted' || !trace || !trace.trace) return unavailable(planStops, why('material:trace'), { stops: planStops });
+  if (trimmed(trace.stdout) !== trimmed(plain.stdout)) return unavailable(planStops, 'instrumentation changed behavior', { stops: planStops });
+  const stops = trace.trace.stops.map((s) => s.text);
+  const same = JSON.stringify(stops) === JSON.stringify(planStops);
+  return { stops, source: 'runtime', mismatch: same ? null : { kind: 'runtime_differs_from_plan', plan: planStops, runtime: stops } };
 }
 
 /**
- * The answer the code gives for one asked question, from its run results (runAllQuestions' entry for that question):
- * { answer: string|null, note: string|null }. null means the runtime could not give one (the note says why).
- */
-function answerFromRuns(q, entry) {
-  if (q.kind !== 'predict' && q.kind !== 'tracing') return { answer: null, note: null };
-  if (!entry) return { answer: null, note: 'no run result' };
-  if (entry.errors && entry.errors.length) return { answer: null, note: `${entry.errors[0].kind || 'run'} ${entry.errors[0].stage}: ${entry.errors[0].reason}` };
-  const plain = (entry.runs || []).find((r) => r.label === 'plain');
-  if (!plain) return { answer: null, note: entry.note || 'the program did not run' };
-  if (plain.status !== 'accepted') return { answer: null, note: `the program ended with status ${plain.status}` };
-  if (q.kind === 'predict') return { answer: trimmed(plain.stdout), note: null };
-  const trace = (entry.runs || []).find((r) => r.label === 'trace');
-  if (!trace || !trace.trace) return { answer: null, note: 'the trace copy did not run' };
-  if (trimmed(trace.stdout) !== trimmed(plain.stdout)) return { answer: null, note: 'instrumentation changed behavior' };
-  const stop = trace.trace.stops[q.k - 1];
-  if (!stop) return { answer: null, note: `the breakpoint stopped ${trace.trace.total} times, fewer than ${q.k}` };
-  return { answer: stop.text, note: null };
-}
-
-/**
- * Run the plan's programs once and fill in what the code answers, per asked question.
- * @returns {Promise<Array<{ answerFromCode: string|null, answerSource: 'runtime'|'plan'|null, mismatch: object|null, runtimeNote: string|null }>>}
- *   answerFromCode is the truth: the runtime result, or (when nothing could be run) the plan's own answer, with a flag that says so.
+ * Run the plan's programs once and work out the truth of every item that can be asked.
+ * @returns {Promise<Array<{ truth: Object<string, { answer?: string, stops?: string[], source: 'runtime'|'plan', mismatch: object|null, note?: string }> }>>} one entry per asked question
  */
 async function runPlan({ plan, record, code, studentHeader, userId, interviewId, limits, runBatch, countRun, deadlineAt }) {
-  const asked = askable(plan);
-  const { questions, notes } = buildRunQuestions({ plan, record, code, studentHeader });
+  const { questions, items, notes } = buildRunQuestions({ plan, record, code, studentHeader });
   const assets = loadAssets();
   const observed = await runAllQuestions({
     code, questions, userId, interviewId, limits, runBatch, countRun, deadlineAt, harness: { header: assets.officialHeader, driver: assets.driver },
   });
-  return asked.map((q, i) => {
-    if (q.kind !== 'predict' && q.kind !== 'tracing') return { answerFromCode: null, answerSource: null, mismatch: null, runtimeNote: null };
-    const result = answerFromRuns(q, observed[i]);
-    const planAnswer = q.answer === undefined || q.answer === null ? null : trimmed(q.answer);
-    if (result.answer === null) {
-      const why = notes[i] || result.note || (observed[i] && observed[i].note) || 'the program could not be run';
-      // The plan's own answer is used, and the flag says the runtime could not confirm it.
-      return { answerFromCode: planAnswer, answerSource: planAnswer === null ? null : 'plan', mismatch: { kind: 'runtime_unavailable', planAnswer, runtimeAnswer: null }, runtimeNote: why };
+  return items.map((list, i) => {
+    const truth = {};
+    const material = list.find((it) => it.mode === 'material');
+    if (material) truth.material = truthOfItem({ item: material, entry: observed[i], buildNote: notes[i] });
+    for (const item of list) {
+      if (item.mode === 'material') continue;
+      truth[item.id] = truthOfItem({ item, entry: observed[i], materialTruth: truth.material, buildNote: notes[i] });
     }
-    const differs = planAnswer !== null && planAnswer !== trimmed(result.answer);
-    return {
-      answerFromCode: trimmed(result.answer),
-      answerSource: 'runtime',
-      mismatch: differs ? { kind: 'runtime_differs_from_plan', planAnswer, runtimeAnswer: trimmed(result.answer) } : null,
-      runtimeNote: null,
-    };
+    return { truth };
   });
 }
 
-module.exports = { buildRunQuestions, answerFromRuns, runPlan, loadAssets };
+module.exports = { itemsOf, buildRunQuestions, truthOfItem, runPlan, loadAssets };

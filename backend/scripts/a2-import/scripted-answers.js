@@ -48,7 +48,8 @@ const LOGIC = {
 const bigger = (text) => {
   const t = String(text);
   if (/-?\d+/.test(t)) return t.replace(/-?\d+/, (n) => String(Number(n) + 1));
-  if (/"[^"]/.test(t)) return t.replace(/"([^"])/, '"x');
+  if (/"[^",]/.test(t)) return t.replace(/"([^",])/, '"x');
+  if (t.includes('""')) return t.replace('""', '"x"');
   return t === '[]' ? '[0]' : `${t}x`;
 };
 
@@ -57,10 +58,19 @@ function codeFormats(answer) {
   const a = String(answer);
   const stop = a.split(/,\s*(?=[^,=]+=)/).map((p) => ({ name: p.slice(0, p.indexOf('=')), value: p.slice(p.indexOf('=') + 1) }));
   if (stop.length && a.includes('=') && !/^[\[{]/.test(a)) {
-    const values = stop.map((s) => s.value.replace(/^"|"$/g, ''));
-    return [values.join(' and '), stop.map((s) => `${s.name} is ${s.value.replace(/^"|"$/g, '')}`).join(', '), a];
+    // an empty string is typed as "" (an empty answer is not an answer)
+    const values = stop.map((s) => s.value.replace(/^"|"$/g, '') || '""');
+    return [values.join(' and '), stop.map((s) => `${s.name} is ${s.value.replace(/^"|"$/g, '') || '""'}`).join(', '), a];
   }
   return [a, `It gives ${a}`, a.replace(/[\[\]{}]/g, '').replace(/,\s*/g, ' ')];
+}
+/** The first variable of a stop ("left number=1, right number=5" gives "left number=1"): the scripted answers to a smaller code step are about ONE variable at the first stop. */
+const firstPair = (stop) => String(stop).split(/,\s*(?=[^,=]+=)/)[0];
+/** A wrong answer to a smaller logic question: the key made different (a number one more; a list without its empty pieces). */
+function wrongLogic(key, variant) {
+  const k = String(key);
+  const wrong = /^-?\d+$/.test(k.trim()) ? String(Number(k) + 1) : (k.match(/"([^"]+)"/g) || []).join(', ') || 'nothing';
+  return variant % 3 === 1 ? `I think it is ${wrong}` : wrong;
 }
 const wrongCode = (answer) => codeFormats(bigger(answer))[0];
 
@@ -102,11 +112,11 @@ function followUpSteps(q, c, good, variant) {
   } else if (c === 3) {
     if (f1 && f1.text) steps.push({ asks: f1.text, kind: 'predict', answer: good ? pick(f1.answer) : wrongCode(f1.answer), expected: good ? 'correct' : 'wrong', answerType: 'code', key: f1.answer });
     const m = f2.material;
-    if (m && m.available) steps.push({ asks: `(a smaller code step written by the agent in M5b, about line ${m.line} on ${m.input.display})`, kind: 'smallStep', answer: good ? pick(m.stops[0]) : wrongCode(m.stops[0]), expected: good ? 'correct' : 'wrong', answerType: 'code', key: m.stops[0] });
+    if (m && m.available) steps.push({ asks: `(a smaller code step written by the agent in M5b, about line ${m.line} on ${m.input.display})`, kind: 'smallStep', answer: good ? pick(firstPair(m.stops[0])) : wrongCode(firstPair(m.stops[0])), expected: good ? 'correct' : 'wrong', answerType: 'code', key: firstPair(m.stops[0]) });
   } else {
-    steps.push({ asks: f1.text, kind: 'smallLogic', answer: good ? LOGIC[q.function].right(f1.answerKey)[variant % 3] : LOGIC[q.function].wrong()[variant % 3] === '5' ? '9' : LOGIC[q.function].wrong()[variant % 3], expected: good ? 'correct' : 'wrong', answerType: 'logic', key: f1.answerKey });
+    steps.push({ asks: f1.text, kind: 'smallLogic', answer: good ? LOGIC[q.function].right(f1.answerKey)[variant % 3] : wrongLogic(f1.answerKey, variant), expected: good ? 'correct' : 'wrong', answerType: 'logic', key: f1.answerKey });
     const m = f2.material;
-    if (m && m.available) steps.push({ asks: `(a smaller code step written by the agent in M5b, about line ${m.line} on ${m.input.display})`, kind: 'smallStep', answer: good ? pick(m.stops[0]) : wrongCode(m.stops[0]), expected: good ? 'correct' : 'wrong', answerType: 'code', key: m.stops[0] });
+    if (m && m.available) steps.push({ asks: `(a smaller code step written by the agent in M5b, about line ${m.line} on ${m.input.display})`, kind: 'smallStep', answer: good ? pick(firstPair(m.stops[0])) : wrongCode(firstPair(m.stops[0])), expected: good ? 'correct' : 'wrong', answerType: 'code', key: firstPair(m.stops[0]) });
   }
   return steps;
 }

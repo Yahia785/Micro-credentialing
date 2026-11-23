@@ -274,7 +274,7 @@ async function prepareImported({ meta, interviewId, runBatch, countRun, clock, n
       firstTurnUpdates: {},
       now,
     });
-    log.info('Interview prepared', { interviewId, prepareMs, applied, mismatches: results.filter((r) => r.mismatch).length });
+    log.info('Interview prepared', { interviewId, prepareMs, applied, mismatches: a2.mismatchCount(results) });
     return { prepared: applied, prepareStatus: applied ? PREPARE_STATUS.READY : PREPARE_STATUS.SKIPPED };
   } catch (error) {
     log.error('Interview prepare failed', { interviewId, error: error.name });
