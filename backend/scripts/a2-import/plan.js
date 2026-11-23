@@ -23,7 +23,7 @@ const { makeStore } = require('./lib/store');
 const { tableFor, DEFAULT_BUCKET, DEFAULT_REGION, normalizeUsername } = require('./lib/common');
 const { assignForms, PLANNABLE } = require('./lib/plan-rules');
 const { buildPlan } = require('./lib/plan-build');
-const { computeReference } = require('./lib/reference');
+const { computeReference, questionInputs } = require('./lib/reference');
 const { renderReview } = require('./lib/plan-review');
 const { outcomeFor, summaryLines } = require('./lib/plan-report');
 
@@ -75,8 +75,13 @@ async function main() {
   // reference answers, computed once and saved with the plans
   const refPath = path.join(args.out, 'reference.json');
   let reference;
-  if (!args.refreshReference && fs.existsSync(refPath)) reference = JSON.parse(fs.readFileSync(refPath, 'utf8'));
-  else {
+  if (!args.refreshReference && fs.existsSync(refPath)) {
+    reference = JSON.parse(fs.readFileSync(refPath, 'utf8'));
+    // a reference from before an input was added to questions.json is out of date: compute it again
+    const missing = questionInputs(questions).filter((i) => !reference.inputs[i.cmd]);
+    if (missing.length) { console.log(`reference.json lacks ${missing.length} inputs of questions.json (e.g. "${missing[0].cmd}"): computing it again`); reference = null; }
+  }
+  if (!reference) {
     const docker = makeDocker();
     try { reference = await computeReference({ docker, questions }); } finally { docker.cleanup(); }
     fs.writeFileSync(refPath, JSON.stringify(reference, null, 2));

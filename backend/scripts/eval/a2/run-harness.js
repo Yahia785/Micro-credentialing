@@ -166,7 +166,7 @@ async function evaluate(sub, runBatch, counters) {
 
 /** Agent runs one interview of this submission uses in form A or B (mode only when a function cannot be asked). */
 function interviewRuns(result, form) {
-  const types = questions.forms[form];
+  const types = questions.rotation[form];
   let runs = 0;
   let modeNeeded = false;
   for (const fn of primaryFns) {

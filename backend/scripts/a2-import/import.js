@@ -22,6 +22,7 @@ const { importRepo, excludedSummary } = require('./lib/import-repo');
 const { makeStore } = require('./lib/store');
 const { FUNCTIONS, DEFAULT_BUCKET, DEFAULT_REGION, tableFor, normalizeUsername } = require('./lib/common');
 const { parseDeadline } = require('./lib/pick');
+const { candidateInputs } = require('./lib/inputs');
 
 const A2 = path.join(__dirname, '..', 'eval', 'a2');
 
@@ -40,8 +41,7 @@ function loadAssets(questionsPath) {
   const questions = JSON.parse(fs.readFileSync(questionsPath || path.join(A2, 'questions.json'), 'utf8'));
   const inputs = [];
   for (const fn of FUNCTIONS) {
-    const f = questions.functions[fn];
-    for (const input of [...f.standardInputs, ...f.targetInputs]) {
+    for (const input of candidateInputs(questions, fn)) {
       if (!inputs.some((x) => x.cmd === input.cmd)) inputs.push({ function: fn, cmd: input.cmd, spec: input.spec, unclearSpec: Boolean(input.unclearSpec) });
     }
   }

@@ -24,13 +24,12 @@ for (const fn of Object.keys(questions.functions)) {
   md += `### ${fn}${f.primary ? '' : ' (backup)'}\n\n`;
   md += `**Predict:** ${fill(f.predict.question, { input: '[INPUT]' })}\n\n`;
   md += `**Tracing:** ${fill(questions.tracingQuestion, { line: '[LINE]', function: fn, input: '[INPUT]', kth: '[K]th', what: f.tracing.what })}\n\n`;
-  md += `**Fixed follow-up** (after a correct main answer): ${questions.fixedFollowUps[fn].question}\n\nAnswer key: ${questions.fixedFollowUps[fn].answerKey}\n\n`;
 }
 
 md += '## Part 2. What each submission would be asked\n\n';
 md += 'Columns: the question with the input and K filled in; whether the input is targeted (and why, when it is not); the answer from that submission\'s own code (predict: what it returns or leaves in the vector; tracing: its own trace at the K-th stop, there is no spec answer); the spec answer (predict only).\n\n';
 for (const form of ['A', 'B']) {
-  const types = questions.forms[form];
+  const types = questions.rotation[form];
   md += `### Form ${form}\n\n`;
   md += `${primary.map((fn) => `${fn} ${types[fn]}`).join(', ')}.\n\n`;
   md += '| submission | function | question | targeted? | trace differs from reference? | answer from the code | spec answer |\n|---|---|---|---|---|---|---|\n';

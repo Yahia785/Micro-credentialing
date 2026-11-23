@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const harness = require('../../../shared/nodejs/services/harness-builder');
 const { FUNCTIONS } = require('./common');
+const { candidateInputs } = require('./inputs');
 
 const A2 = path.join(__dirname, '..', '..', 'eval', 'a2');
 
@@ -12,11 +13,9 @@ const A2 = path.join(__dirname, '..', '..', 'eval', 'a2');
 function questionInputs(questions) {
   const out = [];
   for (const fn of FUNCTIONS) {
-    for (const [group, list] of [['standard', questions.functions[fn].standardInputs], ['target', questions.functions[fn].targetInputs]]) {
-      for (const input of list) {
-        if (out.some((x) => x.cmd === input.cmd)) continue;
-        out.push({ function: fn, cmd: input.cmd, display: input.display, group, bug: input.bug || null, unclearSpec: Boolean(input.unclearSpec), reason: input.reason || null });
-      }
+    for (const input of candidateInputs(questions, fn)) {
+      if (out.some((x) => x.cmd === input.cmd)) continue;
+      out.push({ function: fn, cmd: input.cmd, display: input.display, group: input.group, bug: input.bug || null, unclearSpec: Boolean(input.unclearSpec), reason: input.reason || null });
     }
   }
   return out;

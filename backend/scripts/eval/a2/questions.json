@@ -1,43 +1,11 @@
 {
-  "version": 2,
-  "about": "Question design for the Assignment 02 pilot (ECE 2514). Main questions are predict and tracing only, one per function, the type rotating by form. After a correct main answer the student gets a fixed follow-up per function (see fixedFollowUps). Fields \"spec\" (predict answers) and \"refStops\" (the reference's trace stops, used only to choose a K for targeted inputs) are filled by run-all.js by running code. Do not edit them by hand. There is no spec answer for tracing: the answer is the student's own trace.",
-  "placeholders": "Main questions: {input} = the input's \"display\" text; tracing also {line} (the student's breakpoint line, pauseLine in meta.json), {function}, {kth} (\"1st\", \"2nd\", ..., chosen per student from their own trace) and {what} (per function, tracing.what).",
-  "forms": {
-    "A": {
-      "reverseList": "predict",
-      "splitString": "tracing",
-      "playCraps": "predict"
-    },
-    "B": {
-      "reverseList": "tracing",
-      "splitString": "predict",
-      "playCraps": "tracing"
-    }
-  },
+  "version": 3,
+  "about": "Question design v3 for the Assignment 02 pilot (ECE 2514): the case design. Every student gets the same LOGIC main question per function (correct = the spec answer, from the reference). What happens next depends on two things: whether the logic answer is right, and whether the student's own code is right for that function (codeRight: it gives the spec answer on every safe candidate input of the import record). Case 1 = logic right, code right; case 2 = logic right, code wrong; case 3 = logic wrong, code right; case 4 = logic wrong, code wrong. Up to 2 follow-ups per function, all about the student's code. Fields \"spec\" and \"key\" of the main and small questions and \"spec\"/\"refStops\" of the inputs are computed by running the reference (compute-keys.js, run-all.js); do not edit them by hand.",
+  "placeholders": "Case 1 follow-ups: predict = functions[fn].predict.question with {input}; tracing = tracingQuestion with {line} {function} {input} {kth} {what}; what-if = caseTemplates.whatIf with {line} {function} {oldLine} {newLine} and functions[fn].whatIfTail with {input}. Case 2: caseTemplates.debug with {function} {output} {input} {spec}. Case 3: functions[fn].case3Question. Case 4: functions[fn].small.question.",
   "tracingQuestion": "You put a breakpoint on line {line} and run {function} on {input}. When it stops for the {kth} time, {what}?",
   "compileErrorQuestion": "Your {function} doesn't compile. The compiler points to line {line}. What is wrong on that line, and how would you fix it?",
   "compileErrorOutsideQuestion": "Your code doesn't compile. The compiler points to line {line}. What is wrong on that line, and how would you fix it?",
-  "logicQuestion": "Walk me through what your {function} would do with {input}, step by step.",
-  "backup": "mode is the backup. It replaces a function that cannot be asked (for example a tracing question when the function has no line to put a breakpoint on) and takes the type of the function it replaces.",
-  "fixedFollowUps": {
-    "note": "The same question and the same answer key for every student, no code run. Asked only after a correct main answer (the engine rule is M4b). Stored in the plan as fixedFollowUp. Compile-error and logic questions have none.",
-    "reverseList": {
-      "question": "Why does reversing in place only need to go through half of the vector? What would happen if the swapping continued all the way to the end?",
-      "answerKey": "Each swap places two numbers; going all the way swaps everything back, so the vector ends up unchanged."
-    },
-    "splitString": {
-      "question": "Why does splitting \"apple,banana,orange\" with '|' give one piece instead of none?",
-      "answerKey": "There is no delimiter, so the whole string is the one piece."
-    },
-    "playCraps": {
-      "question": "Why does {4, 3} end the game right away, but {2, 2} needs more rolls?",
-      "answerKey": "7 on the first roll is an instant win; 4 becomes the number to roll again."
-    },
-    "mode": {
-      "question": "In {3, 1, 3, 1} both numbers appear twice. Which one should mode return, and why?",
-      "answerKey": "1, because a tie goes to the smallest number."
-    }
-  },
+  "backup": "mode is the backup. It replaces a function ONLY when that function is completely missing (no definition) and takes its place: its logic question, its case follow-ups, and (case 1) the type of the follow-up of the function it replaces.",
   "inputRules": [
     "An input where the code crashes, gives a runtime error or hits the time limit is never used (undefined behavior). The next separating input is used; if none, a standard input with targeted = false.",
     "playCraps inputs whose answer depends on the validation reading in SPEC-NOTES.md (an invalid value after the game is already decided) have unclearSpec = true and are not used until the spec is confirmed.",
@@ -96,7 +64,27 @@
           "spec": "[]",
           "refStops": []
         }
-      ]
+      ],
+      "main": {
+        "question": "To reverse {1, 2, 3, 4, 5} in place, how many swaps are needed?",
+        "input": {
+          "cmd": "reverseList 1 2 3 4 5",
+          "display": "the vector {1, 2, 3, 4, 5}"
+        },
+        "spec": "[5, 4, 3, 2, 1]",
+        "key": "2"
+      },
+      "small": {
+        "question": "To reverse {1, 2, 3} in place, how many swaps are needed?",
+        "input": {
+          "cmd": "reverseList 1 2 3",
+          "display": "the vector {1, 2, 3}"
+        },
+        "spec": "[3, 2, 1]",
+        "key": "1"
+      },
+      "case3Question": "How many swaps does your reverseList make on {1, 2, 3, 4, 5}?",
+      "whatIfTail": "what would the vector hold after your reverseList runs on {input}?"
     },
     "splitString": {
       "primary": true,
@@ -166,7 +154,27 @@
             "piece=\"b\""
           ]
         }
-      ]
+      ],
+      "main": {
+        "question": "What does splitString return for \",a,,b\" with delimiter ','?",
+        "input": {
+          "cmd": "splitString , ,a,,b",
+          "display": "the string \",a,,b\" with delimiter ','"
+        },
+        "spec": "[\"\", \"a\", \"\", \"b\"]",
+        "key": "\"\", \"a\", \"\", \"b\""
+      },
+      "small": {
+        "question": "What does splitString return for \",a\" with delimiter ','?",
+        "input": {
+          "cmd": "splitString , ,a",
+          "display": "the string \",a\" with delimiter ','"
+        },
+        "spec": "[\"\", \"a\"]",
+        "key": "\"\", \"a\""
+      },
+      "case3Question": "What does your splitString return for \",a,,b\" with delimiter ','?",
+      "whatIfTail": "what would your splitString return for {input}?"
     },
     "playCraps": {
       "primary": true,
@@ -230,7 +238,27 @@
             "sum=3"
           ]
         }
-      ]
+      ],
+      "main": {
+        "question": "What does playCraps return for {2, 2, 3, 4}?",
+        "input": {
+          "cmd": "playCraps 2 2 3 4",
+          "display": "the dice values {2, 2, 3, 4}"
+        },
+        "spec": "1",
+        "key": "1"
+      },
+      "small": {
+        "question": "What does playCraps return for {3, 4}?",
+        "input": {
+          "cmd": "playCraps 3 4",
+          "display": "the dice values {3, 4}"
+        },
+        "spec": "0",
+        "key": "0"
+      },
+      "case3Question": "What does your playCraps return for {2, 2, 3, 4}?",
+      "whatIfTail": "what would your playCraps return for {input}?"
     },
     "mode": {
       "primary": false,
@@ -282,7 +310,49 @@
             "value=3, count=2"
           ]
         }
-      ]
+      ],
+      "main": {
+        "question": "What is the mode of {5, 2, 5, 2, 9}?",
+        "input": {
+          "cmd": "mode 5 2 5 2 9",
+          "display": "the numbers {5, 2, 5, 2, 9}"
+        },
+        "spec": "2",
+        "key": "2"
+      },
+      "small": {
+        "question": "What is the mode of {2, 5, 2}?",
+        "input": {
+          "cmd": "mode 2 5 2",
+          "display": "the numbers {2, 5, 2}"
+        },
+        "spec": "2",
+        "key": "2"
+      },
+      "case3Question": "What does your mode return for {5, 2, 5, 2, 9}?",
+      "whatIfTail": "what would your mode return for {input}?"
     }
-  }
+  },
+  "replaced": "On Nov 23 (2026) the M4 forms (predict and tracing MAIN questions, forms A and B) and the M4 fixedFollowUps were replaced by this case design. The A/B alternation survives only as the rotation of the type of follow-up 1 in case 1 (see rotation).",
+  "rotation": {
+    "note": "The type of follow-up 1 in case 1. Students are sorted by importId and alternate A, B, A, B. mode takes the type of the function it replaces.",
+    "A": {
+      "reverseList": "predict",
+      "splitString": "tracing",
+      "playCraps": "predict"
+    },
+    "B": {
+      "reverseList": "tracing",
+      "splitString": "predict",
+      "playCraps": "tracing"
+    }
+  },
+  "clarify": "Can you give the exact result?",
+  "caseTemplates": {
+    "debug": "Your {function} returns {output} for {input}. Why does it give that instead of {spec}?",
+    "change": "Which line would you change, and how?",
+    "whatIf": "Suppose line {line} of your {function} were changed from `{oldLine}` to `{newLine}`. With that change, {tail}",
+    "note": "Outside case 2 no follow-up states the correct answer, the spec answer or the code's output. Case 2 is the only case that shows their output and the spec answer. Follow-up 2 of cases 3 and 4 is a smaller code step written by the agent (M5b) from the private material in the plan."
+  },
+  "about_compile": "A function that exists but does not compile gets a compile-error question instead of its logic question (no follow-ups). An error outside the functions replaces the first function's question. When nothing compiles the first function gets the compile-error question and the other two keep their logic main questions with no follow-ups."
 }
