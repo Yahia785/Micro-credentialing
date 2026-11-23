@@ -50,7 +50,7 @@
 }
 
 .table th {
-  width: 14rem;
+  width: 22rem;
   color: var(--color-text-secondary);
   font-weight: var(--font-weight-medium);
 }
@@ -66,4 +66,20 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+.asked {
+  margin-top: var(--space-1);
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-secondary);
+}
+
+.flag {
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.label {
+  margin: var(--space-3) 0 0;
 }

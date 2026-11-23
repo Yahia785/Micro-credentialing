@@ -3,74 +3,113 @@ import { useNavigate, useParams } from 'react-router';
 import { getAdminInterview } from '../api/interviews';
 import { CodePanel } from '../components/interview/CodePanel';
 import { Alert, Badge, Button, Card, PageHeader, Spinner } from '../components/ui';
-import type { A2Check, A2FollowUp, A2Question, AdminInterview } from '../types/interview';
+import type { BadgeVariant } from '../components/ui';
+import type { A2Question, A2Result, A2Step, AdminInterview } from '../types/interview';
 import { STATUS_LABELS, STATUS_VARIANTS, formatDateTime } from '../utils/interview';
 import styles from './ImportedInterviewReviewPage.module.css';
 
-const TYPE_LABELS: Record<A2Question['type'], string> = {
-  predict: 'Predict the output',
-  tracing: 'Tracing',
-  compileError: 'Compile error',
-  compileErrorOutside: 'Compile error',
-  logic: 'Logic walk-through',
+/** What each case means, in words (the server sends the same text as caseMeaning). */
+const CASE_MEANING: Record<number, string> = {
+  1: 'right idea, right code',
+  2: 'right idea, buggy code',
+  3: 'wrong idea, right code',
+  4: 'wrong idea, buggy code',
 };
 
-const VERDICT_VARIANTS = { correct: 'success', wrong: 'danger', unclear: 'warning' } as const;
+const RESULT_VARIANT: Record<A2Result, BadgeVariant> = { right: 'success', partly: 'warning', wrong: 'danger', unclear: 'neutral' };
+
+const STEP_NAMES: Record<string, string> = {
+  logic: 'Main question (logic)',
+  compileError: 'Compile error',
+  compileErrorOutside: 'Compile error',
+  predict: 'Predict their code',
+  tracing: 'Trace their code',
+  whatIf: 'What-if on their code',
+  debug: 'Why does it give that?',
+  change: 'Which line would you change?',
+  smallLogic: 'Smaller logic question',
+  smallStep: 'Smaller code step',
+};
+
+const KIND_TEXT: Record<A2Step['kind'], string> = { logic: 'logic answer', code: 'code answer', compile: 'compile answer' };
+const SOURCE_TEXT: Record<string, string> = {
+  spec: 'the spec',
+  code: 'what their code does',
+  'code (plan)': 'what their code does (from the plan: the run could not be made)',
+  model: 'judged by the checker model',
+  compiler: 'the compiler message',
+};
 
 const text = (value: string | number | boolean | null | undefined) => (value === null || value === undefined || value === '' ? '–' : String(value));
 
-function CheckCell({ check }: { check: A2Check | null | undefined }) {
-  if (!check) return <>–</>;
+/** "Case 2: right idea, buggy code", or what a function without follow-ups is. */
+function caseTitle(question: A2Question): string {
+  if (question.case !== null) return `Case ${question.case}: ${question.caseMeaning ?? CASE_MEANING[question.case]}`;
+  if (question.kind === 'compileError' || question.kind === 'compileErrorOutside') return 'Compile error: their code does not compile';
+  if (!question.hasFollowUps) return 'No code to ask about: logic question only';
+  return 'Not decided yet';
+}
+
+function stepTitle(step: A2Step, question: A2Question): string {
+  if (step.step === 'clarify') return 'Clarify (not a follow-up)';
+  if (step.step === 'main') return STEP_NAMES[question.kind] ?? 'Main question';
+  return `Follow-up ${step.step === 'followUp1' ? 1 : 2}: ${STEP_NAMES[step.type] ?? step.type}`;
+}
+
+function ResultCell({ step }: { step: A2Step }) {
+  if (step.skipped) return <span className={styles.muted}>Skipped: {step.skipped}</span>;
+  if (step.result === null) return <>–</>;
   return (
     <>
-      <Badge variant={VERDICT_VARIANTS[check.verdict]}>{check.verdict}</Badge>{' '}
-      <span className={styles.muted}>{check.method === 'model' ? 'checked by the model' : 'compared with the code’s answer'}</span>
-      {check.quote && <div className={styles.quote}>“{check.quote}”</div>}
-      {check.note && <div className={styles.muted}>{check.note}</div>}
+      <Badge variant={RESULT_VARIANT[step.result]}>{step.result}</Badge>{' '}
+      <span className={styles.muted}>{step.method === 'model' ? 'judged by the model' : 'compared'}</span>
+      {step.quote && <div className={styles.quote}>“{step.quote}”</div>}
+      {step.note && <div className={styles.muted}>{step.note}</div>}
     </>
   );
 }
 
-function followUpText(followUp: A2FollowUp | null): string {
-  if (!followUp) return '–';
-  if (followUp.source === null) return `None (${followUp.skipped ?? 'not asked'})`;
-  const kind = followUp.source === 'fixed' ? 'Fixed follow-up' : 'Agent follow-up';
-  return followUp.text ? `${kind}: ${followUp.text}` : `${kind} (${followUp.skipped ?? 'not asked'})`;
-}
-
-/** The logged fields of one main question as a plain table. */
-function QuestionTable({ question }: { question: A2Question }) {
-  const followUp = question.followUp;
-  const rows: Array<[string, React.ReactNode]> = [
-    ['Type', TYPE_LABELS[question.type] ?? question.type],
-    ['Function', question.function],
-    ['Input', text(question.input)],
-    ['K (which stop)', text(question.k)],
-    ['Breakpoint line', text(question.line)],
-    ['Targeted input', question.targeted === null ? '–' : question.targeted ? 'yes' : 'no'],
-    ['Trace differs from reference', question.traceDiffersFromReference === null ? '–' : question.traceDiffersFromReference ? 'yes' : 'no'],
-    ['Answer from the code', `${text(question.answerFromCode)}${question.answerSource ? ` (${question.answerSource})` : ''}`],
-    ['Spec answer', text(question.specAnswer)],
-    ['Student answer', text(question.studentAnswer)],
-    ['Check', <CheckCell key="check" check={question.check} />],
-    ['Follow-up', followUpText(followUp)],
-    ['Follow-up answer', text(followUp?.studentAnswer)],
-    ['Follow-up check', <CheckCell key="fcheck" check={followUp?.check} />],
-    [
-      'Mismatch flag',
-      question.mismatch
-        ? `${question.mismatch.kind === 'runtime_differs_from_plan' ? 'Run differs from the plan' : 'Could not run'}: plan ${text(question.mismatch.planAnswer)}, run ${text(question.mismatch.runtimeAnswer)}${question.runtimeNote ? ` (${question.runtimeNote})` : ''}`
-        : 'none',
-    ],
-  ];
+/** The path of one function: every question that was asked, in order. */
+function PathTable({ question }: { question: A2Question }) {
   return (
     <table className={styles.table}>
-      <caption className={styles.caption}>Question {question.index}</caption>
+      <caption className={styles.caption}>Path of {question.function}</caption>
+      <thead>
+        <tr>
+          <th scope="col">Question</th>
+          <th scope="col">Kind</th>
+          <th scope="col">Expected answer</th>
+          <th scope="col">Student answer</th>
+          <th scope="col">Result</th>
+        </tr>
+      </thead>
       <tbody>
-        {rows.map(([label, value]) => (
-          <tr key={label}>
-            <th scope="row">{label}</th>
-            <td>{value}</td>
+        {question.path.map((step, index) => (
+          <tr key={index}>
+            <th scope="row">
+              {stepTitle(step, question)}
+              {step.text && <div className={styles.asked}>{step.skipped ? '' : step.text}</div>}
+              {step.variable && (
+                <div className={styles.muted}>
+                  Asked about {step.variable} ({step.expression}) at stop {step.stop}
+                  {step.writtenByAgent ? ', written by the agent' : ''}
+                </div>
+              )}
+            </th>
+            <td>{KIND_TEXT[step.kind]}</td>
+            <td>
+              {text(step.expected)}
+              {step.expectedSource && <div className={styles.muted}>{SOURCE_TEXT[step.expectedSource] ?? step.expectedSource}</div>}
+              {step.mismatch && (
+                <div className={styles.flag}>
+                  {step.mismatch.kind === 'runtime_unavailable' ? 'The run could not be made: the plan’s answer was used.' : 'The run differs from the plan’s answer.'}
+                </div>
+              )}
+            </td>
+            <td>{text(step.studentAnswer)}</td>
+            <td>
+              <ResultCell step={step} />
+            </td>
           </tr>
         ))}
       </tbody>
@@ -78,7 +117,39 @@ function QuestionTable({ question }: { question: A2Question }) {
   );
 }
 
-/** The instructor's view of one interview-only interview: what was logged for each question. The full three-way view comes later. */
+/** One row per function: the case and the final label. */
+function SummaryTable({ questions }: { questions: A2Question[] }) {
+  return (
+    <table className={styles.table}>
+      <caption className={styles.caption}>Summary: one row per function</caption>
+      <thead>
+        <tr>
+          <th scope="col">Function</th>
+          <th scope="col">Their code</th>
+          <th scope="col">Case</th>
+          <th scope="col">Label</th>
+        </tr>
+      </thead>
+      <tbody>
+        {questions.map((question) => (
+          <tr key={question.index}>
+            <th scope="row">
+              {question.function}
+              {question.replaces ? <span className={styles.muted}> (replaces {question.replaces})</span> : null}
+            </th>
+            <td>{question.codeRight === true ? 'right' : question.codeRight === false ? 'wrong' : question.hasFollowUps ? 'unknown' : '–'}</td>
+            <td>{caseTitle(question)}</td>
+            <td>
+              <strong>{question.label ?? 'not finished'}</strong>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** The instructor's view of one interview-only interview: the case and the path of each function, and its final label. */
 export function ImportedInterviewReviewPage() {
   const { interviewId = '' } = useParams();
   const navigate = useNavigate();
@@ -98,6 +169,8 @@ export function ImportedInterviewReviewPage() {
       cancelled = true;
     };
   }, [interviewId]);
+
+  const questions = interview?.a2?.questions ?? [];
 
   return (
     <div className={styles.page}>
@@ -124,11 +197,16 @@ export function ImportedInterviewReviewPage() {
                 <dt>Status</dt>
                 <dd>
                   <Badge variant={STATUS_VARIANTS[interview.status]}>{STATUS_LABELS[interview.status]}</Badge>
-                  {interview.isPractice && <> <Badge variant="warning">Practice</Badge></>}
+                  {interview.isPractice && (
+                    <>
+                      {' '}
+                      <Badge variant="warning">Practice</Badge>
+                    </>
+                  )}
                 </dd>
               </div>
               <div>
-                <dt>Form</dt>
+                <dt>Rotation</dt>
                 <dd>{text(interview.a2?.form ?? interview.form)}</dd>
               </div>
               <div>
@@ -140,14 +218,19 @@ export function ImportedInterviewReviewPage() {
                 <dd>{formatDateTime(interview.endedAt)}</dd>
               </div>
             </dl>
+            {questions.length > 0 && <SummaryTable questions={questions} />}
           </Card>
 
-          {(interview.a2?.questions ?? []).map((question) => (
-            <Card key={question.index} headingLevel={2} title={`Question ${question.index}: ${question.function}`}>
-              <QuestionTable question={question} />
+          {questions.map((question) => (
+            <Card key={question.index} headingLevel={2} title={`${question.function}: ${caseTitle(question)}`}>
+              {question.caseNote && <p className={styles.muted}>{question.caseNote}</p>}
+              {question.path.length > 0 ? <PathTable question={question} /> : <p className={styles.muted}>Not reached.</p>}
+              <p className={styles.label}>
+                Final label: <strong>{question.label ?? 'not finished'}</strong>
+              </p>
             </Card>
           ))}
-          {!interview.a2 && <Alert variant="info">This interview has no per-question log.</Alert>}
+          {!interview.a2 && <Alert variant="info">This interview has no per-function log.</Alert>}
 
           <Card headingLevel={2} title="Conversation">
             <ul className={styles.turns}>

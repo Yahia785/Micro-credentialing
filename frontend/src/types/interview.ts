@@ -257,52 +257,59 @@ export interface AdminRawTurn {
   createdAt: string;
 }
 
-/** Interview-only (A2 pilot): how one question's answer was checked. */
-export interface A2Check {
-  verdict: 'correct' | 'wrong' | 'unclear';
+/** Interview-only (A2 pilot): the result of one answer. "partly" only for the case 2 questions. */
+export type A2Result = 'right' | 'partly' | 'wrong' | 'unclear';
+
+/** Interview-only: one question of a function's path, with the student's answer and how it was checked. */
+export interface A2Step {
+  /** main: the logic question. clarify: "Can you give the exact result?". followUp1 and followUp2: the case's follow-ups. */
+  step: 'main' | 'clarify' | 'followUp1' | 'followUp2';
+  /** logic: checked against the spec key. code: against what their code does (or judged by the model in case 2). compile: against the compiler's message. */
+  kind: 'logic' | 'code' | 'compile';
+  type: string;
+  text?: string;
+  expected?: string;
+  /** spec | code | code (plan) | model | compiler. "code (plan)": the run could not be made, so the plan's answer was used. */
+  expectedSource?: string;
+  studentAnswer: string | null;
+  result: A2Result | null;
   /** The student's words the check relied on. */
   quote?: string;
-  /** "compare": plain comparison with the code's answer. "model": the checker model decided. */
-  method: 'compare' | 'model';
-  modelUsed: boolean;
+  /** "compare": plain comparison. "model": the checker model decided. */
+  method?: 'compare' | 'model';
+  modelUsed?: boolean;
   note?: string;
-}
-
-/** Interview-only: the follow-up of one question and how its answer was checked. */
-export interface A2FollowUp {
-  /** "fixed": the plan's follow-up (after a correct answer). "agent": written by the agent (after a wrong or unclear one). null: none was asked. */
-  source: 'fixed' | 'agent' | null;
-  text?: string;
-  answerKey?: string;
-  isHint?: boolean;
-  studentAnswer?: string | null;
-  check?: A2Check | null;
-  /** Why no follow-up was asked. */
+  /** A smaller code step: the variable and the stop the agent asked about. */
+  variable?: string;
+  expression?: string;
+  stop?: number;
+  writtenByAgent?: boolean;
+  /** Why this follow-up was not asked. */
   skipped?: string;
+  /** The run at the start differed from the plan's answer, or could not be made. */
+  mismatch?: { kind: 'runtime_differs_from_plan' | 'runtime_unavailable'; plan: unknown; runtime: unknown };
 }
 
-/** Interview-only: what is logged for each main question. */
+/** Interview-only: what is logged for each function. */
 export interface A2Question {
   index: number;
   function: string;
-  type: 'predict' | 'tracing' | 'compileError' | 'compileErrorOutside' | 'logic';
-  input: string | null;
-  k: number | null;
-  line: number | null;
-  targeted: boolean | null;
-  traceDiffersFromReference: boolean | null;
-  /** The answer the plan was built with (from the code at import time). */
-  planAnswer: string | null;
-  /** The answer from the code when the interview was prepared (the truth the student is checked against). */
-  answerFromCode: string | null;
-  answerSource: 'runtime' | 'plan' | null;
-  specAnswer: string | null;
-  /** Set when the run at the start differs from the plan's answer, or could not be made. */
-  mismatch: { kind: 'runtime_differs_from_plan' | 'runtime_unavailable'; planAnswer: string | null; runtimeAnswer: string | null } | null;
-  runtimeNote?: string;
-  studentAnswer: string | null;
-  check: A2Check | null;
-  followUp: A2FollowUp | null;
+  replaces?: string;
+  kind: 'logic' | 'compileError' | 'compileErrorOutside';
+  hasFollowUps: boolean;
+  /** Their code gives the spec answer on every safe input; null when no input ran cleanly. */
+  codeRight: boolean | null;
+  logicRight: boolean | null;
+  case: 1 | 2 | 3 | 4 | null;
+  caseMeaning?: string;
+  caseNote?: string;
+  clarified: boolean;
+  path: A2Step[];
+  /** The runtime answers of the prepare step (private). */
+  truth: Record<string, { source?: string; mismatch?: unknown }>;
+  /** Short final label, e.g. "case 2 | why: right | line: wrong". null until the function is over. */
+  label: string | null;
+  done: boolean;
 }
 
 /** One row of GET /interviews?imported=1: an imported record an interview-only assessment can be practised on. */
