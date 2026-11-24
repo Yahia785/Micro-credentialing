@@ -1,3 +1,9 @@
 numpy==2.1.1
 opencv-python==4.10.0.84
 pytest==8.2.0
+
+# raw_gaze.py (same version as the client, @mediapipe/tasks-vision 0.10.35). It pulls opencv-contrib-python, which
+# overwrites cv2: afterwards run  pip install --force-reinstall --no-deps opencv-python==4.10.0.84  to restore the pinned cv2.
+mediapipe==0.10.35
+
+matplotlib==3.11.2
