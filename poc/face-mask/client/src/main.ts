@@ -534,12 +534,15 @@ btnStop.addEventListener("click", async () => {
   scenarioEl.disabled = chosenScript() !== null;
 });
 
-// Key presses: only the TIME and a CATEGORY (char, backspace, delete, enter, space, other) are recorded, and only while
-// recording. The key value is read only to choose the category and is never stored.
+// Key presses and releases: only the TIME, a CATEGORY (char, backspace, delete, enter, space, move, other) and an id to
+// pair them are recorded, and only while recording. The key value is read only to choose the category and is never stored.
 typingEl.addEventListener("keydown", (e) => {
-  if (session && !stopping) session.addKey(keyCategory(e));
+  if (session && !stopping) session.addKey(e.code, keyCategory(e), e.repeat);
 });
-
+typingEl.addEventListener("keyup", (e) => {
+  if (session && !stopping) session.addKeyUp(e.code, keyCategory(e));
+});
+typingEl.addEventListener("blur", () => session?.clearHeldKeys());
 
 // ---- Tracking options (dropdowns) and speed test ------------------------------------------
 const selDelegate = $<HTMLSelectElement>("selDelegate");

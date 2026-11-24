@@ -30,7 +30,7 @@ Only the masked view is shown on the page. The raw camera element is hidden and 
 
 `header` line: id, laptop, scenario, start time, size, delegate (GPU/CPU), `detectLongSide`, user agent, mask options, recorder start offsets, `setup` (did the setup check pass, did the person continue anyway, which checks failed) and `calibration` (baseline, noise, and the left/right edge readings).
 
-`frame` lines: `t` (ms since recording start), `faces`, `lost`; each of `yaw`, `pitch`, `gazeH`, `gazeV`, `blendH`, `blendV` twice: `...Raw` (straight from the tracker) and the plain name (One Euro smoothed); `roll` (raw); the eight blendshape scores `eyeLookInLeft`, `eyeLookOutLeft`, `eyeLookInRight`, `eyeLookOutRight`, `eyeLookUpLeft`, `eyeLookDownLeft`, `eyeLookUpRight`, `eyeLookDownRight`; timings `snapMs`, `detectMs`, `drawMs`, `procMs` (ms per stage); and `maskBoxes` (one `[x, y, w, h]` in video pixels per masked face, after scaling and forehead lift; empty when tracking is lost). `blendV` is the vertical gaze from the eyeLookUp/eyeLookDown scores of both eyes (+ = down). `key` lines hold the **time and a category only, never the key**: `char` (any single printable character), `backspace`, `delete`, `enter`, `space` or `other` (Shift, arrows, Tab and shortcuts such as Ctrl+V). The key value is read in the browser only to pick the category and is never stored. Readings are for the first face; `null` when tracking is lost.
+`frame` lines: `t` (ms since recording start), `faces`, `lost`; each of `yaw`, `pitch`, `gazeH`, `gazeV`, `blendH`, `blendV` twice: `...Raw` (straight from the tracker) and the plain name (One Euro smoothed); `roll` (raw); the eight blendshape scores `eyeLookInLeft`, `eyeLookOutLeft`, `eyeLookInRight`, `eyeLookOutRight`, `eyeLookUpLeft`, `eyeLookDownLeft`, `eyeLookUpRight`, `eyeLookDownRight`; timings `snapMs`, `detectMs`, `drawMs`, `procMs` (ms per stage); and `maskBoxes` (one `[x, y, w, h]` in video pixels per masked face, after scaling and forehead lift; empty when tracking is lost). `blendV` is the vertical gaze from the eyeLookUp/eyeLookDown scores of both eyes (+ = down). `key` lines hold the **time and a category only, never the key**: `char` (any single printable character), `backspace`, `delete`, `enter`, `space` or `move` (arrows, Home, End, PageUp, PageDown) or `other` (Shift, Tab and all Ctrl/Cmd/Alt shortcuts such as Ctrl+V). Every `key` line also has an `id`, and each release writes a `keyup` line `{type, t, id, category}` (`id` pairs it with its press; `null` if the press was not seen; during key repeat the release pairs with the first press of the hold). The header has `keyLogVersion: 2`; old recordings have no such field (press only, no `move`, no ids). The key value is read in the browser only to pick the category and is never stored. Readings are for the first face; `null` when tracking is lost.
 
 Sign conventions: `yaw > 0` = face turns toward the right side of the image (your own left, the image is not mirrored); `pitch > 0` = looking down; `gazeH > 0` = iris toward image right; `gazeV > 0` = iris low; `blendH > 0` = blendshape gaze toward the image right (built from eyeLookOutLeft + eyeLookInRight - eyeLookInLeft - eyeLookOutRight, halved; check on screen that it has the same sign as `gazeH`).
 
@@ -78,7 +78,7 @@ This creates `poc\face-mask\analysis\.venv`, the venv used by the analysis scrip
 
 Move the downloaded files for one test session into one folder, e.g. `poc\face-mask\recordings\laptopA` (that folder is git-ignored).
 
-## Recording the 9 scenarios
+## Recording the 13 scenarios
 
 On 3 laptops, one of them low-end. About 1 minute each. Type the laptop name, pick the scenario, Start recording, do the action, Stop and save. Keep typing in the typing box now and then so test 3 can report "looking away while typing".
 
@@ -93,6 +93,7 @@ On 3 laptops, one of them low-end. About 1 minute each. Type the laptop name, pi
 | low-light | dim the room or turn your back to the window |
 | fast-motion | shake and nod the head fast, move toward and away from the camera |
 | second-person | a second person leans into the frame behind or beside you |
+| code-own, code-copy, essay-own, essay-copy | plain recordings for the code-vs-essay typing comparison: write code or an essay from your own head (`-own`) or copy it from another source (`-copy`); no script needed |
 
 ## Labelling look-aways (for test 3)
 

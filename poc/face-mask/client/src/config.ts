@@ -93,4 +93,8 @@ export const SCENARIOS = [
   "low-light",
   "fast-motion",
   "second-person",
+  "code-own",
+  "code-copy",
+  "essay-own",
+  "essay-copy",
 ] as const;

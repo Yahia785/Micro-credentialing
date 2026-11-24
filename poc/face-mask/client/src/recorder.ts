@@ -1,4 +1,5 @@
 import { CAPTURE_FPS, type MaskOptions } from "./config";
+import { KEY_LOG_VERSION, KeyTracker, type KeyCategory } from "./keys";
 import { summarize } from "./math";
 
 export interface FrameRecord {
@@ -140,7 +141,9 @@ export class RecordingSession {
   private masked: OneRecorder;
   private raw: OneRecorder | null = null;
   private frames: FrameRecord[] = [];
-  private keys: { t: number; cat: string }[] = [];
+  private keys: { t: number; cat: string; id: number }[] = [];
+  private keyUps: { t: number; id: number | null; category: string }[] = [];
+  private keyTracker = new KeyTracker();
   private cues: CueLine[] = [];
   private lost = 0;
 
@@ -168,9 +171,23 @@ export class RecordingSession {
     if (f.lost) this.lost++;
   }
 
-  /** Only the TIME and the CATEGORY of a key press are stored (char, backspace, delete, enter, space, other). Never the key. */
-  addKey(cat: string): void {
-    this.keys.push({ t: this.now(), cat });
+  /**
+   * A key press: only the TIME, a CATEGORY and an id are stored (char, backspace, delete, enter, space, move, other). Never the key.
+   * `code` (physical key) is used in memory only, to pair the release with this press.
+   */
+  addKey(code: string, cat: KeyCategory, repeat = false): void {
+    this.keys.push({ t: this.now(), cat, id: this.keyTracker.press(code, cat, repeat) });
+  }
+
+  /** A key release: time, category and the id of its press (null if the press was not seen). Never the key. */
+  addKeyUp(code: string, fallback: KeyCategory): void {
+    const r = this.keyTracker.release(code, fallback);
+    this.keyUps.push({ t: this.now(), id: r.id, category: r.category });
+  }
+
+  /** The typing box lost focus: forget the held keys. */
+  clearHeldKeys(): void {
+    this.keyTracker.clear();
   }
 
   /** Scripted-session mode: a cue line is written at each segment start. */
@@ -190,6 +207,7 @@ export class RecordingSession {
         laptop: this.info.laptop,
         scenario: this.info.scenario,
         start: this.startedIso,
+        keyLogVersion: KEY_LOG_VERSION,
         width: this.info.width,
         height: this.info.height,
         delegate: this.info.delegate,
@@ -205,7 +223,8 @@ export class RecordingSession {
     );
     // Frames, key presses and cues are written in time order.
     const extra: { t: number; line: string }[] = [
-      ...this.keys.map((k) => ({ t: k.t, line: JSON.stringify({ type: "key", t: round(k.t, 1), cat: k.cat }) })),
+      ...this.keys.map((k) => ({ t: k.t, line: JSON.stringify({ type: "key", t: round(k.t, 1), cat: k.cat, id: k.id }) })),
+      ...this.keyUps.map((k) => ({ t: k.t, line: JSON.stringify({ type: "keyup", t: round(k.t, 1), id: k.id, category: k.category }) })),
       ...this.cues.map((c) => ({
         t: c.t,
         line: JSON.stringify({ type: "cue", t: round(c.t, 1), planned_s: c.planned_s, label: c.label, direction: c.direction }),

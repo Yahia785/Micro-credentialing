@@ -64,7 +64,7 @@ describe("key categories (never the key itself)", () => {
     expect(keyCategory({ key: "Delete" })).toBe("delete");
     expect(keyCategory({ key: "Enter" })).toBe("enter");
     expect(keyCategory({ key: "Shift" })).toBe("other");
-    expect(keyCategory({ key: "ArrowLeft" })).toBe("other");
+    expect(keyCategory({ key: "ArrowLeft" })).toBe("move");
     expect(keyCategory({ key: "Tab" })).toBe("other");
   });
   it("shortcuts such as copy and paste are 'other'", () => {
