@@ -92,7 +92,7 @@ function PathTable({ question }: { question: A2Question }) {
               {step.variable && (
                 <div className={styles.muted}>
                   Asked about {step.variable} ({step.expression}) at stop {step.stop}
-                  {step.writtenByAgent ? ', written by the agent' : ''}
+                  {step.writtenByAgent ? ', variable and stop picked by the agent (question from the breakpoint template)' : ''}
                 </div>
               )}
             </th>
