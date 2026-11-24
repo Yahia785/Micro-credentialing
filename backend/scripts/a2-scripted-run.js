@@ -38,14 +38,30 @@ function inject(relative, exportsValue) {
 }
 
 const MILESTONE = { milestoneId: 'milestone_scripted', title: 'Code Interview', language: 'cpp', timeLimit: 5000, memoryLimit: 256000, interview: { enabled: true, interviewOnly: true, source: 'a2-pilot', timeLimitMinutes: 20, maxFollowUpsPerMainQuestion: 2, promptVersion: 'host.a2', themes: [] } };
-const WORD = { correct: 'right', wrong: 'wrong', unclear: 'unclear' };
+const WORD = { correct: 'right', wrong: 'wrong', unclear: 'unclear', partly: 'partly' };
+
+/** The value of a stop as a student would type it: without the quotes of a string, "" for the empty string. */
+const typedValue = (value) => { const inner = String(value).replace(/^"|"$/g, ''); return inner === '' ? '""' : inner; };
+/** A plausible wrong value: a number one more, a string with a letter added. */
+function wrongValue(value) {
+  const v = String(value);
+  if (/^-?\d+$/.test(v.trim())) return String(Number(v) + 1);
+  const inner = v.replace(/^"|"$/g, '');
+  return inner === '' ? '"x"' : `"${inner}x"`;
+}
+/** What the smaller code step's intent types: the right value of the variable at the stop that was asked, or a plausible wrong one. */
+const fillIntent = (intent, asked) => (intent === 'right' ? typedValue(asked.expected) : typedValue(wrongValue(asked.expected)));
 
 function loadInputs() {
+  // The plans decide who is run: a plan carries the importId and the student of the CURRENT import to dev. The repo facts (commit, inputs, header)
+  // come from the dry-run records in out/, matched by student, because the same repos give the same facts on every import; only the importId is new.
   const records = fs.readdirSync(`${BASE}/out`).filter((f) => f.endsWith('.json')).map((f) => { const p = JSON.parse(fs.readFileSync(`${BASE}/out/${f}`, 'utf8')); return p.record || p; });
+  const recordOf = new Map(records.map((r) => [r.githubUsername, r]));
   const byUser = new Map();
-  for (const record of records) {
-    const plan = JSON.parse(fs.readFileSync(`${BASE}/plans/${record.importId}.json`, 'utf8'));
-    if (plan.noPlan) continue;
+  for (const f of fs.readdirSync(`${BASE}/plans`).filter((name) => name.endsWith('.json') && name !== 'reference.json')) {
+    const plan = JSON.parse(fs.readFileSync(`${BASE}/plans/${f}`, 'utf8'));
+    if (plan.noPlan || !plan.githubUsername || !recordOf.has(plan.githubUsername)) continue;
+    const record = { ...recordOf.get(plan.githubUsername), importId: plan.importId };
     const gitDir = path.join(`${BASE}/repos`, `assignment-02-${record.githubUsername}`);
     byUser.set(record.githubUsername, { record: { ...record, plan }, code: git.showFile(gitDir, record.commitHash, 'functions.cpp'), header: git.showFile(gitDir, record.commitHash, 'functions.h') });
   }
@@ -75,19 +91,28 @@ async function runPath({ student, fn, path: scripted, inputs, memory, service, a
   const steps = scripted.steps;
   for (let i = 0; i < steps.length && !ended; i += 1) {
     const st = steps[i];
-    const row = { n: i + 1, asked: currentText, typed: st.answer, expected: WORD[st.expected] || st.expected, expectedCase: st.case || null };
+    let typed = st.answer;
+    let intentNote = '';
+    if (st.intent) {
+      // a smaller code step: the question was built from what the agent picked, so the value is filled in now, from the question really asked
+      const open = memory.store.get(started.interviewId).meta.a2Log[index].path.slice(-1)[0];
+      if (!open || open.type !== 'smallStep' || open.studentAnswer !== null || open.skipped) { mismatches.push(`step ${i + 1}: expected a smaller code step to answer (intent ${st.intent}), but none is open`); break; }
+      typed = fillIntent(st.intent, open);
+      intentNote = ` [intent ${st.intent}: ${open.variable} (${open.expression}) at stop ${open.stop}, true value ${open.expected}]`;
+    }
+    const row = { n: i + 1, asked: currentText, typed: `${typed}${intentNote}`, expected: WORD[st.expected] || st.expected, expectedCase: st.case || null };
     if (currentText.trim() !== String(st.asks).trim() && !String(st.asks).startsWith('(a smaller code step')) {
       mismatches.push(`step ${i + 1}: expected the engine to ask "${st.asks}" but it asked "${currentText}"`);
     }
     at += 1000;
-    const result = await service.submitAnswer({ userId: 'admin-1', interviewId: started.interviewId, answer: st.answer, now: at, converseFn, clock: () => 0 });
+    const result = await service.submitAnswer({ userId: 'admin-1', interviewId: started.interviewId, answer: typed, now: at, converseFn, clock: () => 0 });
     const entry = memory.store.get(started.interviewId).meta.a2Log[index];
     const answered = entry.path.filter((p) => p.studentAnswer !== null)[i];
     row.actual = answered ? answered.result : '(not recorded)';
     row.method = answered ? answered.method : '';
     row.quote = answered && answered.quote ? answered.quote : '';
     row.actualCase = entry.case;
-    if (row.actual !== row.expected) mismatches.push(`step ${i + 1} ("${String(st.answer).slice(0, 60)}"): expected check ${row.expected}, got ${row.actual}`);
+    if (row.actual !== row.expected) mismatches.push(`step ${i + 1} ("${String(typed).slice(0, 60)}"): expected check ${row.expected}, got ${row.actual}`);
     if (st.case && entry.case !== st.case) mismatches.push(`step ${i + 1}: expected case ${st.case}, got ${entry.case === null ? 'none yet' : entry.case}`);
     if (result.ended) { ended = true; row.next = '(interview ended)'; } else row.next = result.question;
     const nextExpected = steps[i + 1] ? steps[i + 1].asks : null;

@@ -17,6 +17,27 @@ const path = require('path');
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const BASE = process.platform === 'win32' ? 'D:/a2-pilot-test' : path.join(os.tmpdir(), 'a2-pilot-test');
 const A2 = path.join(__dirname, '..', 'eval', 'a2');
+const git = require('./lib/git');
+const { caseTwoAnswers, compileAnswer } = require('./lib/right-answers');
+
+/** The student's functions.cpp (from the dry-run records and the repos in BASE), or null when they are not there: the answers then fall back to generic text. */
+let outRecords = null;
+function codeOf(plan) {
+  try {
+    if (!outRecords) {
+      outRecords = new Map();
+      for (const f of fs.readdirSync(`${BASE}/out`).filter((name) => name.endsWith('.json'))) {
+        const parsed = JSON.parse(fs.readFileSync(`${BASE}/out/${f}`, 'utf8'));
+        const record = parsed.record || parsed;
+        if (record.githubUsername && record.commitHash) outRecords.set(record.githubUsername, record);
+      }
+    }
+    const record = outRecords.get(plan.githubUsername);
+    return record ? git.showFile(path.join(`${BASE}/repos`, `assignment-02-${plan.githubUsername}`), record.commitHash, 'functions.cpp') : null;
+  } catch {
+    return null;
+  }
+}
 const insideRepo = (p) => { const rel = path.relative(REPO_ROOT, path.resolve(p)); return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)); };
 
 // ---- what a student might type ----------------------------------------------------------------------------------------------------
@@ -76,6 +97,16 @@ const wrongCode = (answer) => codeFormats(bigger(answer))[0];
 
 // ---- the scripted paths ------------------------------------------------------------------------------------------------------------
 
+/**
+ * A smaller code step: the engine builds the question from the breakpoint template once the agent has picked the variable and the stop, so the
+ * script cannot know them. The step carries an INTENT ("right" or "wrong"); the scripted run fills in the value at run time from the question
+ * that was really asked (right: the true private value of that variable at that stop; wrong: a plausible wrong value).
+ */
+const smallStep = (m, good) => ({
+  asks: `(a smaller code step: the engine builds it from the breakpoint template on line ${m.line} (${m.input.display}); the agent only picks the variable and the stop)`,
+  kind: 'smallStep', intent: good ? 'right' : 'wrong', answer: null, expected: good ? 'correct' : 'wrong', answerType: 'code', key: 'the private value of the variable at the stop that is asked about',
+});
+
 const caseOf = (q, logicRight) => (q.codeRight === true ? (logicRight ? 1 : 3) : (logicRight ? 2 : 4));
 
 /** What is expected to be asked after the main answer, by case (the text exactly as the student would see it). */
@@ -87,7 +118,7 @@ function nextAfterMain(q, c) {
 }
 
 /** The follow-up steps of one case, each with a right (`good`) or wrong answer. */
-function followUpSteps(q, c, good, variant) {
+function followUpSteps(q, c, good, variant, plan) {
   const co = q.cases[`case${c}`];
   const steps = [];
   const f1 = co.followUp1;
@@ -107,16 +138,18 @@ function followUpSteps(q, c, good, variant) {
     if (f2 && f2.text) steps.push({ asks: f2.text, kind: f2.type, answer: good ? pick(f2.answer) : (f2.type === 'whatIf' ? 'It would stay the same' : wrongCode(f2.answer)), expected: good ? 'correct' : 'wrong', answerType: 'code', key: f2.answer });
   } else if (c === 2) {
     const why = bugText(bug(f1));
-    steps.push({ asks: f1.text, kind: 'debug', answer: good ? `Because ${why ? why.charAt(0).toLowerCase() + why.slice(1) : 'of a mistake in my code that I can see once I read it again'}` : 'I think the compiler or the test is wrong, my code looks fine', expected: good ? 'correct' : 'wrong', answerType: 'code', key: `explains why their code gives ${f1.theirOutput} (the bug${why ? `: ${why}` : ''})` });
-    steps.push({ asks: f2.text, kind: 'change', answer: good ? `I would fix it: ${why ? why.charAt(0).toLowerCase() + why.slice(1) : 'the line that causes the wrong result'}` : 'The first line of the function, I would add a check there', expected: good ? 'correct' : 'wrong', answerType: 'code', key: 'the line that causes the difference, and a change that fixes it' });
+    // the right answers name the real cause and the real line and change of THEIR code (lib/right-answers.js); the wrong ones are plainly wrong
+    const mine = caseTwoAnswers({ bug: bug(f1), code: codeOf(plan), fn: q.function, description: why });
+    steps.push({ asks: f1.text, kind: 'debug', answer: good ? mine.why : 'I think the compiler or the test is wrong, my code looks fine', expected: good ? 'correct' : 'wrong', answerType: 'code', key: `explains why their code gives ${f1.theirOutput} (the bug${why ? `: ${why}` : ''})` });
+    steps.push({ asks: f2.text, kind: 'change', answer: good ? mine.line : mine.wrongLine, expected: good ? 'correct' : 'wrong', answerType: 'code', key: good ? `a specific line of their function and the change (the bug is on line ${mine.lineNumber === null ? '?' : mine.lineNumber})` : 'a line that is not where the bug is' });
   } else if (c === 3) {
     if (f1 && f1.text) steps.push({ asks: f1.text, kind: 'predict', answer: good ? pick(f1.answer) : wrongCode(f1.answer), expected: good ? 'correct' : 'wrong', answerType: 'code', key: f1.answer });
     const m = f2.material;
-    if (m && m.available) steps.push({ asks: `(a smaller code step written by the agent in M5b, about line ${m.line} on ${m.input.display})`, kind: 'smallStep', answer: good ? pick(firstPair(m.stops[0])) : wrongCode(firstPair(m.stops[0])), expected: good ? 'correct' : 'wrong', answerType: 'code', key: firstPair(m.stops[0]) });
+    if (m && m.available) steps.push(smallStep(m, good));
   } else {
     steps.push({ asks: f1.text, kind: 'smallLogic', answer: good ? LOGIC[q.function].right(f1.answerKey)[variant % 3] : wrongLogic(f1.answerKey, variant), expected: good ? 'correct' : 'wrong', answerType: 'logic', key: f1.answerKey });
     const m = f2.material;
-    if (m && m.available) steps.push({ asks: `(a smaller code step written by the agent in M5b, about line ${m.line} on ${m.input.display})`, kind: 'smallStep', answer: good ? pick(firstPair(m.stops[0])) : wrongCode(firstPair(m.stops[0])), expected: good ? 'correct' : 'wrong', answerType: 'code', key: firstPair(m.stops[0]) });
+    if (m && m.available) steps.push(smallStep(m, good));
   }
   return steps;
 }
@@ -135,14 +168,14 @@ function pathsFor(plan, q, wanted) {
       const exact = logicRight ? L.right(q.answerKey)[variant % 3] : L.wrong()[variant % 3];
       const c = caseOf(q, logicRight);
       steps.push({ asks: q.clarify, answer: exact, expected: logicRight ? 'correct' : 'wrong', answerType: 'logic', key: q.answerKey, case: c, next: nextAfterMain(q, c).text || nextAfterMain(q, c).note });
-      followUpSteps(q, c, goodFollowUps, variant).forEach((s) => steps.push(s));
+      followUpSteps(q, c, goodFollowUps, variant, plan).forEach((s) => steps.push(s));
       out.push({ id, label: `unclear, then ${logicRight ? 'right' : 'wrong'}`, case: c, unclear: true, steps });
       return;
     }
     const c = caseOf(q, logicRight);
     const answer = logicRight ? L.right(q.answerKey)[variant % 3] : L.wrong()[variant % 3];
     steps.push({ asks: q.text, answer, expected: logicRight ? 'correct' : 'wrong', answerType: 'logic', key: q.answerKey, case: c, next: nextAfterMain(q, c).text || nextAfterMain(q, c).note });
-    followUpSteps(q, c, goodFollowUps, variant).forEach((s) => steps.push(s));
+    followUpSteps(q, c, goodFollowUps, variant, plan).forEach((s) => steps.push(s));
     out.push({ id, label: `logic ${logicRight ? 'right' : 'wrong'}, follow-ups ${goodFollowUps ? 'right' : 'wrong'}`, case: c, unclear: false, steps });
   });
   return out;
@@ -157,7 +190,7 @@ function simplePath(plan, q, right) {
   }
   return {
     id, label: `compile error, answer ${right ? 'right' : 'wrong'}, no follow-ups`, case: null, unclear: false,
-    steps: [{ asks: q.text, answer: right ? `The compiler says "${q.answerKey}" on that line, so I forgot something there. I would fix that one line.` : 'I think the function name is spelled wrong, I would rename it', expected: right ? 'correct' : 'wrong', answerType: 'compile', key: `${q.answerKey} (a fix on the line before also counts)`, next: 'nothing: the interview moves to the next function' }],
+    steps: [{ asks: q.text, answer: right ? compileAnswer({ message: q.answerKey, line: q.line, code: codeOf(plan) }) : 'I think the function name is spelled wrong, I would rename it', expected: right ? 'correct' : 'wrong', answerType: 'compile', key: `${q.answerKey} (a fix on the line before also counts)`, next: 'nothing: the interview moves to the next function' }],
   };
 }
 
@@ -233,7 +266,7 @@ function render(students) {
       md.push(`### ${f.function}${f.replaces ? ` (replaces ${f.replaces})` : ''}: ${f.kind === 'logic' ? `their code is ${f.codeRight === true ? 'right' : f.codeRight === false ? 'wrong' : 'not checked'}` : f.kind}`, '');
       for (const p of f.paths) {
         md.push(`**Path ${p.id}: ${p.label}${p.case ? ` (case ${p.case})` : ''}**`, '', '| # | asked | typed answer | answer type | expected check | expected answer | asks next |', '|---|---|---|---|---|---|---|');
-        p.steps.forEach((st, i) => md.push(`| ${i + 1} | ${cell(st.asks)} | ${cell(st.answer)} | ${st.answerType} | ${st.expected}${st.case ? ` (then case ${st.case})` : ''} | ${cell(st.key)} | ${cell(st.next || (p.steps[i + 1] ? p.steps[i + 1].asks : 'nothing: the interview moves to the next function'))} |`));
+        p.steps.forEach((st, i) => md.push(`| ${i + 1} | ${cell(st.asks)} | ${st.intent ? `(intent: ${st.intent}. The run types ${st.intent === 'right' ? 'the true value' : 'a plausible wrong value'} of whatever the agent asks about)` : cell(st.answer)} | ${st.answerType} | ${st.expected}${st.case ? ` (then case ${st.case})` : ''} | ${cell(st.key)} | ${cell(st.next || (p.steps[i + 1] ? p.steps[i + 1].asks : 'nothing: the interview moves to the next function'))} |`));
         md.push('');
       }
     }

@@ -42,7 +42,8 @@ describe('scripted answers', () => {
   test('each path says what is typed, the expected check and what is asked next; right answers are right and wrong ones differ', () => {
     for (const s of students) for (const f of s.functions) for (const p of f.paths) for (const st of p.steps) {
       expect(['correct', 'wrong', 'unclear']).toContain(st.expected);
-      expect(st.answer.length).toBeGreaterThan(0);
+      // a smaller code step has an intent instead of an answer: the run fills the value in from the question the agent really asked
+      if (st.kind === 'smallStep') { expect(['right', 'wrong']).toContain(st.intent); expect(st.answer).toBeNull(); expect(st.asks).toContain('breakpoint template'); } else expect(st.answer.length).toBeGreaterThan(0);
       expect(['logic', 'code', 'compile']).toContain(st.answerType);
     }
     const main = students[0].functions[0].paths.find((p) => p.case === 1).steps[0];
@@ -66,6 +67,25 @@ describe('scripted answers', () => {
     expect(new Set(codeFormats('[50, 40, 30]')).size).toBe(3);
     expect(codeFormats('left number=1, right number=5')[0]).toBe('1 and 5');
     expect(wrongCode('[3, 5, 8]')).not.toBe('[3, 5, 8]');
+  });
+
+  test('the right case 2 and compile-error answers are really right for their code: the cause, the line number and the change', () => {
+    const { caseTwoAnswers, compileAnswer } = require('../../../scripts/a2-import/lib/right-answers');
+    const loop = ['#include "functions.h"', '', 'void reverseList(vector<int>& vec) {', '    for (int i = 0; i < vec.size(); i++) {', '        swap(vec[i], vec[vec.size() - 1 - i]);', '    }', '}', '', 'int mode(const vector<int>& vec) {', '    return 0;', '}'].join('\n');
+    const a = caseTwoAnswers({ bug: 'v03', code: loop, fn: 'reverseList' });
+    expect(a.why).toContain('every pair is swapped twice');
+    expect(a.line).toContain('Line 4,');
+    expect(a.line).toContain('i < vec.size() / 2');
+    expect(a.lineNumber).toBe(4);
+    expect(a.wrongLine).toContain('Line 3,'); // the function header: not where the bug is
+    // a stub is recognised from the code when the plan names no bug
+    const stub = ['#include "functions.h"', '', 'vector<string> splitString(string str, char delim) {', '    return {};', '}'].join('\n');
+    expect(caseTwoAnswers({ bug: null, code: stub, fn: 'splitString' })).toMatchObject({ lineNumber: 4 });
+    const missing = compileAnswer({ message: "expected primary-expression before ';' token", line: 2, code: 'int x;\n    int oops = ;\n' });
+    expect(missing).toContain('On line 2, `int oops = ;`');
+    expect(missing).toContain('a value is missing');
+    expect(missing).toContain('int oops = 0;');
+    expect(compileAnswer({ message: "expected ';' before 'current'", line: 1, code: 'parts.push_back(current)\ncurrent = "";' })).toContain('the ; is missing');
   });
 
   test('refuses to write inside the repo', () => {

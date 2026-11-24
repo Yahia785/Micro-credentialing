@@ -24,7 +24,7 @@ function fakeRunBatch({ plain = {}, stops = {}, status = {}, changed = {}, chang
 
 const CHECKER_START = 'You check one short answer';
 const JUDGE_START = "You judge a student's short answer";
-const WRITER_START = 'You write ONE question';
+const WRITER_START = 'You choose what ONE short';
 const answerOf = (message) => (/<student_answer>\n([\s\S]*?)\n<\/student_answer>/.exec(message) || [])[1] || '';
 
 const HEDGE = /not sure|depends|maybe|\bor\b|somebody|at some point|splits it at|a few/i;
@@ -35,9 +35,10 @@ const HEDGE = /not sure|depends|maybe|\bor\b|somebody|at some point|splits it at
  * words "empty", "a", "b" ...) are exactly the expected ones; otherwise yes when the text is in the answer.
  */
 function defaultDecide(message, answer) {
-  if (HEDGE.test(answer)) return 'unclear';
   const compile = /The compiler reports this on line \d+: (.*)/.exec(message);
-  if (compile) return squash(answer).includes(squash(compile[1])) ? 'yes' : 'no';
+  // a compile answer names the mistake: the compiler's message, or what is missing
+  if (compile) return squash(answer).includes(squash(compile[1])) || /\bmissing\b/i.test(answer) ? 'yes' : 'no';
+  if (HEDGE.test(answer)) return 'unclear';
   const value = /does this answer give the value (.*?)\? \(/.exec(message);
   const target = value ? value[1] : null;
   if (target === null) return squash(answer).includes('correct') ? 'yes' : 'no';
@@ -54,19 +55,17 @@ function defaultDecide(message, answer) {
 }
 
 /** The judge of case 2: wrong for the kinds of answer the scripted wrong answers use, right for any other explanation. */
-const defaultJudge = (answer) => (/my code looks fine|first line of the function|compiler or the test/i.test(answer) ? 'wrong' : 'right');
+const defaultJudge = (answer) => (/my code looks fine|function header|compiler or the test/i.test(answer) ? 'wrong' : 'right');
 
 /** The writer of the smaller code step: the first listed variable at stop 1. */
 function defaultWrite(message) {
-  const line = (/Line to ask about: (\d+)/.exec(message) || [])[1];
-  const input = (/Input: (.*)/.exec(message) || [])[1];
   const first = /^- (.*?): (.*)$/m.exec(message);
-  return { variable: first[1], stop: 1, question: `At line ${line}, the 1st time it runs on ${input}, what is the value of \`${first[2]}\`?` };
+  return { variable: first[1], stop: 1 };
 }
 
 /**
  * A converse function. \`decide({ ask, answer, message })\` plays the checker ('yes' | 'no' | 'unclear'); \`judge({ answer })\` the judge
- * ('right' | 'partly' | 'wrong' | 'unclear'); \`write({ message })\` the writer (an object { variable, stop, question }, or a string that is
+ * ('right' | 'partly' | 'wrong' | 'unclear'); \`write({ message })\` the writer (an object { variable, stop }, or a string that is
  * sent as it is). \`requests\` records every request, so a test can look at what a model was sent; \`kinds\` counts the calls by kind.
  */
 function fakeModel({ decide, judge, write } = {}) {

@@ -11,7 +11,8 @@
  *      code questions (predict, tracing, what-if, case 3) against what their code does (the runtime result of the prepare step; the plan's
  *      answer when it could not be run), the smaller logic question (case 4) against the spec key, "why" and "which line" (case 2) judged by
  *      the checker model, a smaller code step against the private value it asked about. Unclear follow-up answers get no clarify.
- *   4. The smaller code step is the only text the agent writes (a2/follow-up.js). If it cannot write an acceptable one, follow-up 2 is skipped.
+ *   4. The smaller code step: the agent only picks the variable and the stop; the question is built from a breakpoint template (a2/follow-up.js). If
+ *      it cannot pick an acceptable one, follow-up 2 is skipped and the log says why.
  *   5. The function ends with a short label, e.g. "case 2 | why: right | line: wrong".
  * Compile-error and logic-only questions (no code to ask about) have no follow-ups and no clarify; their labels are "compile error: right|wrong"
  * and "no code: right|wrong".
@@ -113,10 +114,13 @@ const CASE_MEANING = Object.freeze({
 /** The final label of a function in the fixed short form. */
 function labelOf(entry) {
   if (!entry.hasFollowUps) {
-    const word = entry.path[0] && entry.path[0].result === 'right' ? 'right' : 'wrong';
+    // unclear stays unclear: it is never turned into wrong
+    const word = (entry.path[0] && entry.path[0].result) || 'unclear';
     return entry.kind === 'logic' ? `no code: ${word}` : `compile error: ${word}`;
   }
-  const parts = entry.path.filter((s) => s.step === 'followUp1' || s.step === 'followUp2').map((s) => `${SHORT[s.type] || s.type}: ${s.skipped ? 'skipped' : s.result}`);
+  // the logic answer stayed unclear after "Can you give the exact result?" (it counts as wrong for the case, the label still says unclear)
+  const clarify = entry.path.find((s) => s.step === 'clarify');
+  const parts = (clarify && clarify.result === 'unclear' ? ['main: unclear'] : []).concat(entry.path.filter((s) => s.step === 'followUp1' || s.step === 'followUp2').map((s) => `${SHORT[s.type] || s.type}: ${s.skipped ? 'skipped' : s.result}`));
   return `case ${entry.case}${entry.clarified ? ' (clarified)' : ''} | ${parts.length ? parts.join(' | ') : 'no follow-ups'}`;
 }
 
@@ -138,7 +142,7 @@ async function checkStep({ step, q, entry, code, converseFn, modelId, theirOutpu
     });
   }
   // predict, tracing, what-if, case 3 predict and smaller steps: a value
-  return checkValue({ kind: step.type === 'tracing' ? 'tracing' : 'predict', expected: step.expected, question: step.text, answer, converseFn, modelId });
+  return checkValue({ kind: step.type === 'tracing' ? 'tracing' : 'predict', expected: step.expected, question: step.text, answer, converseFn, modelId, before: step.type === 'whatIf' ? step.before : null });
 }
 
 /**
@@ -196,7 +200,7 @@ async function answerStep({ meta, turns, answer, code, converseFn = bedrock.conv
         const fromRun = truth && truth.answer !== undefined && truth.answer !== null;
         return { expected: fromRun ? truth.answer : f.answer, expectedSource: fromRun && truth.source === 'runtime' ? 'code' : 'code (plan)', ...(truth && truth.mismatch ? { mismatch: truth.mismatch } : {}), ...(!truth ? { mismatch: { kind: 'runtime_unavailable', plan: f.answer, runtime: null } } : {}) };
       };
-      if (f.type === 'predict' || f.type === 'tracing' || f.type === 'whatIf') return askStep({ ...base, kind: 'code', text: f.text, ...codeExpected() }, `case ${entry.case}: asked follow-up ${k} (${f.type})`);
+      if (f.type === 'predict' || f.type === 'tracing' || f.type === 'whatIf') return askStep({ ...base, kind: 'code', text: f.text, ...codeExpected(), ...(f.type === 'whatIf' && f.theirOutputBeforeTheChange !== undefined && { before: f.theirOutputBeforeTheChange }) }, `case ${entry.case}: asked follow-up ${k} (${f.type})`);
       if (f.type === 'smallLogic') return askStep({ ...base, kind: 'logic', text: f.text, expected: f.answerKey, expectedSource: 'spec' }, `case ${entry.case}: asked follow-up ${k} (smaller logic question)`);
       if (f.type === 'debug') {
         const output = truth && truth.answer !== undefined && truth.answer !== null ? truth.answer : f.theirOutput;
@@ -216,10 +220,7 @@ async function answerStep({ meta, turns, answer, code, converseFn = bedrock.conv
         const material = f.material;
         const materialTruth = entry.truth.material;
         if (!material || !material.available) { entry.path.push({ ...base, kind: 'code', skipped: 'no private material for this function' }); continue; }
-        const secrets = [];
-        const mainTruth = entry.truth['case3.followUp1'];
-        if (mainTruth && mainTruth.answer) secrets.push(mainTruth.answer);
-        const wrote = await writeSmallStep({ converseFn, modelId: models.writer, code, q, caseNo: entry.case, material, truth: materialTruth && materialTruth.stops ? materialTruth : null, secrets });
+        const wrote = await writeSmallStep({ converseFn, modelId: models.writer, code, q, caseNo: entry.case, material, truth: materialTruth && materialTruth.stops ? materialTruth : null });
         usage = sumUsage(usage, wrote.usage);
         calls = wrote.calls;
         if (!wrote.ok) { entry.path.push({ ...base, kind: 'code', skipped: wrote.reason }); continue; }

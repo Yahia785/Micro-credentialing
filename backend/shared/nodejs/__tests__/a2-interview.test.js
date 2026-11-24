@@ -13,7 +13,7 @@ const importedStore = require('../a2/imported-store');
 const { startPracticeInterview, prepareInterview, submitAnswer, getInterview } = require('../services/interview-service');
 const a2 = require('../services/a2-interview');
 const planConfig = require('../a2/plan-config');
-const { checkValue, judgeExplanation, compareValue } = require('../a2/check');
+const { checkValue, judgeExplanation, compareValue, givesNoValue, CHECK_SYSTEM, JUDGE_SYSTEM } = require('../a2/check');
 const { writeSmallStep, unknownIdentifiers, valueAt } = require('../a2/follow-up');
 const { ValidationError } = require('../utils/errors');
 const { IMPORT_ID, USERNAME, CODE, formAPlan, brokenPlan, crapsQuestion, okRecord, MILESTONE, RUNTIME } = require('./helpers/a2-fixture');
@@ -302,39 +302,66 @@ describe('the follow-up checks', () => {
   });
 });
 
-describe('the smaller code step (the only text the agent writes)', () => {
+describe('the smaller code step (the agent picks, the question comes from a template)', () => {
   const material = formAPlan().questions[0].cases.case4.followUp2.material;
   const q = formAPlan().questions[0];
   const truth = { stops: material.stops };
   const write = (reply, extra = {}) => writeSmallStep({ converseFn: fakeModel({ write: typeof reply === 'function' ? reply : () => reply }), modelId: 'm', code: CODE, q, caseNo: 4, material, truth, ...extra });
-  const good = { variable: 'left number', stop: 2, question: 'At line 5, the 2nd time it runs on the vector {1, 2, 3, 4, 5}, what is the value of `vec[i]`?' };
+  const good = { variable: 'left number', stop: 2 };
+  const TEMPLATE = /^You put a breakpoint on line \d+ and run \w+ on .+\. When it stops for the \d+(st|nd|rd|th) time, what is .+\?$/;
 
-  it('gets their function with line numbers and the private material, and asks one question about one variable at one stop', async () => {
+  it('gets their function with line numbers and the private material, and picks one variable at one stop', async () => {
     const model = fakeModel({ write: () => good });
     const r = await writeSmallStep({ converseFn: model, modelId: 'm', code: CODE, q, caseNo: 4, material, truth });
-    expect(r).toMatchObject({ ok: true, variable: 'left number', expression: 'vec[i]', stop: 2, expected: '2', text: good.question });
+    expect(r).toMatchObject({ ok: true, variable: 'left number', expression: 'vec[i]', stop: 2, expected: '2' });
     const message = model.requests[0].messages[0].content[0].text;
     expect(message).toContain('<function_code>');
     expect(message).toContain('3: void reverseList(vector<int>& vec) {');
-    expect(message).toContain('Variables you may ask about');
+    expect(message).toContain('Variables you may choose');
     expect(message).toContain('Stop 2: left number=2, right number=4');
     expect(model.requests[0].temperature).toBe(0);
     expect(message).not.toContain(USERNAME);
   });
 
-  it('refuses a question that names an identifier that is not in their function, then accepts the retry', async () => {
-    const bad = { ...good, question: 'At line 5, the 2nd time, what is the value of the variable `index`?' };
-    const r = await write(({ attempt }) => (attempt === 1 ? bad : good));
+  it('the question is the breakpoint template: the line, the function, the input stated, the Kth stop and their own expression', async () => {
+    const r = await write(good);
+    expect(r.text).toBe(`You put a breakpoint on line ${material.line} and run reverseList on ${material.input.display}. When it stops for the 2nd time, what is vec[i]?`);
+    expect(r.text).toMatch(TEMPLATE);
+    // no friendly name of ours, and no value of the private material, in what the student sees
+    expect(r.text).not.toContain('left number');
+    expect(r.text).not.toMatch(/right number/);
+    const third = await write({ variable: 'right number', stop: 3 });
+    expect(third.text).toContain('3rd time, what is vec[vec.size() - 1 - i]?');
+    expect(third.expected).toBe('3');
+  });
+
+  it('whatever else the writer says is not used: free text, even a friendly name, never reaches the student', async () => {
+    const r = await write({ ...good, question: 'What is the left number when it runs for the second time and the value is 2?' });
+    expect(r.ok).toBe(true);
+    expect(r.text).toMatch(TEMPLATE);
+    expect(r.text).not.toContain('left number');
+  });
+
+  it('refuses an expression that is not in their function, then accepts the retry', async () => {
+    const foreign = { ...material, variables: [{ name: 'total', expr: 'runningTotal' }, ...material.variables] };
+    const r = await writeSmallStep({ converseFn: fakeModel({ write: ({ attempt }) => (attempt === 1 ? { variable: 'total', stop: 1 } : good) }), modelId: 'm', code: CODE, q, caseNo: 4, material: foreign, truth: { stops: material.stops.map((s) => `total=0, ${s}`) } });
     expect(r.ok).toBe(true);
     expect(r.calls).toHaveLength(2);
-    expect(unknownIdentifiers('what is the value of the variable total?', new Set(['vec', 'i']))).toEqual(['total']);
-    expect(unknownIdentifiers('what is `vec[i]` at line 5?', new Set(['vec', 'i']))).toEqual([]);
-    expect(unknownIdentifiers('what does getSize() give?', new Set(['vec']))).toEqual(['getSize']);
-    expect(unknownIdentifiers('what is the value of the variable named swapCount?', new Set(['vec']))).toEqual(['swapCount']);
+    expect(r.expression).toBe('vec[i]');
+    expect(unknownIdentifiers('runningTotal + vec[i]', new Set(['vec', 'i']))).toEqual(['runningTotal']);
+    expect(unknownIdentifiers('vec[vec.size() - 1 - i]', new Set(['vec', 'i']))).toEqual([]);
+    expect(unknownIdentifiers('static_cast<int>(vec.size())', new Set(['vec']))).toEqual([]);
+  });
+
+  it('a name the material makes up is not known just because the material uses it: only their function counts', async () => {
+    const foreign = { ...material, variables: [{ name: 'total', expr: 'runningTotal' }] };
+    const r = await writeSmallStep({ converseFn: fakeModel({ write: () => ({ variable: 'total', stop: 1 }) }), modelId: 'm', code: CODE, q, caseNo: 4, material: foreign, truth: { stops: ['total=0', 'total=1'] } });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('runningTotal');
   });
 
   it('fails twice: follow-up 2 is skipped and the log says why', async () => {
-    const bad = { ...good, question: 'What is the variable counter at line 5?' };
+    const bad = { variable: 'counter', stop: 1 };
     const r = await write(() => bad);
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('refused twice') });
     expect(r.reason).toContain('counter');
@@ -351,31 +378,118 @@ describe('the smaller code step (the only text the agent writes)', () => {
   it.each([
     ['a variable that is not listed', { ...good, variable: 'counter' }, 'not one of the listed'],
     ['a stop that does not exist', { ...good, stop: 9 }, 'does not exist'],
-    ['a private value', { ...good, question: 'At line 5, the 2nd time, is `vec[i]` equal to 2 or is it 5 = 5?' }, null],
-    ['two questions', { ...good, question: 'What is `vec[i]` at stop 2? And what is `vec[i]` at stop 3?' }, 'more than one'],
-    ['a yes/no question', { ...good, question: 'Is `vec[i]` equal to the first element at line 5?' }, 'yes or no'],
+    ['a stop that is not a number', { ...good, stop: 'second' }, 'does not exist'],
+    ['a reply that is not a JSON object', 'I would ask about the left number', 'not a JSON object'],
   ])('refuses %s', async (_name, reply, why) => {
     const r = await write(() => reply);
     expect(r.ok).toBe(false);
-    if (why) expect(r.reason).toContain(why);
+    expect(r.reason).toContain(why);
   });
 
-  it('never states a private value, the spec answer or the code\'s output', async () => {
-    const withValue = { variable: 'piece', stop: 2, question: 'At line 14, the 2nd time, `piece` is "ab"?' };
-    const splitQ = formAPlan().questions[1];
-    const m = { ...splitQ.cases.case3.followUp2.material, stops: ['piece="abc"', 'piece="abd"'] };
-    const r = await writeSmallStep({ converseFn: fakeModel({ write: () => ({ ...withValue, question: 'At line 14 the 2nd time, what value does `str.substr(start, pos - start)` hold, given that abd comes next?' }) }), modelId: 'm', code: CODE, q: splitQ, caseNo: 3, material: m, truth: { stops: m.stops } });
+  it('refuses a pick when the material has no input to state', async () => {
+    const r = await writeSmallStep({ converseFn: fakeModel({ write: () => good }), modelId: 'm', code: CODE, q, caseNo: 4, material: { ...material, input: { display: '' } }, truth });
     expect(r.ok).toBe(false);
-    expect(r.reason).toContain('private value');
-    // the spec answer (the main question's key) is a secret too
-    const asksKey = await writeSmallStep({ converseFn: fakeModel({ write: () => ({ variable: 'piece', stop: 1, question: 'At line 14 the 1st time, what does `str.substr(start, pos - start)` give on the way to "", "a", "", "b"?' }) }), modelId: 'm', code: CODE, q: splitQ, caseNo: 3, material: splitQ.cases.case3.followUp2.material, truth: null });
-    expect(asksKey.ok).toBe(false);
+    expect(r.reason).toContain('no input');
   });
 
   it('valueAt reads one variable of a stop, names with spaces included', () => {
     expect(valueAt('left number=1, right number=5', 'right number')).toBe('5');
     expect(valueAt('piece=""', 'piece')).toBe('""');
     expect(valueAt('piece="a"', 'other')).toBeNull();
+  });
+});
+
+describe('unclear stays unclear in every final label', () => {
+  const step = (name, type, result, extra = {}) => ({ step: name, type, result, ...extra });
+  it('case 2: why and line unclear', () => {
+    expect(a2.labelOf({ hasFollowUps: true, kind: 'logic', case: 2, clarified: false, path: [step('main', 'logic', 'right'), step('followUp1', 'debug', 'unclear'), step('followUp2', 'change', 'unclear')] })).toBe('case 2 | why: unclear | line: unclear');
+  });
+  it('the logic answer still unclear after the clarify is said in the label, and a skipped step stays skipped', () => {
+    expect(a2.labelOf({ hasFollowUps: true, kind: 'logic', case: 4, clarified: true, path: [step('main', 'logic', 'unclear'), step('clarify', 'logic', 'unclear'), step('followUp1', 'smallLogic', 'unclear'), step('followUp2', 'smallStep', null, { skipped: 'x' })] })).toBe('case 4 (clarified) | main: unclear | small logic: unclear | step: skipped');
+  });
+  it('compile error and no code: unclear', () => {
+    expect(a2.labelOf({ hasFollowUps: false, kind: 'compileError', path: [step('main', 'compile', 'unclear')] })).toBe('compile error: unclear');
+    expect(a2.labelOf({ hasFollowUps: false, kind: 'logic', path: [step('main', 'logic', 'unclear')] })).toBe('no code: unclear');
+  });
+});
+
+describe('a hedge is unclear, never wrong', () => {
+  const HEDGES = [
+    'It depends on the point number',
+    'A few, it depends on how the loop is written',
+    'Somebody wins at some point',
+    'Not sure, maybe half of them',
+    'A list with the letters in it, not sure about the empty ones',
+  ];
+  it.each(HEDGES)('"%s" is unclear without asking the model', async (text) => {
+    expect(givesNoValue(text)).toBe(true);
+    expect(compareValue({ kind: 'predict', expected: '1', answer: text })).toBe('unclear');
+    const model = fakeModel({ decide: () => 'no' });
+    const r = await checkValue({ kind: 'predict', expected: '1', question: 'q', answer: text, converseFn: model, modelId: 'm' });
+    expect(r.verdict).toBe('unclear');
+    expect(model.requests).toHaveLength(0);
+  });
+
+  it('an answer that gives a value is not a hedge, and the checker prompt says that no specific value is always unclear', () => {
+    expect(givesNoValue('maybe 2')).toBe(false);
+    expect(givesNoValue('5 or 2, they appear equally often')).toBe(false);
+    expect(givesNoValue('It returns four pieces: empty, a, empty, b')).toBe(false);
+    expect(CHECK_SYSTEM).toContain('ALWAYS "unclear", never "no"');
+  });
+
+  it('a hedge to the main question gets the clarify once, and a hedge to the clarify is logged as unclear and routed as logic wrong', async () => {
+    const { id } = await start();
+    const model = fakeModel({ decide: () => 'no' });
+    const first = await answer(id, 'A few, it depends on how the loop is written', model);
+    expect(first.question).toBe(formAPlan().questions[0].clarify);
+    expect(pathOf(id)[0]).toMatchObject({ step: 'main', result: 'unclear', method: 'compare' });
+    await answer(id, 'Not sure, maybe half of them', model);
+    expect(pathOf(id)[1]).toMatchObject({ step: 'clarify', result: 'unclear' });
+    expect(entryOf(id)).toMatchObject({ logicRight: false, case: 4, clarified: true });
+    expect(model.requests).toHaveLength(0);
+  });
+});
+
+describe('case 2 judge: clear rules, decided without the model where the answer is clear', () => {
+  const judge = (mode, answer, model = fakeModel({ judge: () => 'right' })) => judgeExplanation({ mode, question: 'q', code: CODE, input: 'x', theirOutput: 'y', specAnswer: 'z', answer, converseFn: model, modelId: 'm' }).then((r) => ({ r, model }));
+
+  it('the judge prompt states the rules for "why" and for "which line"', () => {
+    expect(JUDGE_SYSTEM).toContain('matches THEIR code and THEIR output');
+    expect(JUDGE_SYSTEM).toContain('blames the compiler, the test');
+    expect(JUDGE_SYSTEM).toContain('a specific line of their function (a line number, or quoting their code) AND says the change');
+    expect(JUDGE_SYSTEM).toContain('names no specific line');
+    expect(JUDGE_SYSTEM).toContain('only if it points to the right line but gives no change');
+  });
+
+  it('a why that blames the compiler or the test, or says the code is fine, is wrong', async () => {
+    for (const text of ['I think the compiler or the test is wrong, my code looks fine', 'The grader has a bug', 'Nothing is wrong with my function']) {
+      const { r, model } = await judge('why', text);
+      expect(r).toMatchObject({ verdict: 'wrong', method: 'compare', modelUsed: false });
+      expect(model.requests).toHaveLength(0);
+    }
+  });
+
+  it('a "which line" answer with no line number and no code is unclear', async () => {
+    for (const text of ['The first line of the function, I would add a check there', 'Somewhere in the loop, I would fix it']) {
+      const { r, model } = await judge('line', text);
+      expect(r).toMatchObject({ verdict: 'unclear', method: 'compare', modelUsed: false });
+      expect(model.requests).toHaveLength(0);
+    }
+  });
+
+  it('an answer that names a line or quotes code goes to the model, at temperature 0', async () => {
+    const { r, model } = await judge('line', 'Line 5: change `i < vec.size()` to `i < vec.size() / 2`');
+    expect(r.verdict).toBe('correct');
+    expect(model.requests).toHaveLength(1);
+    expect(model.requests[0].temperature).toBe(0);
+    const { r: why } = await judge('why', 'Because my loop goes to vec.size() so every pair is swapped twice');
+    expect(why.method).toBe('model');
+  });
+
+  it('the same answer gets the same verdict every time (a deterministic judge and a model at temperature 0)', async () => {
+    const seen = new Set();
+    for (let i = 0; i < 3; i += 1) seen.add((await judge('line', 'The first line of the function, I would add a check there')).r.verdict);
+    expect(seen.size).toBe(1);
   });
 });
 
@@ -386,8 +500,8 @@ describe('the final labels', () => {
     const q2 = await answer(id, "The compiler says expected ';' before '}' token on that line", model);
     expect(entryOf(id, 0).label).toBe('compile error: right');
     expect(q2.question).toBe(brokenPlan().questions[1].text);
-    const q3 = await answer(id, 'It splits at each comma, not sure how many pieces', model); // vague, but no clarify for a logic-only question
-    expect(entryOf(id, 1).label).toBe('no code: wrong');
+    const q3 = await answer(id, 'It splits at each comma, not sure how many pieces', model); // a hedge: unclear stays unclear, and no clarify for a logic-only question
+    expect(entryOf(id, 1).label).toBe('no code: unclear');
     expect(pathOf(id, 1).filter((s) => s.step === 'clarify')).toHaveLength(0);
     expect(q3.question).toBe(brokenPlan().questions[2].text);
     const end = await answer(id, '1', model);
@@ -396,6 +510,10 @@ describe('the final labels', () => {
     const wrong = await start(brokenPlan());
     await answer(wrong.id, 'The function name is spelled wrong', fakeModel());
     expect(entryOf(wrong.id, 0).label).toBe('compile error: wrong');
+    // unclear is never turned into wrong
+    const vague = await start(brokenPlan());
+    await answer(vague.id, 'I forgot something on that line, I would fix it', fakeModel({ decide: () => 'unclear' }));
+    expect(entryOf(vague.id, 0).label).toBe('compile error: unclear');
   });
 
   it('a clarified function says so in its label', async () => {
@@ -501,5 +619,17 @@ describe('the plan config', () => {
   });
   it('routeCase', () => {
     expect([[true, true], [false, true], [true, false], [false, false], [null, true], [null, false]].map(([c, l]) => a2.routeCase(c, l))).toEqual([1, 2, 3, 4, 4, 4]);
+  });
+});
+
+describe('a bare word for a string value is compared as that string, exactly', () => {
+  const { compareValue } = require('../a2/check');
+  test('"ax" is not "a": wrong, not unclear and not right; "a" is right', () => {
+    expect(compareValue({ kind: 'tracing', expected: '"a"', answer: 'ax' })).toBe('wrong');
+    expect(compareValue({ kind: 'tracing', expected: 'piece="a"', answer: 'ax' })).toBe('wrong');
+    expect(compareValue({ kind: 'tracing', expected: '"a"', answer: 'a' })).toBe('correct');
+    expect(compareValue({ kind: 'tracing', expected: '"ab"', answer: 'a' })).toBe('wrong');
+    expect(compareValue({ kind: 'tracing', expected: '"ab"', answer: 'ab' })).toBe('correct');
+    expect(compareValue({ kind: 'predict', expected: '"a", "b"', answer: 'a b' })).toBe('correct');
   });
 });
