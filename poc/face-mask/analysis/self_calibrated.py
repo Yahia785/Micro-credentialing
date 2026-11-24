@@ -5,6 +5,7 @@
 Rule (same code for every source, no calibration, no sidecar information for the raw and masked sources):
 1. Four signals per source. sidecar: blendH, blendV, yaw, pitch (smoothed); sidecar unsmoothed: blendHRaw, blendVRaw, yawRaw, pitchRaw;
    raw reader: blendH, blendV, yaw, pitch (unsmoothed). masked reader: pupil_h, pupil_v, nose_h, nose_v.
+   raw geometry (plain / as drawn, from raw_geometry.py): the masked reader's four signals computed from the raw video's landmarks.
    Frames where the source found no face are "not away" (they also end a run, like lost frames in common.py).
 2. Per session and signal: centre = median over the whole session, spread = 1.4826 x MAD over the whole session,
    z = (value - centre) / spread. The labels are never used for this.
@@ -30,15 +31,20 @@ import numpy as np  # noqa: E402
 
 import common  # noqa: E402
 import compare_gaze_sources as cg  # noqa: E402
+import raw_gaze  # noqa: E402
 import scripted_common as sc_  # noqa: E402
 
 OUT = sc_.OUT_DIR
 KS = (2.0, 2.5, 3.0, 3.5, 4.0)
 SLACK = common.MATCH_TOLERANCE_S
-SOURCES = ("sidecar", "sidecar unsmoothed", "raw reader", "masked reader")
+SOURCES = ("sidecar", "sidecar unsmoothed", "raw reader", "masked reader", "raw geometry, plain", "raw geometry, as drawn")
 SIDECAR_SOURCES = ("sidecar", "sidecar unsmoothed")      # never shifted, sidecar lost frames
 SIGNALS = {"sidecar": ("blendH", "blendV", "yaw", "pitch"), "sidecar unsmoothed": ("blendHRaw", "blendVRaw", "yawRaw", "pitchRaw"), "raw reader": ("blendH", "blendV", "yaw", "pitch"),
-           "masked reader": ("pupil_h", "pupil_v", "nose_h", "nose_v")}
+           "masked reader": ("pupil_h", "pupil_v", "nose_h", "nose_v"),
+           "raw geometry, plain": ("pupil_h", "pupil_v", "nose_h", "nose_v"), "raw geometry, as drawn": ("pupil_h", "pupil_v", "nose_h", "nose_v")}
+# raw_geometry.py columns behind the two raw-geometry sources (same four signals as the masked reader, from the raw video)
+GEOM_COLUMNS = {"raw geometry, plain": {"pupil_h": "plain_pupil_h", "pupil_v": "plain_pupil_v", "nose_h": "nose_h", "nose_v": "nose_v"},
+                "raw geometry, as drawn": {"pupil_h": "drawn_pupil_h", "pupil_v": "drawn_pupil_v", "nose_h": "nose_h", "nose_v": "nose_v"}}
 COPY_KINDS = ("phone-desk", "phone-lap", "screen", "screen-eyes")
 REF_NAME = "sidecar, calibrated rule (reference)"
 
@@ -64,6 +70,8 @@ def source_data(s: "cg.Session", source: str) -> tuple[np.ndarray, dict[str, np.
     """(times, {signal: values (NaN when not found)}, found) of one source, on its own clock."""
     if source in SIDECAR_SOURCES:
         return s.t, {n: s.side[n] for n in SIGNALS[source]}, ~s.lost
+    if source in GEOM_COLUMNS:
+        return s.g["t"], {n: s.g[c] for n, c in GEOM_COLUMNS[source].items()}, s.g_found
     d, found = (s.r, s.r_found) if source == "raw reader" else (s.m, s.m_found)
     return d["t"], {n: d[n] for n in SIGNALS[source]}, found
 
@@ -114,15 +122,40 @@ def detect(t: np.ndarray, sigs: dict[str, np.ndarray], found: np.ndarray, k: flo
     return looks
 
 
+def honest_windows(s: "cg.Session") -> list[tuple[float, float]]:
+    """All honest time (outside every copy label) cut into non-overlapping 15 s windows from the start of each piece;
+    remainders shorter than 10 s are dropped."""
+    pieces, cur = [], 0.0
+    for lab in sorted((l for l in s.labels if is_copy(l["label"])), key=lambda l: l["start"]):
+        if lab["start"] > cur:
+            pieces.append((cur, lab["start"]))
+        cur = max(cur, lab["end"])
+    if s.sc.duration_s > cur:
+        pieces.append((cur, s.sc.duration_s))
+    wins = []
+    for a, b in pieces:
+        t0 = a
+        while t0 < b - 1e-9:
+            t1 = min(t0 + 15.0, b)
+            if t1 - t0 >= 10.0:
+                wins.append((t0, t1))
+            t0 += 15.0
+    return wins
+
+
 def score(sessions: list["cg.Session"], events: dict[str, list[dict]]) -> dict:
     caught = covered = 0
     kinds = {k: [0, 0, 0] for k in COPY_KINDS}        # attempts, caught, covered
     n_false = n_honest_look = 0
     honest_s = 0.0
     n_events = 0
+    win_total = win_flagged = 0
     for s in sessions:
         ev = events[s.id]
         n_events += len(ev)
+        for w0, w1 in honest_windows(s):
+            win_total += 1
+            win_flagged += any(e["start"] < w1 and e["end"] > w0 for e in ev)
         cycles = common.find_cycles(ev, s.sc.key_events)
         patterns = common.copy_patterns(cycles)
         copies = [l for l in s.labels if is_copy(l["label"])]
@@ -146,7 +179,8 @@ def score(sessions: list["cg.Session"], events: dict[str, list[dict]]) -> dict:
     mins = honest_s / 60.0
     return {"attempts": sum(v[0] for v in kinds.values()), "caught": caught, "covered": covered, "n_false": n_false,
             "false_per_min": n_false / mins, "honest_look_events": n_honest_look,
-            "false_excl_honest_per_min": (n_false - n_honest_look) / mins, "n_looks": n_events, "honest_min": mins, "kinds": kinds}
+            "false_excl_honest_per_min": (n_false - n_honest_look) / mins, "n_looks": n_events, "honest_min": mins, "kinds": kinds,
+            "windows_total": win_total, "windows_flagged": win_flagged}
 
 
 def fmt_table(rows: list[dict], cols: list[str]) -> None:
@@ -167,6 +201,7 @@ def main(argv: list[str]) -> int:
             skipped += 1
             continue
         sessions.append(cg.Session(p, rebuild=False, debug=False))
+        sessions[-1].g_meta, sessions[-1].g_found, sessions[-1].g = cg.load_derived(raw_gaze.derived_path(p, "rawgeom"))
     print(f"{len(sessions)} tuning session(s): {', '.join(s.scid for s in sessions)}; {skipped} other session(s) skipped (split is not 'tuning').")
     n_attempts = sum(1 for s in sessions for l in s.labels if is_copy(l["label"]))
     print(f"copy attempts in these sessions: {n_attempts}")
@@ -174,7 +209,8 @@ def main(argv: list[str]) -> int:
     rows = []
     for s in sessions:
         rows.append({"session": s.scid, "sidecar_lost_pct": f"{100 * s.lost.mean():.2f}",
-                     "raw_not_found_pct": f"{100 * (~s.r_found).mean():.2f}", "masked_not_found_pct": f"{100 * (~s.m_found).mean():.2f}"})
+                     "raw_not_found_pct": f"{100 * (~s.r_found).mean():.2f}", "masked_not_found_pct": f"{100 * (~s.m_found).mean():.2f}",
+                     "rawgeom_not_found_pct": f"{100 * (~s.g_found).mean():.2f}"})
     fmt_table(rows, list(rows[0]))
 
     results: dict[tuple[str, float, bool], dict] = {}     # (source, k, lag_applied) -> score
@@ -207,13 +243,19 @@ def main(argv: list[str]) -> int:
                 r = results[(source, k, lag_applied)]
                 rows.append({"source": source, "k": f"{k:.1f}", "caught": f"{r['caught']}/{r['attempts']}", "copy_pattern_covered": f"{r['covered']}/{r['attempts']}",
                              "looks": r["n_looks"], "false_flags": r["n_false"], "false_per_min": f"{r['false_per_min']:.2f}",
-                             "during_honest_think_or_break": r["honest_look_events"], "false_per_min_excl_those": f"{r['false_excl_honest_per_min']:.2f}"})
+                             "during_honest_think_or_break": r["honest_look_events"], "false_per_min_excl_those": f"{r['false_excl_honest_per_min']:.2f}",
+                             "missed": r["attempts"] - r["caught"], "honest_windows_flagged": r["windows_flagged"],
+                             "honest_windows_not_flagged": r["windows_total"] - r["windows_flagged"]})
         rows.append({"source": REF_NAME, "k": "-", "caught": f"{ref['caught']}/{ref['attempts']}", "copy_pattern_covered": f"{ref['covered']}/{ref['attempts']}",
                      "looks": ref["n_looks"], "false_flags": ref["n_false"], "false_per_min": f"{ref['false_per_min']:.2f}",
-                     "during_honest_think_or_break": ref["honest_look_events"], "false_per_min_excl_those": f"{ref['false_excl_honest_per_min']:.2f}"})
+                     "during_honest_think_or_break": ref["honest_look_events"], "false_per_min_excl_those": f"{ref['false_excl_honest_per_min']:.2f}",
+                     "missed": ref["attempts"] - ref["caught"], "honest_windows_flagged": ref["windows_flagged"],
+                     "honest_windows_not_flagged": ref["windows_total"] - ref["windows_flagged"]})
         return rows
 
-    cols = ["source", "k", "caught", "copy_pattern_covered", "looks", "false_flags", "false_per_min", "during_honest_think_or_break", "false_per_min_excl_those"]
+    cols = ["source", "k", "caught", "copy_pattern_covered", "looks", "false_flags", "false_per_min", "during_honest_think_or_break", "false_per_min_excl_those",
+            "missed", "honest_windows_flagged", "honest_windows_not_flagged"]
+    print(f"\nhonest windows (15 s, outside copy labels, pieces under 10 s dropped), all sessions: {ref['windows_total']}")
     print("\n=== 1. Main table, LAG-CORRECTED (raw and masked readers shifted by out/compare_lag.csv) ===")
     t1 = main_rows(True)
     fmt_table(t1, cols)
@@ -261,7 +303,7 @@ def main(argv: list[str]) -> int:
     dump(OUT / "selfcal_looks.csv", look_rows)
 
     fig, ax = plt.subplots(figsize=(9, 6))
-    colours = {"sidecar": "#222222", "sidecar unsmoothed": "#7a7a7a", "raw reader": "#E69F00", "masked reader": "#0072B2"}
+    colours = {"sidecar": "#222222", "sidecar unsmoothed": "#7a7a7a", "raw reader": "#E69F00", "masked reader": "#0072B2", "raw geometry, plain": "#CC79A7", "raw geometry, as drawn": "#009E73"}
     for source in SOURCES:
         for lag_applied, ls, lw, al in ((True, "-", 1.8, 1.0), (False, ":", 1.0, 0.7)):
             xs = [results[(source, k, lag_applied)]["false_per_min"] for k in KS]
