@@ -3,7 +3,8 @@
     python self_calibrated.py <folder>
 
 Rule (same code for every source, no calibration, no sidecar information for the raw and masked sources):
-1. Four signals per source. sidecar and raw reader: blendH, blendV, yaw, pitch. masked reader: pupil_h, pupil_v, nose_h, nose_v.
+1. Four signals per source. sidecar: blendH, blendV, yaw, pitch (smoothed); sidecar unsmoothed: blendHRaw, blendVRaw, yawRaw, pitchRaw;
+   raw reader: blendH, blendV, yaw, pitch (unsmoothed). masked reader: pupil_h, pupil_v, nose_h, nose_v.
    Frames where the source found no face are "not away" (they also end a run, like lost frames in common.py).
 2. Per session and signal: centre = median over the whole session, spread = 1.4826 x MAD over the whole session,
    z = (value - centre) / spread. The labels are never used for this.
@@ -34,8 +35,9 @@ import scripted_common as sc_  # noqa: E402
 OUT = sc_.OUT_DIR
 KS = (2.0, 2.5, 3.0, 3.5, 4.0)
 SLACK = common.MATCH_TOLERANCE_S
-SOURCES = ("sidecar", "raw reader", "masked reader")
-SIGNALS = {"sidecar": ("blendH", "blendV", "yaw", "pitch"), "raw reader": ("blendH", "blendV", "yaw", "pitch"),
+SOURCES = ("sidecar", "sidecar unsmoothed", "raw reader", "masked reader")
+SIDECAR_SOURCES = ("sidecar", "sidecar unsmoothed")      # never shifted, sidecar lost frames
+SIGNALS = {"sidecar": ("blendH", "blendV", "yaw", "pitch"), "sidecar unsmoothed": ("blendHRaw", "blendVRaw", "yawRaw", "pitchRaw"), "raw reader": ("blendH", "blendV", "yaw", "pitch"),
            "masked reader": ("pupil_h", "pupil_v", "nose_h", "nose_v")}
 COPY_KINDS = ("phone-desk", "phone-lap", "screen", "screen-eyes")
 REF_NAME = "sidecar, calibrated rule (reference)"
@@ -60,7 +62,7 @@ def read_lags() -> dict[str, dict[str, float]]:
 
 def source_data(s: "cg.Session", source: str) -> tuple[np.ndarray, dict[str, np.ndarray], np.ndarray]:
     """(times, {signal: values (NaN when not found)}, found) of one source, on its own clock."""
-    if source == "sidecar":
+    if source in SIDECAR_SOURCES:
         return s.t, {n: s.side[n] for n in SIGNALS[source]}, ~s.lost
     d, found = (s.r, s.r_found) if source == "raw reader" else (s.m, s.m_found)
     return d["t"], {n: d[n] for n in SIGNALS[source]}, found
@@ -183,7 +185,7 @@ def main(argv: list[str]) -> int:
                 events = {}
                 for s in sessions:
                     t, sigs, found = source_data(s, source)
-                    shift = lags[s.id][("masked" if source == "masked reader" else "raw")] / 1000.0 if (lag_applied and source != "sidecar") else 0.0
+                    shift = lags[s.id][("masked" if source == "masked reader" else "raw")] / 1000.0 if (lag_applied and source not in SIDECAR_SOURCES) else 0.0
                     ev = detect(t + shift, sigs, found, k)
                     events[s.id] = ev
                     for e in ev:
@@ -217,7 +219,7 @@ def main(argv: list[str]) -> int:
     fmt_table(t1, cols)
     print("\n=== 2. Same, NO lag correction (sidecar and the reference row are identical to table 1) ===")
     t2 = main_rows(False)
-    fmt_table([r for r in t2 if r["source"] not in ("sidecar", REF_NAME)], cols)
+    fmt_table([r for r in t2 if r["source"] not in (*SIDECAR_SOURCES, REF_NAME)], cols)
     print("\n=== 3. Per copy kind at k = 3.0, lag-corrected: caught / copy_pattern-covered of attempts ===")
     rows = []
     for source in (*SOURCES, REF_NAME):
@@ -230,7 +232,7 @@ def main(argv: list[str]) -> int:
     fmt_table(rows, ["source", *COPY_KINDS])
     print("\n(same at k = 3.0 without lag correction)")
     rows = []
-    for source in SOURCES[1:]:
+    for source in SOURCES[2:]:
         r = results[(source, 3.0, False)]
         row = {"source": source}
         for kd in COPY_KINDS:
@@ -259,15 +261,15 @@ def main(argv: list[str]) -> int:
     dump(OUT / "selfcal_looks.csv", look_rows)
 
     fig, ax = plt.subplots(figsize=(9, 6))
-    colours = {"sidecar": "#222222", "raw reader": "#E69F00", "masked reader": "#0072B2"}
+    colours = {"sidecar": "#222222", "sidecar unsmoothed": "#7a7a7a", "raw reader": "#E69F00", "masked reader": "#0072B2"}
     for source in SOURCES:
         for lag_applied, ls, lw, al in ((True, "-", 1.8, 1.0), (False, ":", 1.0, 0.7)):
             xs = [results[(source, k, lag_applied)]["false_per_min"] for k in KS]
             ys = [results[(source, k, lag_applied)]["caught"] for k in KS]
-            if source == "sidecar" and not lag_applied:
+            if source in SIDECAR_SOURCES and not lag_applied:
                 continue
             ax.plot(xs, ys, ls, color=colours[source], lw=lw, alpha=al, marker="o" if lag_applied else None, ms=5,
-                    label=f"{source}{'' if source == 'sidecar' else (', lag-corrected' if lag_applied else ', no lag correction')}")
+                    label=f"{source}{'' if source in SIDECAR_SOURCES else (', lag-corrected' if lag_applied else ', no lag correction')}")
             if lag_applied:
                 for x, y, k in zip(xs, ys, KS):
                     ax.annotate(f"{k:g}", (x, y), textcoords="offset points", xytext=(4, 4), fontsize=7, color=colours[source])
