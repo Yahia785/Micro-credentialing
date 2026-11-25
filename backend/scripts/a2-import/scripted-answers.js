@@ -66,6 +66,18 @@ const LOGIC = {
   },
 };
 
+/**
+ * The three paths added for the checker fix of explained answers (D1). Each names its student; the answer is typed as written.
+ *   P1  an explained main answer whose LAST list is right (the quoted pieces sit inside a sentence)
+ *   P2  an explained main answer whose last list is wrong (an empty piece is missing)
+ *   P3  a smaller code step about `current`, answered "current is ax" (a lead, then a value that is not "a"): wrong by compare, no model call
+ */
+const D1_PATHS = [
+  { user: 'fakeuser08', name: 'P1', logicRight: true, goodFollowUps: true, variant: 0, answer: 'the first comma gives an empty piece, then "a", then another empty one between the two commas, then "b". so "", "a", "", "b"', label: 'P1 explained main answer, last list right' },
+  { user: 'fakeuser05', name: 'P2', logicRight: false, goodFollowUps: true, variant: 0, answer: 'first an empty one, then "a", then "b". so "", "a", "b"', label: 'P2 explained main answer, last list wrong' },
+  { user: 'fakeuser04', name: 'P3', logicRight: false, goodFollowUps: true, variant: 0, answer: 'Just two pieces, a and b, because the empty ones are skipped', lastStep: { intent: 'named-wrong', expected: 'wrong', expectMethod: 'compare', expectValue: 'a' }, label: 'P3 smaller step about current answered "current is ax", wrong by compare' },
+];
+
 const bigger = (text) => {
   const t = String(text);
   if (/-?\d+/.test(t)) return t.replace(/-?\d+/, (n) => String(Number(n) + 1));
@@ -159,7 +171,7 @@ function pathsFor(plan, q, wanted) {
   const out = [];
   const fn = q.function;
   const L = LOGIC[fn];
-  wanted.forEach(({ kind, logicRight, variant, goodFollowUps }, n) => {
+  wanted.forEach(({ kind, logicRight, variant, goodFollowUps, answer: fixed, label, lastStep }, n) => {
     const id = `${plan.githubUsername}/${fn}/${n + 1}`;
     const steps = [];
     if (kind === 'unclear') {
@@ -173,10 +185,11 @@ function pathsFor(plan, q, wanted) {
       return;
     }
     const c = caseOf(q, logicRight);
-    const answer = logicRight ? L.right(q.answerKey)[variant % 3] : L.wrong()[variant % 3];
+    const answer = fixed || (logicRight ? L.right(q.answerKey)[variant % 3] : L.wrong()[variant % 3]);
     steps.push({ asks: q.text, answer, expected: logicRight ? 'correct' : 'wrong', answerType: 'logic', key: q.answerKey, case: c, next: nextAfterMain(q, c).text || nextAfterMain(q, c).note });
     followUpSteps(q, c, goodFollowUps, variant, plan).forEach((s) => steps.push(s));
-    out.push({ id, label: `logic ${logicRight ? 'right' : 'wrong'}, follow-ups ${goodFollowUps ? 'right' : 'wrong'}`, case: c, unclear: false, steps });
+    if (lastStep) Object.assign(steps[steps.length - 1], lastStep);
+    out.push({ id, label: label || `logic ${logicRight ? 'right' : 'wrong'}, follow-ups ${goodFollowUps ? 'right' : 'wrong'}`, case: c, unclear: false, steps });
   });
   return out;
 }
@@ -217,6 +230,13 @@ function assign(plans) {
     // unclear: one that ends right and one that ends wrong, on the students with the least so far
     const few = byLoad(list);
     [0, 1].forEach((i) => { const { plan, q } = few[i] || few[0]; add(plan, q, { kind: 'unclear', logicRight: i === 0, variant: i, goodFollowUps: i === 1 }); });
+  }
+  // the D1 paths come last, so the earlier paths stay as they were (the load of a student decides who gets them)
+  for (const spec of D1_PATHS) {
+    const found = logicQs.find(({ plan, q }) => plan.githubUsername === spec.user && q.function === 'splitString');
+    if (!found) throw new Error(`${spec.name}: no splitString question for ${spec.user}`);
+    if (!found.q.cases[`case${caseOf(found.q, spec.logicRight)}`].available) throw new Error(`${spec.name}: case ${caseOf(found.q, spec.logicRight)} is not prepared for ${spec.user}`);
+    add(found.plan, found.q, { kind: 'main', ...spec });
   }
   return wanted;
 }
@@ -266,7 +286,7 @@ function render(students) {
       md.push(`### ${f.function}${f.replaces ? ` (replaces ${f.replaces})` : ''}: ${f.kind === 'logic' ? `their code is ${f.codeRight === true ? 'right' : f.codeRight === false ? 'wrong' : 'not checked'}` : f.kind}`, '');
       for (const p of f.paths) {
         md.push(`**Path ${p.id}: ${p.label}${p.case ? ` (case ${p.case})` : ''}**`, '', '| # | asked | typed answer | answer type | expected check | expected answer | asks next |', '|---|---|---|---|---|---|---|');
-        p.steps.forEach((st, i) => md.push(`| ${i + 1} | ${cell(st.asks)} | ${st.intent ? `(intent: ${st.intent}. The run types ${st.intent === 'right' ? 'the true value' : 'a plausible wrong value'} of whatever the agent asks about)` : cell(st.answer)} | ${st.answerType} | ${st.expected}${st.case ? ` (then case ${st.case})` : ''} | ${cell(st.key)} | ${cell(st.next || (p.steps[i + 1] ? p.steps[i + 1].asks : 'nothing: the interview moves to the next function'))} |`));
+        p.steps.forEach((st, i) => md.push(`| ${i + 1} | ${cell(st.asks)} | ${st.intent ? (st.intent === 'named-wrong' ? '(the run types "<expression> is <true value>x" for the expression the question asks about, e.g. "current is ax" when its true value is "a")' : `(intent: ${st.intent}. The run types ${st.intent === 'right' ? 'the true value' : 'a plausible wrong value'} of whatever the agent asks about)`) : cell(st.answer)} | ${st.answerType} | ${st.expected}${st.case ? ` (then case ${st.case})` : ''} | ${cell(st.key)} | ${cell(st.next || (p.steps[i + 1] ? p.steps[i + 1].asks : 'nothing: the interview moves to the next function'))} |`));
         md.push('');
       }
     }

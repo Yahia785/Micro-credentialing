@@ -53,6 +53,51 @@ function quotedItems(text) {
   return found.length ? found.map((m) => m[1]) : null;
 }
 
+const LEADS = [/^so\b[\s,:-]*/i, /^it would return\b[\s,:-]*/i, /^it returns\b[\s,:-]*/i, /^returns\b[\s,:-]*/i, /^it is\b[\s,:-]*/i, /^it's\s*/i, /^its\b[\s,:-]*/i, /^the answer is\b[\s,:-]*/i, /^same thing,\s*/i];
+const escapeRe = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The answer without its lead: "so", "it returns", "it would return", "returns", "it is", "it's", "its", "the answer is", "same thing," and
+ * "<expression> is" / "<expression> =" for the expression the question asked about (`asked`). Only at the start, case-insensitive, repeatedly.
+ */
+function stripLead(answer, asked = []) {
+  let text = String(answer === null || answer === undefined ? '' : answer).trim();
+  const names = (asked || []).filter((name) => name && String(name).trim()).map((name) => escapeRe(String(name).trim()).replace(/\s+/g, '\\s+'));
+  const subject = names.length ? new RegExp(`^(?:${names.join('|')})\\s*(?:\\bis\\b|=)\\s*`, 'i') : null;
+  for (let again = true; again;) {
+    again = false;
+    for (const lead of subject ? [...LEADS, subject] : LEADS) {
+      const next = text.replace(lead, '').trim();
+      if (next !== text && next.length > 0) { text = next; again = true; }
+    }
+  }
+  return text;
+}
+
+/**
+ * The LAST run of quoted strings of an answer: the quoted pieces at its end that are separated only by a comma, "and", "then" or "&".
+ * `whole` is true when the answer is just that run; `clear` when it can be taken as the answer: it is the whole answer, it ends the answer,
+ * or it is introduced as the answer ("so", "=", "->", "returns", ...) or as a correction ("no wait", "I mean"). The text after it must hold
+ * no quote and no value (a digit, bracket or quote): it is only explanation. null when there is no quoted piece. An odd number of quote
+ * marks is never clear.
+ */
+function lastQuotedList(answer) {
+  const text = String(answer === null || answer === undefined ? '' : answer).trim();
+  const found = [...text.matchAll(/"([^"]*)"/g)];
+  if (found.length === 0) return null;
+  const odd = (text.match(/"/g) || []).length % 2 === 1;
+  let first = found.length - 1;
+  while (first > 0 && /^\s*(,|and|then|&)?\s*$/i.test(text.slice(found[first - 1].index + found[first - 1][0].length, found[first].index))) first -= 1;
+  const lead = text.slice(0, found[first].index);
+  const last = found[found.length - 1];
+  const tail = text.slice(last.index + last[0].length);
+  const tailEmpty = !/\w/.test(tail);
+  const tailOk = !/["'`\d[{(]/.test(tail); // a closing bracket after the list is fine ('[ "", "a" ]')
+  const bareLead = !/\w/.test(lead);
+  const introduced = bareLead || /(?:\b(?:so|therefore|thus|returns?|gives?|answer is|result is|no wait|wait|actually|sorry|i mean|rather|instead|correction)|[=:]|->|=>)[\s,.-]*$/i.test(lead);
+  return { items: found.slice(first).map((m) => m[1]), whole: !odd && bareLead && tailEmpty, clear: !odd && (introduced || tailEmpty) && tailOk };
+}
+
 /**
  * An answer that gives no specific value ("it depends", "a few", "somebody wins", "not sure"): no digit, no quote, no bracket and a hedge
  * phrase. It is UNCLEAR, never wrong; the model is not asked.
@@ -76,30 +121,46 @@ const isNumber = (token) => /^-?\d+(\.\d+)?$/.test(token);
  * answer has values, and is not the expected answer, 'unclear' when it gives no value at all (a hedge),
  * null when it is neither (words around the value, a hedge, a description): the model decides.
  */
-function compareValue({ kind, expected, answer }) {
-  if (givesNoValue(answer)) return VERDICT.UNCLEAR;
+function compareValue({ kind, expected, answer, asked = [] }) {
+  return compareDecision({ kind, expected, answer, asked }).verdict;
+}
+
+/**
+ * compareValue with the path that decided: 'plain' (the answer is the value, maybe after a short lead), 'final-list' (explanation around the
+ * quoted pieces: the LAST list decided) or null when compare does not decide (the model does). `asked` are the names of the variable or
+ * expression the question asked about ("current is ax" leads with it).
+ * @returns {{ verdict: string|null, path: 'plain'|'final-list'|null }}
+ */
+function compareDecision({ kind, expected, answer, asked = [] }) {
+  const decided = (verdict, path = 'plain') => ({ verdict, path: verdict ? path : null });
+  if (givesNoValue(answer)) return decided(VERDICT.UNCLEAR);
+  const said = stripLead(answer, asked);
   // A list of quoted strings ("", "a", "", "b"): the empty strings are pieces too, so the quoted items are compared one by one.
   const expectedItems = quotedItems(expected);
   if (expectedItems) {
-    const items = quotedItems(answer);
-    if (items) return JSON.stringify(items) === JSON.stringify(expectedItems) ? VERDICT.CORRECT : VERDICT.WRONG;
-    if (expectedItems.includes('')) return null; // without quotes an empty piece cannot be told from no piece: the model decides
+    const list = lastQuotedList(said);
+    if (list) {
+      // With explanation around the pieces the last list is the answer, but only when it is clearly the final one; otherwise the model decides.
+      if (!list.clear) return decided(null);
+      return decided(JSON.stringify(list.items) === JSON.stringify(expectedItems) ? VERDICT.CORRECT : VERDICT.WRONG, list.whole ? 'plain' : 'final-list');
+    }
+    if (expectedItems.includes('')) return decided(null); // without quotes an empty piece cannot be told from no piece: the model decides
     // Bare words (no quotes) for string pieces: as many words as pieces are compared as those strings, exactly after normalization ("ax" is not "a").
-    const bare = tokensOf(answer).filter((token) => !FILLERS.has(token));
+    const bare = tokensOf(said).filter((token) => !FILLERS.has(token));
     const pieces = expectedItems.map((piece) => normalize(piece));
-    if (bare.length > 0 && bare.length === pieces.length && !pieces.some((piece) => /\s/.test(piece))) return sameList(bare, pieces) ? VERDICT.CORRECT : VERDICT.WRONG;
+    if (bare.length > 0 && bare.length === pieces.length && !pieces.some((piece) => /\s/.test(piece))) return decided(sameList(bare, pieces) ? VERDICT.CORRECT : VERDICT.WRONG);
   }
-  const given = tokensOf(answer);
+  const given = tokensOf(said);
   const { values, names, full } = expectedParts(kind, expected);
   // Only brackets or quotes ("[]"): it is the empty answer, right exactly when the expected answer is empty too.
-  if (given.length === 0) return String(answer || '').trim() ? (values.length === 0 ? VERDICT.CORRECT : VERDICT.WRONG) : null;
+  if (given.length === 0) return decided(String(answer || '').trim() ? (values.length === 0 ? VERDICT.CORRECT : VERDICT.WRONG) : null);
   const stripped = given.filter((token) => !FILLERS.has(token) && !names.has(token));
-  if (sameList(given, values) || sameList(given, full) || sameList(stripped, values)) return VERDICT.CORRECT;
+  if (sameList(given, values) || sameList(given, full) || sameList(stripped, values)) return decided(VERDICT.CORRECT);
   const vocabulary = new Set([...values, ...full]);
   const valueLike = (token) => isNumber(token) || token.length === 1 || vocabulary.has(token);
   // The same number of values, all of them plain values, and not the right ones. A different count ("3 5" for three numbers) is left to the model.
-  if (stripped.length === values.length && stripped.length > 0 && stripped.every(valueLike)) return VERDICT.WRONG;
-  return null;
+  if (stripped.length === values.length && stripped.length > 0 && stripped.every(valueLike)) return decided(VERDICT.WRONG);
+  return decided(null);
 }
 
 // --- the model -------------------------------------------------------------------------------------------------------------------
@@ -208,25 +269,25 @@ async function checkMainAnswer({ q, truth, answer, converseFn, modelId, code = '
       // Nothing to compare with (the code gave no answer and the plan has none): the instructor decides.
       return { verdict: VERDICT.UNCLEAR, method: 'compare', note: 'there is no answer from the code to compare with', modelUsed: false };
     }
-    const plain = compareValue({ kind: q.kind, expected: truth, answer });
-    if (plain) return { verdict: plain, method: 'compare', modelUsed: false };
+    const plain = compareDecision({ kind: q.kind, expected: truth, answer });
+    if (plain.verdict) return { verdict: plain.verdict, method: 'compare', decidedBy: plain.path, modelUsed: false };
     const asked = await askModel({ converseFn, modelId, question: q.text, ask: askFor({ kind: 'value', key: truth }), answer });
-    return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
+    return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
   }
   if (q.kind === 'compileError' || q.kind === 'compileErrorOutside') {
     const codeLines = String(code || '').split('\n');
     const around = [q.line - 1, q.line].filter((n) => n >= 1).map((n) => (codeLines[n - 1] === undefined ? null : `${n}: ${codeLines[n - 1].replace(/\r$/, '')}`)).filter((text) => text !== null);
     const asked = await askModel({ converseFn, modelId, question: q.text, ask: askFor({ kind: 'compileError', key: q.answerKey, lines: around, line: q.line }), answer });
-    return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
+    return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
   }
   const asked = await askModel({ converseFn, modelId, question: q.text, ask: askFor({ kind: 'logic', key: q.answerKey }), answer });
-  return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
+  return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
 }
 
 /** The check of an answer to the instructor's fixed follow-up, against its answer key. */
 async function checkFixedFollowUp({ followUp, answer, converseFn, modelId }) {
   const asked = await askModel({ converseFn, modelId, question: followUp.question, ask: askFor({ kind: 'key', key: followUp.answerKey }), answer });
-  return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
+  return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
 }
 
 /**
@@ -234,7 +295,7 @@ async function checkFixedFollowUp({ followUp, answer, converseFn, modelId }) {
  * not clear. `expected` is the answer (from the spec, the code's run or the private material); `kind` is 'tracing' for a trace stop.
  * @returns {Promise<{ verdict: 'correct'|'wrong'|'unclear', quote?: string, method: 'compare'|'model', note?: string, modelUsed: boolean, usage?: object }>}
  */
-async function checkValue({ kind = 'predict', expected, question, answer, converseFn, modelId, before = null }) {
+async function checkValue({ kind = 'predict', expected, question, answer, converseFn, modelId, before = null, asked: askedAbout = [] }) {
   if (expected === null || expected === undefined || expected === '') {
     return { verdict: VERDICT.UNCLEAR, method: 'compare', note: 'there is no expected answer to compare with', modelUsed: false };
   }
@@ -242,12 +303,12 @@ async function checkValue({ kind = 'predict', expected, question, answer, conver
   // from the changed output, so it is wrong). The model is not asked.
   if (before !== null && before !== undefined && before !== '' && meansNoChange(answer)) {
     const plain = compareValue({ kind, expected, answer: before });
-    if (plain) return { verdict: plain, method: 'compare', note: `the answer means "no change": the output before the change, ${before}`, modelUsed: false };
+    if (plain) return { verdict: plain, method: 'compare', decidedBy: 'plain', note: `the answer means "no change": the output before the change, ${before}`, modelUsed: false };
   }
-  const plain = compareValue({ kind, expected, answer });
-  if (plain) return { verdict: plain, method: 'compare', modelUsed: false };
+  const plain = compareDecision({ kind, expected, answer, asked: askedAbout });
+  if (plain.verdict) return { verdict: plain.verdict, method: 'compare', decidedBy: plain.path, modelUsed: false };
   const asked = await askModel({ converseFn, modelId, question, ask: askFor({ kind: 'value', key: expected }), answer });
-  return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
+  return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
 }
 
 const JUDGE_SYSTEM = `You judge a student's short answer about a bug in their own C++ function. You do not teach, hint or talk about the interview.
@@ -282,7 +343,7 @@ const numbered = (code) => String(code || '').split('\n').map((line, i) => `${i 
 
 /**
  * Case 2: the checker model judges the "why" or the "which line" answer with their code, the input, their output and the spec answer.
- * @returns {Promise<{ verdict: 'correct'|'partly'|'wrong'|'unclear', quote?: string, method: 'model', modelUsed: true, note?: string, usage: object }>}
+ * @returns {Promise<{ verdict: 'correct'|'partly'|'wrong'|'unclear', quote?: string, method: 'model', decidedBy: 'model', modelUsed: true, note?: string, usage: object }>}
  */
 async function judgeExplanation({ mode, question, code, input, theirOutput, specAnswer, earlier = null, answer, converseFn, modelId }) {
   // Clear cases are decided without the model, so the same answer always gets the same verdict.
@@ -304,7 +365,7 @@ async function judgeExplanation({ mode, question, code, input, theirOutput, spec
       : 'Check: does this answer name the real cause of the difference between what their function printed and what the specification says?',
   ].join('\n');
   const asked = await askModel({ converseFn, modelId, question, ask, answer, system: JUDGE_SYSTEM, words: { right: VERDICT.CORRECT, partly: VERDICT.PARTLY, wrong: VERDICT.WRONG } });
-  return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
+  return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
 }
 
-module.exports = { VERDICT, givesNoValue, meansNoChange, normalize, compareValue, quotedItems, expectedParts, checkMainAnswer, checkFixedFollowUp, checkValue, judgeExplanation, askModel, CHECK_SYSTEM, JUDGE_SYSTEM };
+module.exports = { VERDICT, givesNoValue, meansNoChange, normalize, compareValue, compareDecision, stripLead, quotedItems, expectedParts, checkMainAnswer, checkFixedFollowUp, checkValue, judgeExplanation, askModel, CHECK_SYSTEM, JUDGE_SYSTEM };

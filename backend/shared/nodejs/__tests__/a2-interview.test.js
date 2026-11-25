@@ -633,3 +633,67 @@ describe('a bare word for a string value is compared as that string, exactly', (
     expect(compareValue({ kind: 'predict', expected: '"a", "b"', answer: 'a b' })).toBe('correct');
   });
 });
+
+describe('answers that explain around quoted pieces: the last list is the answer', () => {
+  const { compareDecision, stripLead } = require('../a2/check');
+  const exp1 = '"", "a"';
+  const exp2 = '"", "a", "", "b"';
+  const decide = (expected, answer, asked = []) => compareDecision({ kind: 'predict', expected, answer, asked });
+  test('both live examples are right, decided by the final list', () => {
+    expect(decide(exp1, 'hmm an empty string first and then "a"? so "", "a"')).toEqual({ verdict: 'correct', path: 'final-list' });
+    expect(decide(exp2, 'the first comma gives an empty piece, then "a", then another empty one between the two commas, then "b". so "", "a", "", "b"')).toEqual({ verdict: 'correct', path: 'final-list' });
+  });
+  test('an explained answer whose last list is wrong is wrong', () => {
+    expect(decide(exp2, 'first an empty one, then "a", then "b". so "", "a", "b"')).toEqual({ verdict: 'wrong', path: 'final-list' });
+  });
+  test('a self-correction is judged on the last list', () => {
+    expect(decide(exp1, '"a", "b"... no wait, "", "a"')).toEqual({ verdict: 'correct', path: 'final-list' });
+    expect(decide(exp1, '"", "a"... no wait, "a", "b"').verdict).toBe('wrong');
+  });
+  test('text after the list with no quotes and no values is ignored', () => {
+    expect(decide(exp2, '"", "a", "", "b" because empty pieces count')).toEqual({ verdict: 'correct', path: 'final-list' });
+  });
+  test('plain values, with or without a lead, are decided as plain', () => {
+    expect(decide(exp1, '"", "a"')).toEqual({ verdict: 'correct', path: 'plain' });
+    expect(decide(exp1, 'it returns "", "b"')).toEqual({ verdict: 'wrong', path: 'plain' });
+    expect(decide(exp1, 'same thing, "", "a"')).toEqual({ verdict: 'correct', path: 'plain' });
+  });
+  test('leads: the expression that was asked about is a lead, "ax" is not "a"', () => {
+    expect(decide('"a"', 'current is ax', ['current'])).toEqual({ verdict: 'wrong', path: 'plain' });
+    expect(decide('"a"', 'current = ax', ['current', 'current->data'])).toEqual({ verdict: 'wrong', path: 'plain' });
+    expect(decide('"a"', 'it is a')).toEqual({ verdict: 'correct', path: 'plain' });
+    expect(decide('"a"', 'current is a', ['current'])).toEqual({ verdict: 'correct', path: 'plain' });
+    expect(decide('2', 'it returns 2')).toEqual({ verdict: 'correct', path: 'plain' });
+    expect(decide('1', 'so 1')).toEqual({ verdict: 'correct', path: 'plain' });
+    expect(decide('2', 'the answer is 2')).toEqual({ verdict: 'correct', path: 'plain' });
+    expect(decide('2', "it's 3").verdict).toBe('wrong');
+    expect(stripLead('So it would return 7', [])).toBe('7');
+  });
+  test('without a clear final list the model decides, compare never says wrong', () => {
+    expect(decide(exp2, 'empty, a, empty, b').verdict).toBeNull();
+    expect(decide(exp2, 'there are four pieces and the last of them is "b" but I am not sure about the others').verdict).toBeNull();
+    expect(decide(exp2, 'so "a", "b", "c" is what I would say but "" is first').verdict).toBeNull();
+    expect(decide(exp2, 'I think "", "a" and then "b').verdict).toBeNull();
+  });
+  test('no clear final list goes to the model: checkValue asks it and logs the path', async () => {
+    const model = fakeModel();
+    const r = await checkValue({ kind: 'predict', expected: exp2, question: 'q', answer: 'empty, a, empty, b', converseFn: model, modelId: 'm' });
+    expect(r.method).toBe('model');
+    expect(r.decidedBy).toBe('model');
+    expect(r.modelUsed).toBe(true);
+    expect(model.kinds.check).toBeGreaterThan(0);
+  });
+  test('"current is ax" is wrong without a model call, and the path is logged', async () => {
+    const model = fakeModel();
+    const r = await checkValue({ kind: 'predict', expected: '"a"', question: 'q', answer: 'current is ax', converseFn: model, modelId: 'm', asked: ['current', 'current'] });
+    expect(r).toMatchObject({ verdict: 'wrong', method: 'compare', decidedBy: 'plain', modelUsed: false });
+    expect(model.kinds.check).toBe(0);
+    const live = await checkValue({ kind: 'predict', expected: exp1, question: 'q', answer: 'hmm an empty string first and then "a"? so "", "a"', converseFn: model, modelId: 'm' });
+    expect(live).toMatchObject({ verdict: 'correct', method: 'compare', decidedBy: 'final-list', modelUsed: false });
+  });
+  test('a hedged answer is unclear exactly as before; one with a value in it still goes to the model', () => {
+    expect(compareValue({ kind: 'predict', expected: '2', answer: 'it depends on the loop' })).toBe('unclear');
+    expect(compareValue({ kind: 'predict', expected: exp1, answer: 'hmm not sure about the empty ones' })).toBe('unclear');
+    expect(compareValue({ kind: 'predict', expected: '2', answer: 'maybe 2?' })).toBeNull();
+  });
+});

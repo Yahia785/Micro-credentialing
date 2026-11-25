@@ -126,7 +126,7 @@ function labelOf(entry) {
 
 /** What a check says, as it is written on a step of the path. */
 const written = (result) => ({
-  result: RESULT[result.verdict], method: result.method, modelUsed: result.modelUsed === true,
+  result: RESULT[result.verdict], method: result.method, ...(result.decidedBy && { decidedBy: result.decidedBy }), modelUsed: result.modelUsed === true,
   ...(result.quote && { quote: result.quote }), ...(result.note && { note: result.note }),
 });
 
@@ -142,7 +142,7 @@ async function checkStep({ step, q, entry, code, converseFn, modelId, theirOutpu
     });
   }
   // predict, tracing, what-if, case 3 predict and smaller steps: a value
-  return checkValue({ kind: step.type === 'tracing' ? 'tracing' : 'predict', expected: step.expected, question: step.text, answer, converseFn, modelId, before: step.type === 'whatIf' ? step.before : null });
+  return checkValue({ kind: step.type === 'tracing' ? 'tracing' : 'predict', expected: step.expected, question: step.text, answer, converseFn, modelId, before: step.type === 'whatIf' ? step.before : null, asked: [step.variable, step.expression].filter(Boolean) });
 }
 
 /**

@@ -97,7 +97,8 @@ async function runPath({ student, fn, path: scripted, inputs, memory, service, a
       // a smaller code step: the question was built from what the agent picked, so the value is filled in now, from the question really asked
       const open = memory.store.get(started.interviewId).meta.a2Log[index].path.slice(-1)[0];
       if (!open || open.type !== 'smallStep' || open.studentAnswer !== null || open.skipped) { mismatches.push(`step ${i + 1}: expected a smaller code step to answer (intent ${st.intent}), but none is open`); break; }
-      typed = fillIntent(st.intent, open);
+      if (st.expectValue && typedValue(open.expected) !== st.expectValue) mismatches.push(`step ${i + 1}: the smaller step asked about ${open.variable} (${open.expression}) at stop ${open.stop} whose true value is ${open.expected}, not "${st.expectValue}"`);
+      typed = st.intent === 'named-wrong' ? `${open.expression} is ${typedValue(open.expected)}x` : fillIntent(st.intent, open);
       intentNote = ` [intent ${st.intent}: ${open.variable} (${open.expression}) at stop ${open.stop}, true value ${open.expected}]`;
     }
     const row = { n: i + 1, asked: currentText, typed: `${typed}${intentNote}`, expected: WORD[st.expected] || st.expected, expectedCase: st.case || null };
@@ -109,7 +110,8 @@ async function runPath({ student, fn, path: scripted, inputs, memory, service, a
     const entry = memory.store.get(started.interviewId).meta.a2Log[index];
     const answered = entry.path.filter((p) => p.studentAnswer !== null)[i];
     row.actual = answered ? answered.result : '(not recorded)';
-    row.method = answered ? answered.method : '';
+    row.method = answered ? `${answered.method}${answered.decidedBy ? ` (${answered.decidedBy})` : ''}` : '';
+    if (st.expectMethod && (!answered || answered.method !== st.expectMethod || answered.modelUsed)) mismatches.push(`step ${i + 1}: expected the answer to be decided by ${st.expectMethod} without the model, got ${answered ? `${answered.method}${answered.modelUsed ? ' with a model call' : ''}` : 'nothing recorded'}`);
     row.quote = answered && answered.quote ? answered.quote : '';
     row.actualCase = entry.case;
     if (row.actual !== row.expected) mismatches.push(`step ${i + 1} ("${String(typed).slice(0, 60)}"): expected check ${row.expected}, got ${row.actual}`);
@@ -184,7 +186,14 @@ async function main() {
     return results;
   };
 
-  const fake = fakeModel();
+  // the fake writer follows the real writer's rule: the first variable, at the first stop whose value is not the same as at stop 1
+  const writeAtChange = ({ message }) => {
+    const first = /^- (.*?): (.*)$/m.exec(message);
+    const stops = [...message.matchAll(/^Stop (\d+): (.*)$/gm)].map((m) => ({ n: Number(m[1]), text: m[2] }));
+    const changed = stops.find((st) => st.text !== (stops[0] || {}).text);
+    return { variable: first[1], stop: changed ? changed.n : 1 };
+  };
+  const fake = fakeModel({ write: writeAtChange });
   const dry = await run(fake);
   const calls = fake.kinds;
   const total = calls.check + calls.judge + calls.write;
