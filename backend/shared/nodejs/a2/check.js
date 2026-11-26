@@ -2,15 +2,19 @@
  * The simple correct / wrong check of an A2 interview answer. Verdicts: 'correct', 'wrong', 'unclear' (unclear counts as wrong for the
  * follow-up choice). Nothing here logs answers, code or model replies.
  *
- *   predict and tracing   first a plain comparison of the student's answer with the code's answer (spacing, brackets, quotes, commas
- *                         against spaces and a few filler words are ignored). A clear match is correct; an answer made only of values
- *                         that does not match is wrong. Anything else (words around the value, a hedge) is asked of the checker model:
- *                         "Does this answer give the value X? yes / no / unclear", with the quote it relies on.
- *   compile error, logic  the checker model judges the answer against the answer key.
+ *   value answers         (predict, tracing, what-if, the logic questions and the smaller steps: a number, a string or a list) first a
+ *                         plain comparison of the student's answer with the key (spacing, brackets, quotes, commas against spaces,
+ *                         a short lead and trailing explanation are ignored). A clear match is correct; a clear different value is
+ *                         wrong. When that cannot decide, the model only READS the answer and reports the final value the student
+ *                         gave (extract.v1; it never sees the key); the code validates the reading and compares it with the key. The model
+ *                         never decides right or wrong for a value.
+ *   compile error         the checker model judges the answer against the answer key.
  *
  * A model verdict of yes or no counts only with a quote that is really in the student's answer; otherwise (and when the model is not
  * available or does not reply in the format) it is 'unclear'. The student's answer reaches the model only as delimited data.
  */
+const fs = require('fs');
+const path = require('path');
 const { squash } = require('../agent/rubric-check');
 
 const VERDICT = Object.freeze({ CORRECT: 'correct', WRONG: 'wrong', UNCLEAR: 'unclear', PARTLY: 'partly' });
@@ -198,7 +202,6 @@ function buildMessage({ question, ask, answer }) {
 
 /** What the model is asked for each kind of question. `lines` are the student's code at the compiler's line and the one before it. */
 function askFor({ kind, key, lines = [], line = null }) {
-  if (kind === 'value') return `Check: does this answer give the value ${key}? (Ignore spacing, brackets, quotes and whether commas or spaces separate the values.)${String(key).includes('""') ? ' An empty string is a piece of its own: ["", "a"] is not the same as ["a"].' : ''}`;
   if (kind === 'compileError') {
     return [
       `The compiler reports this on line ${line}: ${key}`,
@@ -207,7 +210,6 @@ function askFor({ kind, key, lines = [], line = null }) {
       'Check: does this answer name the mistake the compiler message describes (on that line or the line just before)? A fix is not required for "yes"; a wrong diagnosis is "no".',
     ].join('\n');
   }
-  if (kind === 'logic') return `Check: the correct result for the input is ${key}. Does the student's walk-through arrive at this result (the steps may be in their own words)?`;
   return `Answer key: ${key}\nCheck: does this answer give the idea in the answer key (in the student's own words)?`;
 }
 
@@ -258,6 +260,168 @@ async function askModel({ converseFn, modelId, question, ask, answer, system = C
   return { verdict: VERDICT.UNCLEAR, quote: '', usage, note };
 }
 
+// --- the extraction of a value answer -------------------------------------------------------------------------------------------------
+// For every answer that is a value (a number, a string, a list), the model never decides right or wrong. When the plain comparison cannot
+// decide, the model only READS the answer and reports the final value the student gave; this code validates that reading and compares it with
+// the key, exactly. The model gets the question, the answer and the TYPE of the value; never the key, the code's output or the student's code.
+
+const EXTRACT_PROMPT_VERSION = 'extract.v1';
+const EXTRACT_SYSTEM = fs.readFileSync(path.join(__dirname, '..', 'agent', 'prompts', 'extract.v1.md'), 'utf8').trim();
+const EXTRACT_MAX_TOKENS = 300;
+
+/** The shape of the key: what kind of value the student is expected to give (only the type is told to the model, never the key). */
+function expectedShape(kind, expected) {
+  const text = String(expected === null || expected === undefined ? '' : expected).trim();
+  if (kind === 'tracing') return { shape: 'any', label: 'one value per variable asked about (a number or a string each), as a list in the order asked' };
+  if (/^-?\d+$/.test(text)) return { shape: 'integer', label: 'integer' };
+  if (/^-?\d+(\.\d+)?$/.test(text)) return { shape: 'number', label: 'number' };
+  const items = quotedItems(text);
+  if (items) return items.length === 1 ? { shape: 'string', label: 'single string (it may be the empty string)' } : { shape: 'strings', label: 'list of strings (empty strings are pieces too)' };
+  const inner = text.replace(/^\[|\]$/g, '').trim();
+  if (text.startsWith('[') || inner.includes(',')) {
+    const parts = inner.split(',').map((part) => part.trim()).filter(Boolean);
+    if (parts.length > 0 && parts.every((part) => /^-?\d+$/.test(part))) return { shape: 'integers', label: 'list of integers' };
+    if (parts.length === 0) return { shape: 'list', label: 'list' };
+    return { shape: 'strings', label: 'list of strings' };
+  }
+  return { shape: 'any', label: 'single value (a number or a string)' };
+}
+
+const UNIT_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const TEN_WORDS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+/** The spellings of a whole number 0 to 99 in words ("twenty-one" and "twenty one"). */
+function numberWords(n) {
+  if (!Number.isInteger(n) || n < 0 || n > 99) return [];
+  if (n < 20) return [UNIT_WORDS[n]];
+  const tens = TEN_WORDS[Math.floor(n / 10)];
+  return n % 10 === 0 ? [tens] : [`${tens}-${UNIT_WORDS[n % 10]}`, `${tens} ${UNIT_WORDS[n % 10]}`];
+}
+
+/** Is the number in the quote, as digits or as a number word? */
+function numberInQuote(n, quote) {
+  const abs = Math.abs(n);
+  const digits = new RegExp(`(^|[^\\d.])${escapeRe(String(abs))}($|[^\\d]|\\.(?!\\d))`).test(quote);
+  const words = numberWords(abs).some((word) => new RegExp(`\\b${escapeRe(word)}\\b`).test(quote));
+  if (!digits && !words) return false;
+  return n >= 0 || /-|\bminus\b|\bnegative\b/.test(quote);
+}
+
+const leaves = (value) => (Array.isArray(value) ? value.flatMap(leaves) : [value]);
+
+/**
+ * The checks of an extracted reading (a reply of the model). Returns the reason to reject it, or null when it stands. The value is not
+ * compared with the key here; this only asks whether the reading is really in the student's answer.
+ */
+function validateExtraction({ value, quote }, answer, shape) {
+  const said = squash(answer);
+  const q = typeof quote === 'string' ? squash(quote) : '';
+  if (!q) return 'the quote is empty';
+  if (!said.includes(q)) return 'the quote is not in the answer, word for word';
+  const parts = leaves(value);
+  const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
+  const isStr = (v) => typeof v === 'string';
+  const typeOk = {
+    integer: () => isInt(value),
+    number: () => typeof value === 'number' && Number.isFinite(value),
+    string: () => isStr(value),
+    strings: () => Array.isArray(value) && value.every(isStr),
+    integers: () => Array.isArray(value) && value.every(isInt),
+    list: () => Array.isArray(value) && value.every((v) => isStr(v) || isInt(v)),
+    any: () => parts.length > 0 && parts.every((v) => (typeof v === 'number' && Number.isFinite(v)) || isStr(v)),
+  }[shape] || (() => true);
+  if (!typeOk()) return `the value is not of the expected type (${shape})`;
+  for (const part of parts) {
+    if (typeof part === 'number') {
+      if (!numberInQuote(part, q)) return `the number ${part} is not in the quote`;
+    } else if (part === '') {
+      if (!/""|\bempty\b|\bnothing\b|\bblank\b/.test(q)) return 'an empty piece is not in the quote (no "" and no word empty, nothing or blank)';
+    } else if (!q.includes(squash(part))) {
+      return `the piece "${part}" is not in the quote`;
+    }
+  }
+  return null;
+}
+
+function buildExtractMessage({ question, label, answer }) {
+  return [
+    `Question the student was asked: ${question}`,
+    `Expected type of the final value: ${label}`,
+    '<student_answer>',
+    neutralise(answer),
+    '</student_answer>',
+    'Reply with the JSON object only.',
+  ].join('\n');
+}
+
+/**
+ * One extraction (one retry with the reason when the reading is rejected or not in the format).
+ * @returns {Promise<{ status: 'ok'|'null'|'rejected'|'error', value?: any, quote?: string, reason?: string, usage: object }>}
+ */
+async function extractValue({ converseFn, modelId, question, answer, kind, expected }) {
+  const { shape, label } = expectedShape(kind, expected);
+  const usage = { inputTokens: 0, outputTokens: 0, latencyMs: 0 };
+  const messages = [{ role: 'user', content: [{ text: buildExtractMessage({ question, label, answer }) }] }];
+  let reason = 'no reply';
+  let format = true;
+  try {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const result = await converseFn({ system: EXTRACT_SYSTEM, messages, modelId, temperature: 0, maxTokens: EXTRACT_MAX_TOKENS });
+      usage.inputTokens += result.inputTokens || 0;
+      usage.outputTokens += result.outputTokens || 0;
+      usage.latencyMs += result.latencyMs || 0;
+      const parsed = parseReply(result.text);
+      if (!parsed || !Object.prototype.hasOwnProperty.call(parsed, 'value')) {
+        format = true;
+        reason = 'the reply was not a JSON object with "value" and "quote"';
+      } else if (parsed.value === null) {
+        return { status: 'null', value: null, quote: typeof parsed.quote === 'string' ? parsed.quote.replace(/\s+/g, ' ').trim().slice(0, MAX_QUOTE) : '', usage };
+      } else {
+        const quote = typeof parsed.quote === 'string' ? parsed.quote.replace(/\s+/g, ' ').trim().slice(0, MAX_QUOTE) : '';
+        const why = validateExtraction({ value: parsed.value, quote }, answer, shape);
+        if (!why) return { status: 'ok', value: parsed.value, quote, usage };
+        format = false;
+        reason = why;
+      }
+      messages.push({ role: 'assistant', content: [{ text: String(result.text) }] }, { role: 'user', content: [{ text: `Your reply was rejected: ${reason}. Reply with the JSON object only.` }] });
+    }
+  } catch (error) {
+    return { status: 'error', reason: error && error.name === 'ModelUnavailableError' ? 'the checker model was not available' : `the model call failed (${(error && error.name) || 'error'})`, usage };
+  }
+  return { status: format ? 'error' : 'rejected', reason, usage };
+}
+
+/** The extracted value written the way an answer is typed, so that the plain comparison can read it: 7, "a", "", "a", [3, 5, 8]. */
+function valueText(value) {
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'string') return `"${value}"`;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]';
+    const texts = value.map(valueText);
+    return value.every((v) => typeof v === 'number') ? `[${texts.join(', ')}]` : texts.join(', ');
+  }
+  return String(value);
+}
+
+/**
+ * A value answer that compare could not decide: the model reads it, the code decides. Never right or wrong by the model's word: a null value,
+ * a rejected reading and a model failure are all 'unclear'.
+ */
+async function decideByExtraction({ kind, expected, question, answer, converseFn, modelId }) {
+  const got = await extractValue({ converseFn, modelId, question, answer, kind, expected });
+  const base = { method: 'model', modelUsed: true, usage: got.usage };
+  const record = (value, quote) => ({ value, quote: quote || '', promptVersion: EXTRACT_PROMPT_VERSION, modelId, inputTokens: got.usage.inputTokens, outputTokens: got.usage.outputTokens, latencyMs: got.usage.latencyMs });
+  if (got.status === 'error') return { ...base, verdict: VERDICT.UNCLEAR, decidedBy: 'extraction-error', systemError: true, note: got.reason, extraction: record(null, '') };
+  if (got.status === 'rejected') return { ...base, verdict: VERDICT.UNCLEAR, decidedBy: 'extraction-rejected', note: got.reason, extraction: record(null, '') };
+  if (got.status === 'null') return { ...base, verdict: VERDICT.UNCLEAR, decidedBy: 'extracted', note: 'the answer has no single clear final value', extraction: record(null, got.quote) };
+  // The code compares the extracted value with the key, exactly.
+  const text = valueText(got.value);
+  const compared = compareDecision({ kind, expected, answer: text });
+  const verdict = compared.verdict === VERDICT.CORRECT || compared.verdict === VERDICT.WRONG
+    ? compared.verdict
+    : (sameList(tokensOf(text), tokensOf(expected)) ? VERDICT.CORRECT : VERDICT.WRONG);
+  return { ...base, verdict, quote: got.quote, decidedBy: 'extracted', extraction: record(got.value, got.quote) };
+}
+
 /**
  * The check of one answer. `q` is the plan question; `truth` the code's answer (predict and tracing).
  * @param {{ q: object, truth: string|null, answer: string, converseFn: Function, modelId: string, code?: string }} input
@@ -271,8 +435,7 @@ async function checkMainAnswer({ q, truth, answer, converseFn, modelId, code = '
     }
     const plain = compareDecision({ kind: q.kind, expected: truth, answer });
     if (plain.verdict) return { verdict: plain.verdict, method: 'compare', decidedBy: plain.path, modelUsed: false };
-    const asked = await askModel({ converseFn, modelId, question: q.text, ask: askFor({ kind: 'value', key: truth }), answer });
-    return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
+    return decideByExtraction({ kind: q.kind, expected: truth, question: q.text, answer, converseFn, modelId });
   }
   if (q.kind === 'compileError' || q.kind === 'compileErrorOutside') {
     const codeLines = String(code || '').split('\n');
@@ -280,8 +443,11 @@ async function checkMainAnswer({ q, truth, answer, converseFn, modelId, code = '
     const asked = await askModel({ converseFn, modelId, question: q.text, ask: askFor({ kind: 'compileError', key: q.answerKey, lines: around, line: q.line }), answer });
     return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
   }
-  const asked = await askModel({ converseFn, modelId, question: q.text, ask: askFor({ kind: 'logic', key: q.answerKey }), answer });
-  return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
+  // a logic question whose key is a value: the answer is compared with it like any other value
+  if (q.answerKey === null || q.answerKey === undefined || q.answerKey === '') return { verdict: VERDICT.UNCLEAR, method: 'compare', note: 'there is no expected answer to compare with', modelUsed: false };
+  const plainLogic = compareDecision({ kind: 'predict', expected: q.answerKey, answer });
+  if (plainLogic.verdict) return { verdict: plainLogic.verdict, method: 'compare', decidedBy: plainLogic.path, modelUsed: false };
+  return decideByExtraction({ kind: 'predict', expected: q.answerKey, question: q.text, answer, converseFn, modelId });
 }
 
 /** The check of an answer to the instructor's fixed follow-up, against its answer key. */
@@ -307,8 +473,7 @@ async function checkValue({ kind = 'predict', expected, question, answer, conver
   }
   const plain = compareDecision({ kind, expected, answer, asked: askedAbout });
   if (plain.verdict) return { verdict: plain.verdict, method: 'compare', decidedBy: plain.path, modelUsed: false };
-  const asked = await askModel({ converseFn, modelId, question, ask: askFor({ kind: 'value', key: expected }), answer });
-  return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
+  return decideByExtraction({ kind, expected, question, answer, converseFn, modelId });
 }
 
 const JUDGE_SYSTEM = `You judge a student's short answer about a bug in their own C++ function. You do not teach, hint or talk about the interview.
@@ -368,4 +533,4 @@ async function judgeExplanation({ mode, question, code, input, theirOutput, spec
   return { verdict: asked.verdict, ...(asked.quote && { quote: asked.quote }), method: 'model', decidedBy: 'model', ...(asked.note && { note: asked.note }), modelUsed: true, usage: asked.usage };
 }
 
-module.exports = { VERDICT, givesNoValue, meansNoChange, normalize, compareValue, compareDecision, stripLead, quotedItems, expectedParts, checkMainAnswer, checkFixedFollowUp, checkValue, judgeExplanation, askModel, CHECK_SYSTEM, JUDGE_SYSTEM };
+module.exports = { VERDICT, givesNoValue, meansNoChange, normalize, compareValue, compareDecision, stripLead, quotedItems, expectedParts, checkMainAnswer, checkFixedFollowUp, checkValue, judgeExplanation, askModel, extractValue, validateExtraction, expectedShape, EXTRACT_SYSTEM, EXTRACT_PROMPT_VERSION, CHECK_SYSTEM, JUDGE_SYSTEM };

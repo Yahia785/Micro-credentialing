@@ -679,9 +679,10 @@ describe('answers that explain around quoted pieces: the last list is the answer
     const model = fakeModel();
     const r = await checkValue({ kind: 'predict', expected: exp2, question: 'q', answer: 'empty, a, empty, b', converseFn: model, modelId: 'm' });
     expect(r.method).toBe('model');
-    expect(r.decidedBy).toBe('model');
+    expect(r.decidedBy).toBe('extracted');
     expect(r.modelUsed).toBe(true);
-    expect(model.kinds.check).toBeGreaterThan(0);
+    expect(model.kinds.extract).toBe(1);
+    expect(model.kinds.check).toBe(0);
   });
   test('"current is ax" is wrong without a model call, and the path is logged', async () => {
     const model = fakeModel();
@@ -691,9 +692,150 @@ describe('answers that explain around quoted pieces: the last list is the answer
     const live = await checkValue({ kind: 'predict', expected: exp1, question: 'q', answer: 'hmm an empty string first and then "a"? so "", "a"', converseFn: model, modelId: 'm' });
     expect(live).toMatchObject({ verdict: 'correct', method: 'compare', decidedBy: 'final-list', modelUsed: false });
   });
+  test("the model gets the student's original answer, word for word, never the lead-stripped text", async () => {
+    const original = 'It returns 1, the house wins on the 7';
+    const wrapped = (text) => ['<student_answer>', text, '</student_answer>'].join(String.fromCharCode(10));
+    const model = fakeModel();
+    const r = await checkValue({ kind: 'predict', expected: '1', question: 'q', answer: original, converseFn: model, modelId: 'm' });
+    expect(r.method).toBe('model');
+    expect(model.requests).toHaveLength(1);
+    expect(model.requests[0].messages[0].content[0].text).toContain(wrapped(original));
+    expect(model.requests[0].messages[0].content[0].text).not.toContain(wrapped('1, the house wins on the 7'));
+    const named = await checkValue({ kind: 'predict', expected: '"a"', question: 'q', answer: 'current is a letter that gets added to the list', converseFn: model, modelId: 'm', asked: ['current'] });
+    expect(named.method).toBe('model');
+    expect(model.requests[1].messages[0].content[0].text).toContain(wrapped('current is a letter that gets added to the list'));
+  });
   test('a hedged answer is unclear exactly as before; one with a value in it still goes to the model', () => {
     expect(compareValue({ kind: 'predict', expected: '2', answer: 'it depends on the loop' })).toBe('unclear');
     expect(compareValue({ kind: 'predict', expected: exp1, answer: 'hmm not sure about the empty ones' })).toBe('unclear');
     expect(compareValue({ kind: 'predict', expected: '2', answer: 'maybe 2?' })).toBeNull();
+  });
+});
+
+describe('value answers: the model reads, the code decides (extract.v1)', () => {
+  const { validateExtraction, EXTRACT_SYSTEM, EXTRACT_PROMPT_VERSION } = require('../a2/check');
+  const ask = (model, over) => checkValue({ kind: 'predict', expected: '1', question: 'What does playCraps return?', answer: 'It returns 1, the house wins on the 7', converseFn: model, modelId: 'm-test', ...over });
+  const reading = (value, quote) => ({ extract: () => ({ value, quote }) });
+
+  test('the reading 1 with the quote "It returns 1" is right, decided by extraction, with the reading stored on the step', async () => {
+    const model = fakeModel(reading(1, 'It returns 1'));
+    const r = await ask(model);
+    expect(r).toMatchObject({ verdict: 'correct', method: 'model', decidedBy: 'extracted', modelUsed: true, quote: 'It returns 1' });
+    expect(r.extraction).toMatchObject({ value: 1, quote: 'It returns 1', promptVersion: EXTRACT_PROMPT_VERSION, modelId: 'm-test', inputTokens: 12, outputTokens: 9 });
+    expect(model.kinds).toMatchObject({ extract: 1, check: 0, judge: 0 });
+    expect(model.requests[0].system).toBe(EXTRACT_SYSTEM);
+    expect(model.requests[0].temperature).toBe(0);
+  });
+
+  test('the same answer read as 7 is wrong: the code decides, not the model', async () => {
+    const r = await ask(fakeModel(reading(7, 'the 7')));
+    expect(r).toMatchObject({ verdict: 'wrong', decidedBy: 'extracted' });
+  });
+
+  test('a quote that is not in the answer is rejected, retried once with the reason, and a second bad reading is unclear (extraction-rejected)', async () => {
+    const model = fakeModel(reading(1, 'it gives one'));
+    const r = await ask(model);
+    expect(r).toMatchObject({ verdict: 'unclear', decidedBy: 'extraction-rejected' });
+    expect(r.note).toMatch(/quote is not in the answer/);
+    expect(model.kinds.extract).toBe(2);
+    expect(model.requests[1].messages[model.requests[1].messages.length - 1].content[0].text).toMatch(/rejected: the quote is not in the answer/);
+  });
+
+  test('a first bad reading and a good second one is accepted', async () => {
+    const model = fakeModel({ extract: ({ attempt }) => (attempt === 1 ? { value: 1, quote: 'not said' } : { value: 1, quote: 'It returns 1' }) });
+    expect(await ask(model)).toMatchObject({ verdict: 'correct', decidedBy: 'extracted' });
+    expect(model.kinds.extract).toBe(2);
+  });
+
+  test('a number that is not in the quote is rejected', async () => {
+    const r = await ask(fakeModel(reading(2, 'returns 1')));
+    expect(r).toMatchObject({ verdict: 'unclear', decidedBy: 'extraction-rejected' });
+    expect(r.note).toMatch(/number 2 is not in the quote/);
+    expect(validateExtraction({ value: 2, quote: 'two' }, 'it returns two', 'integer')).toBeNull();
+    expect(validateExtraction({ value: 21, quote: 'twenty-one' }, 'it returns twenty-one', 'integer')).toBeNull();
+    expect(validateExtraction({ value: 1, quote: 'returns 12' }, 'it returns 12', 'integer')).toMatch(/not in the quote/);
+    expect(validateExtraction({ value: 1.5, quote: 'returns 1' }, 'it returns 1', 'integer')).toMatch(/expected type/);
+    expect(validateExtraction({ value: 'x', quote: 'returns 1' }, 'it returns 1', 'integer')).toMatch(/expected type/);
+  });
+
+  test('a number written in words is read and compared', async () => {
+    expect(await ask(fakeModel(reading(2, 'it returns two')), { expected: '2', answer: 'well it returns two in the end' })).toMatchObject({ verdict: 'correct', decidedBy: 'extracted' });
+  });
+
+  test('"empty, a, empty, b" read as the four pieces is right; an empty piece needs "" or the word empty/nothing/blank in the quote', async () => {
+    const list = { expected: '"", "a", "", "b"', answer: 'empty, a, empty, b' };
+    const r = await ask(fakeModel(reading(['', 'a', '', 'b'], 'empty, a, empty, b')), list);
+    expect(r).toMatchObject({ verdict: 'correct', decidedBy: 'extracted' });
+    expect(await ask(fakeModel(reading(['a', 'b'], 'empty, a, empty, b')), list)).toMatchObject({ verdict: 'wrong', decidedBy: 'extracted' });
+    expect(validateExtraction({ value: ['', 'a'], quote: 'then a' }, 'first one then a', 'strings')).toMatch(/empty piece/);
+    expect(validateExtraction({ value: ['', 'a'], quote: 'blank then a' }, 'blank then a', 'strings')).toBeNull();
+    expect(validateExtraction({ value: ['', 'a'], quote: '"", a' }, '"", a', 'strings')).toBeNull();
+    expect(validateExtraction({ value: ['z'], quote: 'a and b' }, 'a and b', 'strings')).toMatch(/piece "z"/);
+  });
+
+  test('a null reading is unclear, never right or wrong', async () => {
+    const r = await ask(fakeModel(reading(null, '')));
+    expect(r).toMatchObject({ verdict: 'unclear', decidedBy: 'extracted' });
+    expect(r.extraction.value).toBeNull();
+  });
+
+  test('a reply that is not JSON twice, or a model that fails, is unclear and a system error', async () => {
+    const bad = await ask(fakeModel({ extract: () => 'I think it is 1' }));
+    expect(bad).toMatchObject({ verdict: 'unclear', decidedBy: 'extraction-error', systemError: true });
+    const down = await ask(async () => { const e = new Error('down'); e.name = 'ModelUnavailableError'; throw e; });
+    expect(down).toMatchObject({ verdict: 'unclear', decidedBy: 'extraction-error', systemError: true });
+  });
+
+  test('the request holds the question, the answer and the type, and never the key', async () => {
+    const answer = 'well it gives back the number after doing all the work';
+    const number = fakeModel();
+    await checkValue({ kind: 'predict', expected: '42', question: 'What does f return for the input 5?', answer, converseFn: number, modelId: 'm' });
+    const list = fakeModel();
+    await checkValue({ kind: 'predict', expected: '"", "q", "", "z"', question: 'What does g return for the text in the question?', answer, converseFn: list, modelId: 'm' });
+    for (const [model, keys] of [[number, ['42']], [list, ['"q"', '"z"', '"", "q"']]]) {
+      expect(model.requests).toHaveLength(1);
+      const sent = JSON.stringify(model.requests[0]);
+      for (const key of keys) expect(sent).not.toContain(key);
+      expect(sent).toContain(answer);
+      expect(model.requests[0].messages[0].content[0].text).toMatch(/Expected type of the final value: (integer|list of strings)/);
+    }
+  });
+
+  test('a clear answer never reaches the model, a hedge neither', async () => {
+    const model = fakeModel();
+    expect((await ask(model, { answer: 'so 1' })).decidedBy).toBe('plain');
+    expect((await ask(model, { answer: 'it depends on the loop' })).verdict).toBe('unclear');
+    expect(model.requests).toHaveLength(0);
+  });
+
+  test('the case 2 judge keeps its own prompt and rules', async () => {
+    expect(JUDGE_SYSTEM).toContain('"why" answer');
+    expect(EXTRACT_SYSTEM).not.toContain('"why"');
+  });
+});
+
+describe('the line about quotes under string answers', () => {
+  const LINE = 'Write each piece in double quotes, for example "x", "y". Write an empty piece as "".';
+  const withLine = { ...formAPlan(), valueHint: LINE };
+  const split = { function: 'splitString', text: 'What does splitString return?', answerKey: '"", "a", "", "b"', kind: 'logic' };
+  test('questions.json holds the line and the plan builder copies it', () => {
+    expect(require('../../../scripts/eval/a2/questions.json').valueHint).toBe(LINE);
+    expect(require('fs').readFileSync(require('path').join(__dirname, '../../../scripts/a2-import/lib/plan-build.js'), 'utf8')).toContain('questions.valueHint');
+  });
+  test('string and list-of-strings answers get the line under the question, the text is unchanged; numbers do not', () => {
+    const { hintFor, shownWith, mainStep, shownMain } = planConfig;
+    expect(hintFor(withLine, { expected: '"", "a"', fn: 'splitString', type: 'predict' })).toBe(LINE);
+    expect(hintFor(withLine, { expected: '"a"', fn: 'splitString', type: 'smallLogic' })).toBe(LINE);
+    expect(hintFor(withLine, { expected: '[]', fn: 'splitString', type: 'whatIf' })).toBe(LINE);
+    expect(hintFor(withLine, { expected: '[]', fn: 'reverseList', type: 'whatIf' })).toBeNull();
+    expect(hintFor(withLine, { expected: '3', fn: 'reverseList', type: 'predict' })).toBeNull();
+    expect(hintFor(withLine, { expected: 'the cause is "x"', fn: 'splitString', type: 'debug' })).toBeNull();
+    expect(hintFor(formAPlan(), { expected: '"a"', fn: 'splitString', type: 'predict' })).toBeNull(); // an older plan: no line
+    expect(shownWith('Q?', LINE)).toBe(`Q?\n${LINE}`);
+    const step = mainStep(split, withLine);
+    expect(step.text).toBe(split.text);
+    expect(step.hint).toBe(LINE);
+    expect(shownMain(withLine, split)).toBe(`${split.text}\n${LINE}`);
+    expect(mainStep(split, formAPlan()).hint).toBeUndefined();
   });
 });

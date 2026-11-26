@@ -6,6 +6,7 @@
  * never goes into an interview record, a log line or a model request.
  */
 const { ValidationError } = require('../utils/errors');
+const { expectedShape } = require('./check');
 
 const SOURCE = 'a2-pilot';
 const PROMPT_VERSION = 'host.a2';
@@ -42,21 +43,42 @@ function buildConfig(assessmentInterview, plan) {
     timeLimitMinutes: (assessmentInterview && assessmentInterview.timeLimitMinutes) || 20,
     maxFollowUpsPerMainQuestion: 2,
     promptVersion: PROMPT_VERSION,
-    themes: [{ id: THEME_ID, title: THEME_TITLE, mainQuestions: askable(plan).map((q) => q.text.trim()), criteria: [] }],
+    themes: [{ id: THEME_ID, title: THEME_TITLE, mainQuestions: askable(plan).map((q) => shownMain(plan, q)), criteria: [] }],
   };
 }
 
 /** What the log says about the kind of a question: 'logic' (with or without follow-ups) or 'compile'. */
 const isCompile = (q) => q.kind === 'compileError' || q.kind === 'compileErrorOutside';
 
-/** The first step of a function's path: the main question as the plan has it. */
-function mainStep(q) {
+/**
+ * The line shown under a question whose answer is a string or a list of strings (how to write the pieces). The question text itself never
+ * changes. null for any other answer, and for a plan without the line (a plan from before it was added).
+ */
+function hintFor(plan, { expected, fn, type }) {
+  if (!plan || !plan.valueHint || expected === null || expected === undefined || expected === '') return null;
+  if (type === 'debug' || type === 'change' || type === 'compileError' || type === 'compileErrorOutside') return null;
+  const text = String(expected);
+  const { shape } = expectedShape('predict', text);
+  const stringy = shape === 'string' || shape === 'strings' || (shape === 'list' && fn === 'splitString') || (type === 'tracing' && text.includes('"'));
+  return stringy ? plan.valueHint : null;
+}
+
+/** The question as the student sees it: the text, then the line (when there is one) under it. */
+const shownWith = (text, hint) => (hint ? `${String(text).trim()}\n${hint}` : String(text).trim());
+
+/** The first step of a function's path: the main question as the plan has it (and the line shown under it, when it has one). */
+function mainStep(q, plan = null) {
   const compile = isCompile(q);
+  const hint = compile ? null : hintFor(plan, { expected: q.answerKey, fn: q.function, type: 'logic' });
   return {
     step: 'main', kind: compile ? 'compile' : 'logic', type: compile ? q.kind : 'logic', text: q.text,
+    ...(hint ? { hint } : {}),
     expected: q.answerKey, expectedSource: compile ? 'compiler' : 'spec', studentAnswer: null, result: null,
   };
 }
+
+/** The main question as shown to the student. */
+const shownMain = (plan, q) => shownWith(q.text, isCompile(q) ? null : hintFor(plan, { expected: q.answerKey, fn: q.function, type: 'logic' }));
 
 /**
  * What is logged for every function (C8): its case, the path (each question asked with its kind, expected answer and its source, the
@@ -73,11 +95,11 @@ function initialLog(plan) {
     logicRight: null,
     case: null,
     clarified: false,
-    path: i === 0 ? [mainStep(q)] : [],
+    path: i === 0 ? [mainStep(q, plan)] : [],
     truth: {},
     label: null,
     done: false,
   }));
 }
 
-module.exports = { stripPlan, askable, planOf, buildConfig, initialLog, mainStep, isCompile, SOURCE, PROMPT_VERSION, THEME_ID, PLAN_VERSION };
+module.exports = { stripPlan, askable, planOf, buildConfig, initialLog, mainStep, shownMain, shownWith, hintFor, isCompile, SOURCE, PROMPT_VERSION, THEME_ID, PLAN_VERSION };

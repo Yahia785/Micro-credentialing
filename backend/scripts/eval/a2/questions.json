@@ -348,6 +348,7 @@
     }
   },
   "clarify": "Can you give the exact result?",
+  "valueHint": "Write each piece in double quotes, for example \"x\", \"y\". Write an empty piece as \"\".",
   "caseTemplates": {
     "debug": "Your {function} returns {output} for {input}. Why does it give that instead of {spec}?",
     "change": "Which line would you change, and how?",

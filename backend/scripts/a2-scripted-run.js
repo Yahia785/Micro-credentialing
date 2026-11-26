@@ -7,7 +7,7 @@
 //   GXX=... node scripts/a2-scripted-run.js --real-model            prints how many model calls it will make and stops
 //   GXX=... node scripts/a2-scripted-run.js --real-model --yes      runs them through Bedrock (your AWS credentials; costs money)
 //
-// Options: --user fakeuser03 (only this student)  --function reverseList (only this function)  --base D:/a2-pilot-test
+// Options: --only fakeuser09/playCraps/1,... (path ids)  --repeat 3 (each chosen path N times, one fresh interview each)  --user fakeuser03 (only this student)  --function reverseList (only this function)  --base D:/a2-pilot-test
 //
 // Each scripted path is one function of one student: a fresh interview is started for the student, positioned at that function (the earlier
 // functions are not answered), and the typed answers are sent one by one. After each answer the engine's check result, case and next question
@@ -23,6 +23,8 @@ const opt = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? 
 const BASE = opt('--base', 'D:/a2-pilot-test');
 const USER = opt('--user', null);
 const FUNCTION = opt('--function', null);
+const ONLY = opt('--only', null) ? opt('--only', '').split(',').map((id) => id.trim()).filter(Boolean) : null;
+const REPEAT = Math.max(1, Number.parseInt(opt('--repeat', '1'), 10) || 1);
 const REAL = flag('--real-model');
 if (REAL === flag('--fake-model')) { console.error('Choose exactly one of --fake-model and --real-model.'); process.exit(2); }
 
@@ -172,10 +174,14 @@ async function main() {
     if (USER && s.student !== USER) continue;
     for (const fn of s.functions) {
       if (FUNCTION && fn.function !== FUNCTION) continue;
-      for (const p of fn.paths) jobs.push({ student: s.student, fn, path: p });
+      for (const p of fn.paths) {
+        if (ONLY && !ONLY.includes(p.id)) continue;
+        for (let n = 1; n <= REPEAT; n += 1) jobs.push({ student: s.student, fn, path: REPEAT > 1 ? { ...p, id: `${p.id} (run ${n} of ${REPEAT})` } : p });
+      }
     }
   }
 
+  if (ONLY) { const known = new Set(scripted.students.flatMap((st) => st.functions.flatMap((fn) => fn.paths.map((p) => p.id)))); const unknown = ONLY.filter((id) => !known.has(id)); if (unknown.length) throw new Error(`--only: no such path: ${unknown.join(', ')}`); }
   const run = async (converseFn) => {
     const results = [];
     for (const job of jobs) {
@@ -196,9 +202,9 @@ async function main() {
   const fake = fakeModel({ write: writeAtChange });
   const dry = await run(fake);
   const calls = fake.kinds;
-  const total = calls.check + calls.judge + calls.write;
+  const total = calls.check + calls.extract + calls.judge + calls.write;
   if (REAL) {
-    console.log(`The scripted run needs about ${total} model calls (checker ${calls.check}, judge of case 2 ${calls.judge}, writer of the smaller step ${calls.write}), plus a retry now and then. They go to Bedrock with your AWS credentials.`);
+    console.log(`The scripted run needs about ${total} model calls (reader of value answers ${calls.extract}, checker of compile errors and fixed follow-ups ${calls.check}, judge of case 2 ${calls.judge}, writer of the smaller step ${calls.write}), plus a retry now and then. They go to Bedrock with your AWS credentials.`);
     if (!flag('--yes')) { console.log('Not run. Add --yes to run them.'); return; }
   }
   let results = dry;
@@ -213,6 +219,8 @@ async function main() {
   const out = `${BASE}/scripted/results.md`;
   fs.writeFileSync(out, render(results, meta));
   const bad = results.filter((r) => r.mismatches.length > 0);
+  const extracted = results.filter((r) => r.rows.some((row) => /extract/.test(row.method)));
+  console.log(`${extracted.length} paths had an answer read by the model (extraction): ${extracted.map((r) => r.id).join(', ') || 'none'}`);
   console.log(`${results.length} paths: ${results.length - bad.length} match, ${bad.length} do not. Written to ${out}`);
   bad.slice(0, 40).forEach((r) => r.mismatches.forEach((m) => console.log(`  ${r.id}: ${m}`)));
 }

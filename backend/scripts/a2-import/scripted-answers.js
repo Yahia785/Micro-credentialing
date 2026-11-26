@@ -19,6 +19,10 @@ const BASE = process.platform === 'win32' ? 'D:/a2-pilot-test' : path.join(os.tm
 const A2 = path.join(__dirname, '..', 'eval', 'a2');
 const git = require('./lib/git');
 const { caseTwoAnswers, compileAnswer } = require('./lib/right-answers');
+const planConfig = require('../../shared/nodejs/a2/plan-config');
+
+/** A question as the student sees it: the text and, for a string or list-of-strings answer, the line about quotes under it (when the plan has it). */
+const shown = (plan, text, expected, fn, type) => planConfig.shownWith(text, planConfig.hintFor(plan, { expected, fn, type }));
 
 /** The student's functions.cpp (from the dry-run records and the repos in BASE), or null when they are not there: the answers then fall back to generic text. */
 let outRecords = null;
@@ -51,7 +55,7 @@ const LOGIC = {
   },
   splitString: {
     right: (key) => [key, `It returns four pieces: empty, a, empty, b`, `[ ${key.replace(/", "/g, '" , "')} ]`],
-    wrong: () => ['"a", "b"', 'Just two pieces, a and b, because the empty ones are skipped', '"", "a", "b"'],
+    wrong: () => ['"a", "b"', 'Just two pieces, "a" and "b", because the empty ones are skipped', '"", "a", "b"'],
     unclear: ['A list with the letters in it, not sure about the empty ones', 'It splits it at the commas'],
   },
   playCraps: {
@@ -75,7 +79,7 @@ const LOGIC = {
 const D1_PATHS = [
   { user: 'fakeuser08', name: 'P1', logicRight: true, goodFollowUps: true, variant: 0, answer: 'the first comma gives an empty piece, then "a", then another empty one between the two commas, then "b". so "", "a", "", "b"', label: 'P1 explained main answer, last list right' },
   { user: 'fakeuser05', name: 'P2', logicRight: false, goodFollowUps: true, variant: 0, answer: 'first an empty one, then "a", then "b". so "", "a", "b"', label: 'P2 explained main answer, last list wrong' },
-  { user: 'fakeuser04', name: 'P3', logicRight: false, goodFollowUps: true, variant: 0, answer: 'Just two pieces, a and b, because the empty ones are skipped', lastStep: { intent: 'named-wrong', expected: 'wrong', expectMethod: 'compare', expectValue: 'a' }, label: 'P3 smaller step about current answered "current is ax", wrong by compare' },
+  { user: 'fakeuser04', name: 'P3', logicRight: false, goodFollowUps: true, variant: 0, answer: 'Just two pieces, "a" and "b", because the empty ones are skipped', lastStep: { intent: 'named-wrong', expected: 'wrong', expectMethod: 'compare', expectValue: 'a' }, label: 'P3 smaller step about current answered "current is ax", wrong by compare' },
 ];
 
 const bigger = (text) => {
@@ -122,15 +126,16 @@ const smallStep = (m, good) => ({
 const caseOf = (q, logicRight) => (q.codeRight === true ? (logicRight ? 1 : 3) : (logicRight ? 2 : 4));
 
 /** What is expected to be asked after the main answer, by case (the text exactly as the student would see it). */
-function nextAfterMain(q, c) {
+function nextAfterMain(q, c, plan) {
   const co = q.cases[`case${c}`];
   if (!co || !co.available) return { text: null, note: `case ${c} is not prepared for this student` };
   const f = co.followUp1;
-  return { text: f.text || null, note: f.unavailable ? `not available: ${f.unavailable}` : null, f };
+  return { text: f.text ? shown(plan, f.text, f.type === 'smallLogic' ? f.answerKey : f.answer, q.function, f.type) : null, note: f.unavailable ? `not available: ${f.unavailable}` : null, f };
 }
 
 /** The follow-up steps of one case, each with a right (`good`) or wrong answer. */
 function followUpSteps(q, c, good, variant, plan) {
+  const sh = (f, key) => shown(plan, f.text, key, q.function, f.type);
   const co = q.cases[`case${c}`];
   const steps = [];
   const f1 = co.followUp1;
@@ -146,8 +151,8 @@ function followUpSteps(q, c, good, variant, plan) {
   };
 
   if (c === 1) {
-    if (f1 && f1.text) steps.push({ asks: f1.text, kind: f1.type, answer: good ? pick(f1.answer) : wrongCode(f1.answer), expected: good ? 'correct' : 'wrong', answerType: 'code', key: f1.answer });
-    if (f2 && f2.text) steps.push({ asks: f2.text, kind: f2.type, answer: good ? pick(f2.answer) : (f2.type === 'whatIf' ? 'It would stay the same' : wrongCode(f2.answer)), expected: good ? 'correct' : 'wrong', answerType: 'code', key: f2.answer });
+    if (f1 && f1.text) steps.push({ asks: sh(f1, f1.answer), kind: f1.type, answer: good ? pick(f1.answer) : wrongCode(f1.answer), expected: good ? 'correct' : 'wrong', answerType: 'code', key: f1.answer });
+    if (f2 && f2.text) steps.push({ asks: sh(f2, f2.answer), kind: f2.type, answer: good ? pick(f2.answer) : (f2.type === 'whatIf' ? 'It would stay the same' : wrongCode(f2.answer)), expected: good ? 'correct' : 'wrong', answerType: 'code', key: f2.answer });
   } else if (c === 2) {
     const why = bugText(bug(f1));
     // the right answers name the real cause and the real line and change of THEIR code (lib/right-answers.js); the wrong ones are plainly wrong
@@ -155,11 +160,11 @@ function followUpSteps(q, c, good, variant, plan) {
     steps.push({ asks: f1.text, kind: 'debug', answer: good ? mine.why : 'I think the compiler or the test is wrong, my code looks fine', expected: good ? 'correct' : 'wrong', answerType: 'code', key: `explains why their code gives ${f1.theirOutput} (the bug${why ? `: ${why}` : ''})` });
     steps.push({ asks: f2.text, kind: 'change', answer: good ? mine.line : mine.wrongLine, expected: good ? 'correct' : 'wrong', answerType: 'code', key: good ? `a specific line of their function and the change (the bug is on line ${mine.lineNumber === null ? '?' : mine.lineNumber})` : 'a line that is not where the bug is' });
   } else if (c === 3) {
-    if (f1 && f1.text) steps.push({ asks: f1.text, kind: 'predict', answer: good ? pick(f1.answer) : wrongCode(f1.answer), expected: good ? 'correct' : 'wrong', answerType: 'code', key: f1.answer });
+    if (f1 && f1.text) steps.push({ asks: sh(f1, f1.answer), kind: 'predict', answer: good ? pick(f1.answer) : wrongCode(f1.answer), expected: good ? 'correct' : 'wrong', answerType: 'code', key: f1.answer });
     const m = f2.material;
     if (m && m.available) steps.push(smallStep(m, good));
   } else {
-    steps.push({ asks: f1.text, kind: 'smallLogic', answer: good ? LOGIC[q.function].right(f1.answerKey)[variant % 3] : wrongLogic(f1.answerKey, variant), expected: good ? 'correct' : 'wrong', answerType: 'logic', key: f1.answerKey });
+    steps.push({ asks: sh(f1, f1.answerKey), kind: 'smallLogic', answer: good ? LOGIC[q.function].right(f1.answerKey)[variant % 3] : wrongLogic(f1.answerKey, variant), expected: good ? 'correct' : 'wrong', answerType: 'logic', key: f1.answerKey });
     const m = f2.material;
     if (m && m.available) steps.push(smallStep(m, good));
   }
@@ -176,17 +181,17 @@ function pathsFor(plan, q, wanted) {
     const steps = [];
     if (kind === 'unclear') {
       const vague = L.unclear[variant % 2];
-      steps.push({ asks: q.text, answer: vague, expected: 'unclear', answerType: 'logic', key: q.answerKey, next: q.clarify, note: 'asked once, not counted as a follow-up' });
+      steps.push({ asks: shown(plan, q.text, q.answerKey, fn, 'logic'), answer: vague, expected: 'unclear', answerType: 'logic', key: q.answerKey, next: shown(plan, q.clarify, q.answerKey, fn, 'logic'), note: 'asked once, not counted as a follow-up' });
       const exact = logicRight ? L.right(q.answerKey)[variant % 3] : L.wrong()[variant % 3];
       const c = caseOf(q, logicRight);
-      steps.push({ asks: q.clarify, answer: exact, expected: logicRight ? 'correct' : 'wrong', answerType: 'logic', key: q.answerKey, case: c, next: nextAfterMain(q, c).text || nextAfterMain(q, c).note });
+      steps.push({ asks: shown(plan, q.clarify, q.answerKey, fn, 'logic'), answer: exact, expected: logicRight ? 'correct' : 'wrong', answerType: 'logic', key: q.answerKey, case: c, next: nextAfterMain(q, c, plan).text || nextAfterMain(q, c, plan).note });
       followUpSteps(q, c, goodFollowUps, variant, plan).forEach((s) => steps.push(s));
       out.push({ id, label: `unclear, then ${logicRight ? 'right' : 'wrong'}`, case: c, unclear: true, steps });
       return;
     }
     const c = caseOf(q, logicRight);
     const answer = fixed || (logicRight ? L.right(q.answerKey)[variant % 3] : L.wrong()[variant % 3]);
-    steps.push({ asks: q.text, answer, expected: logicRight ? 'correct' : 'wrong', answerType: 'logic', key: q.answerKey, case: c, next: nextAfterMain(q, c).text || nextAfterMain(q, c).note });
+    steps.push({ asks: shown(plan, q.text, q.answerKey, fn, 'logic'), answer, expected: logicRight ? 'correct' : 'wrong', answerType: 'logic', key: q.answerKey, case: c, next: nextAfterMain(q, c, plan).text || nextAfterMain(q, c, plan).note });
     followUpSteps(q, c, goodFollowUps, variant, plan).forEach((s) => steps.push(s));
     if (lastStep) Object.assign(steps[steps.length - 1], lastStep);
     out.push({ id, label: label || `logic ${logicRight ? 'right' : 'wrong'}, follow-ups ${goodFollowUps ? 'right' : 'wrong'}`, case: c, unclear: false, steps });
@@ -199,7 +204,7 @@ function simplePath(plan, q, right) {
   const id = `${plan.githubUsername}/${q.function}/compile`;
   if (q.kind === 'logic') {
     const L = LOGIC[q.function];
-    return { id, label: 'logic only, no follow-ups (no code to ask about)', case: null, unclear: false, steps: [{ asks: q.text, answer: right ? L.right(q.answerKey)[0] : L.wrong()[0], expected: right ? 'correct' : 'wrong', answerType: 'logic', key: q.answerKey, next: 'nothing: the interview moves to the next function' }] };
+    return { id, label: 'logic only, no follow-ups (no code to ask about)', case: null, unclear: false, steps: [{ asks: shown(plan, q.text, q.answerKey, q.function, 'logic'), answer: right ? L.right(q.answerKey)[0] : L.wrong()[0], expected: right ? 'correct' : 'wrong', answerType: 'logic', key: q.answerKey, next: 'nothing: the interview moves to the next function' }] };
   }
   return {
     id, label: `compile error, answer ${right ? 'right' : 'wrong'}, no follow-ups`, case: null, unclear: false,
@@ -234,7 +239,7 @@ function assign(plans) {
   // the D1 paths come last, so the earlier paths stay as they were (the load of a student decides who gets them)
   for (const spec of D1_PATHS) {
     const found = logicQs.find(({ plan, q }) => plan.githubUsername === spec.user && q.function === 'splitString');
-    if (!found) throw new Error(`${spec.name}: no splitString question for ${spec.user}`);
+    if (!found) continue; // the D1 students are the fake students of the pilot; other plan sets (the tests) do not have them
     if (!found.q.cases[`case${caseOf(found.q, spec.logicRight)}`].available) throw new Error(`${spec.name}: case ${caseOf(found.q, spec.logicRight)} is not prepared for ${spec.user}`);
     add(found.plan, found.q, { kind: 'main', ...spec });
   }

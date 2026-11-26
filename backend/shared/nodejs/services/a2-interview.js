@@ -126,7 +126,7 @@ function labelOf(entry) {
 
 /** What a check says, as it is written on a step of the path. */
 const written = (result) => ({
-  result: RESULT[result.verdict], method: result.method, ...(result.decidedBy && { decidedBy: result.decidedBy }), modelUsed: result.modelUsed === true,
+  result: RESULT[result.verdict], method: result.method, ...(result.decidedBy && { decidedBy: result.decidedBy }), ...(result.extraction && { extraction: result.extraction }), ...(result.systemError && { systemError: true }), modelUsed: result.modelUsed === true,
   ...(result.quote && { quote: result.quote }), ...(result.note && { note: result.note }),
 });
 
@@ -172,8 +172,11 @@ async function answerStep({ meta, turns, answer, code, converseFn = bedrock.conv
 
   const state = (over = {}) => ({ themeIndex: 0, mainIndex: index, followUpCount: Math.max(0, entry.path.length - 1), fallbackCount: meta.fallbackCount || 0, ...over });
   const askStep = (next, reason, hostFields = {}) => {
+    // a string or list-of-strings answer gets the line about quotes under the question; the step keeps its text and stores the line shown
+    const hint = planConfig.hintFor(plan, { expected: next.expected, fn: q.function, type: next.type });
+    if (hint) next.hint = hint;
     entry.path.push(next);
-    return { action: engine.ACTIONS.FOLLOW_UP, question: next.text, kind: 'follow_up', reason, log, usage, hostFields: { ...hostFields, ...(calls.length && { calls }) }, state: state({ followUpCount: entry.path.length - 1 }) };
+    return { action: engine.ACTIONS.FOLLOW_UP, question: planConfig.shownWith(next.text, hint), kind: 'follow_up', reason, log, usage, hostFields: { ...hostFields, ...(calls.length && { calls }) }, state: state({ followUpCount: entry.path.length - 1 }) };
   };
 
   /** The function is over: its label, then the next function's main question or the end. */
@@ -182,8 +185,8 @@ async function answerStep({ meta, turns, answer, code, converseFn = bedrock.conv
     entry.done = true;
     const next = index + 1;
     if (next < asked.length) {
-      log[next].path = [planConfig.mainStep(asked[next])];
-      return { action: engine.ACTIONS.NEXT_MAIN, question: asked[next].text.trim(), kind: 'main', reason: `${reason}; label: ${entry.label}`, log, usage, hostFields: {}, state: { themeIndex: 0, mainIndex: next, followUpCount: 0, fallbackCount: meta.fallbackCount || 0 } };
+      log[next].path = [planConfig.mainStep(asked[next], plan)];
+      return { action: engine.ACTIONS.NEXT_MAIN, question: planConfig.shownMain(plan, asked[next]), kind: 'main', reason: `${reason}; label: ${entry.label}`, log, usage, hostFields: {}, state: { themeIndex: 0, mainIndex: next, followUpCount: 0, fallbackCount: meta.fallbackCount || 0 } };
     }
     return { action: engine.ACTIONS.END, question: '', kind: null, reason: `${reason}; label: ${entry.label}; ended`, log, usage, hostFields: {}, state: state() };
   };
@@ -263,8 +266,8 @@ function positionAt(meta, index) {
   const asked = planConfig.askable(meta.a2Plan);
   meta.mainIndex = index;
   meta.followUpCount = 0;
-  meta.a2Log.forEach((entry, i) => { if (i >= index) entry.path = i === index ? [planConfig.mainStep(asked[i])] : []; });
-  return asked[index].text.trim();
+  meta.a2Log.forEach((entry, i) => { if (i >= index) entry.path = i === index ? [planConfig.mainStep(asked[i], meta.a2Plan)] : []; });
+  return planConfig.shownMain(meta.a2Plan, asked[index]);
 }
 
 module.exports = { isInterviewOnly, assertInterviewOnlyAssessment, newImportedInterview, answerStep, applyRuntime, mismatchCount, labelOf, routeCase, positionAt, CASE_MEANING, RESULT };

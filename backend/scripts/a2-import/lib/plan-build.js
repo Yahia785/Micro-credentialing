@@ -34,7 +34,7 @@ const MAX_WHATIF_INPUTS = 4;
 async function buildPlan({ record, code, studentHeader, form, assets, reference, docker, overrides = {} }) {
   const { questions, driver, officialHeader } = assets;
   const decided = decideSlots({ record, rotation: questions.rotation[form] });
-  const plan = { version: 3, importId: record.importId, githubUsername: record.githubUsername, form, status: record.status, notes: [...decided.notes], log: [], questions: [], referenceAnswers: {} };
+  const plan = { version: 3, importId: record.importId, githubUsername: record.githubUsername, form, status: record.status, notes: [...decided.notes], log: [], questions: [], referenceAnswers: {}, ...(questions.valueHint ? { valueHint: questions.valueHint } : {}) };
   if (decided.noPlan) { plan.noPlan = decided.noPlan; return plan; }
   const lines = String(code).split('\n');
   const lineText = (n) => (n && lines[n - 1] !== undefined ? lines[n - 1].trim() : null);

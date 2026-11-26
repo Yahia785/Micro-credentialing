@@ -25,6 +25,7 @@ function fakeRunBatch({ plain = {}, stops = {}, status = {}, changed = {}, chang
 const CHECKER_START = 'You check one short answer';
 const JUDGE_START = "You judge a student's short answer";
 const WRITER_START = 'You choose what ONE short';
+const EXTRACT_START = 'You read one short answer';
 const answerOf = (message) => (/<student_answer>\n([\s\S]*?)\n<\/student_answer>/.exec(message) || [])[1] || '';
 
 const HEDGE = /not sure|depends|maybe|\bor\b|somebody|at some point|splits it at|a few/i;
@@ -54,6 +55,59 @@ function defaultDecide(message, answer) {
   return squash(answer).includes(squash(target)) ? 'yes' : 'no';
 }
 
+const NUMBER_WORDS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+const CORRECTION = /\b(no wait|actually|sorry|i mean|scratch that)\b[\s,:-]*/gi;
+
+/**
+ * The stand-in reader (it is not a language model; it only reads, it never sees a key). It reports the final value the answer states, the way
+ * the real reader is told to: the part after a self-correction, a value after "returns" / "so" / "is" / "=", a list of quoted pieces, or the words
+ * empty / nothing / blank and single letters in order. It reports null for two different answers with no choice, a hedge, or no value.
+ * Returns { value, quote }.
+ */
+function defaultExtract(message) {
+  const answer = answerOf(message);
+  const type = (/^Expected type of the final value: (.*)$/m.exec(message) || [])[1] || '';
+  let text = answer;
+  const cuts = [...answer.matchAll(CORRECTION)];
+  if (cuts.length) { const last = cuts[cuts.length - 1]; text = answer.slice(last.index + last[0].length); }
+  const nothing = { value: null, quote: '' };
+  const quotedPieces = [...text.matchAll(/"([^"]*)"/g)];
+  if (/list/.test(type) || /one value per variable/.test(type)) {
+    if (quotedPieces.length) {
+      const first = quotedPieces[0].index;
+      const last = quotedPieces[quotedPieces.length - 1];
+      return { value: quotedPieces.map((m) => m[1]), quote: text.slice(first, last.index + last[0].length) };
+    }
+    if (/integers|one value per variable/.test(type)) {
+      const numbers = text.match(/-?\d+/g) || [];
+      return numbers.length ? { value: numbers.map(Number), quote: text.slice(text.indexOf(numbers[0]), text.lastIndexOf(numbers[numbers.length - 1]) + numbers[numbers.length - 1].length) } : nothing;
+    }
+    if (HEDGE.test(text) && !/\bempty\b/i.test(text)) return nothing;
+    // the words "empty", "nothing", "blank" and single letters, in the order they are said (after the last colon, when there is one)
+    const after = text.lastIndexOf(':') >= 0 ? text.slice(text.lastIndexOf(':') + 1) : text;
+    const from = after.split(/\b(?:because|since)\b/i)[0]; // what comes after "because" explains, it is not the answer
+    const found = [...from.matchAll(/\b(empty|nothing|blank|[a-hj-z])\b/gi)];
+    if (found.length === 0) return nothing;
+    const first = found[0].index;
+    const last = found[found.length - 1];
+    return { value: found.map((m) => (/^(empty|nothing|blank)$/i.test(m[1]) ? '' : m[1])), quote: from.slice(first, last.index + last[0].length) };
+  }
+  if (HEDGE.test(text) && !/\d/.test(text)) return nothing;
+  // a single value: a number (digits or a word) or a string
+  if (/integer|number/.test(type) || /\d/.test(text)) {
+    const cue = [...text.matchAll(/\b(?:returns?|so|is|=|answer is|gives?)\s*(-?\d+)/gi)];
+    const all = [...text.matchAll(/-?\d+/g)].map((m) => m[0]);
+    const words = [...text.toLowerCase().matchAll(/\b(zero|one|two|three|four|five|six|seven|eight|nine|ten)\b/g)];
+    if (cue.length) { const m = cue[cue.length - 1]; return { value: Number(m[1]), quote: m[0] }; }
+    if (new Set(all).size === 1) return { value: Number(all[0]), quote: all[0] };
+    if (all.length === 0 && words.length === 1) return { value: NUMBER_WORDS[words[0][1]], quote: words[0][1] };
+    return nothing;
+  }
+  if (quotedPieces.length === 1) return { value: quotedPieces[0][1], quote: quotedPieces[0][0] };
+  const bare = text.trim().replace(/[.?!]+$/, '');
+  return /^\S+$/.test(bare) ? { value: bare, quote: bare } : nothing;
+}
+
 /** The judge of case 2: wrong for the kinds of answer the scripted wrong answers use, right for any other explanation. */
 const defaultJudge = (answer) => (/my code looks fine|function header|compiler or the test/i.test(answer) ? 'wrong' : 'right');
 
@@ -65,12 +119,12 @@ function defaultWrite(message) {
 
 /**
  * A converse function. \`decide({ ask, answer, message })\` plays the checker ('yes' | 'no' | 'unclear'); \`judge({ answer })\` the judge
- * ('right' | 'partly' | 'wrong' | 'unclear'); \`write({ message })\` the writer (an object { variable, stop }, or a string that is
+ * ('right' | 'partly' | 'wrong' | 'unclear'); \`extract({ message, answer, attempt })\` the reader of a value answer (an object { value, quote }, or a string sent as it is); \`write({ message })\` the writer (an object { variable, stop }, or a string that is
  * sent as it is). \`requests\` records every request, so a test can look at what a model was sent; \`kinds\` counts the calls by kind.
  */
-function fakeModel({ decide, judge, write } = {}) {
+function fakeModel({ decide, judge, write, extract } = {}) {
   const requests = [];
-  const kinds = { check: 0, judge: 0, write: 0 };
+  const kinds = { check: 0, judge: 0, write: 0, extract: 0 };
   const quoteOf = (answer) => answer.replace(/\s+/g, ' ').slice(0, 60);
   const converseFn = async (request) => {
     requests.push(request);
@@ -81,6 +135,12 @@ function fakeModel({ decide, judge, write } = {}) {
       const answer = answerOf(first);
       const verdict = decide ? decide({ ask: first, answer, message: first }) : defaultDecide(first, answer);
       return { text: JSON.stringify({ verdict, quote: verdict === 'unclear' ? '' : quoteOf(answer) }), inputTokens: 10, outputTokens: 5, latencyMs: 1 };
+    }
+    if (system.startsWith(EXTRACT_START)) {
+      kinds.extract += 1;
+      const attempt = Math.ceil(request.messages.length / 2);
+      const made = extract ? extract({ message: first, answer: answerOf(first), attempt }) : defaultExtract(first);
+      return { text: typeof made === 'string' ? made : JSON.stringify(made), inputTokens: 12, outputTokens: 9, latencyMs: 1 };
     }
     if (system.startsWith(JUDGE_START)) {
       kinds.judge += 1;
@@ -102,4 +162,4 @@ function fakeModel({ decide, judge, write } = {}) {
   return converseFn;
 }
 
-module.exports = { fakeRunBatch, fakeModel, answerOf, defaultJudge, defaultWrite };
+module.exports = { fakeRunBatch, fakeModel, answerOf, defaultJudge, defaultWrite, defaultExtract };
